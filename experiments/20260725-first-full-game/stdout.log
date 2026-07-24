@@ -1,0 +1,3 @@
+run_dir: /home/michael/workspace/pi05/temp/TEOW/experiments/20260725-first-full-game
+device: TFRT_CPU_0  p0=scripted p1=scripted seed=0
+结束 tick=3000 winner=2(和局)  831 tick/s

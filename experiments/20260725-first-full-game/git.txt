@@ -1,0 +1,13 @@
+b0a886df5fc7c7ebcc8f67283f91e321d03f4bf2
+dirty: True
+ M .claude/verify.sh
+ M .gitignore
+ M CLAUDE.md
+ M docs/DECISIONS.md
+?? .python-version
+?? experiments/20260725-first-full-game/
+?? explorations/debug_harvest_cycle.py
+?? pyproject.toml
+?? src/
+?? tests/
+?? uv.lock

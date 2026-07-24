@@ -1,0 +1,84 @@
+diff --git a/.claude/verify.sh b/.claude/verify.sh
+index f706975..19fed6c 100755
+--- a/.claude/verify.sh
++++ b/.claude/verify.sh
+@@ -9,15 +9,21 @@ set -uo pipefail
+ 
+ fail=0
+ 
+-if [ -f pyproject.toml ]; then
+-  if command -v pytest >/dev/null 2>&1; then
+-    echo "==> pytest -x -q (排除 slow)"
+-    pytest -x -q -m "not slow" || fail=1
++# 依赖装在项目 .venv 里(uv sync),裸 pytest/ruff 不在 PATH 上——必须走 .venv/bin,
++# 否则 command -v 探测失败会静默跳过,门禁形同虚设。
++VENV_BIN="$(dirname "$0")/../.venv/bin"
++
++if [ -f pyproject.toml ] && [ -d "$VENV_BIN" ]; then
++  if [ -x "$VENV_BIN/pytest" ]; then
++    echo "==> pytest -x -q (排除 slow, CPU)"
++    # 门禁跑 CPU:逻辑判定与 GPU 等价,但省掉每个 Config 变体的 GPU jit 编译
++    # (实测 GPU 5min vs CPU 14s,GPU 会爆掉本门禁 60 秒预算)
++    JAX_PLATFORMS=cpu "$VENV_BIN/pytest" -x -q -m "not slow" || fail=1
+   fi
+ 
+-  if command -v ruff >/dev/null 2>&1; then
++  if [ -x "$VENV_BIN/ruff" ]; then
+     echo "==> ruff check src/ tests/"
+-    ruff check src/ tests/ || fail=1
++    "$VENV_BIN/ruff" check src/ tests/ || fail=1
+   fi
+ fi
+ 
+diff --git a/.gitignore b/.gitignore
+index 3ae47f7..807c9a5 100644
+--- a/.gitignore
++++ b/.gitignore
+@@ -46,3 +46,7 @@ env/
+ .idea/
+ *.swp
+ # === end claude-workflow ===
++
++# === TEOW 项目特定 ===
++# 对局轨迹是大二进制,不进库(六项 provenance 的文本部分照常进库)
++experiments/**/*.npz
+diff --git a/CLAUDE.md b/CLAUDE.md
+index cf5e5c4..3ae5cd3 100644
+--- a/CLAUDE.md
++++ b/CLAUDE.md
+@@ -7,13 +7,13 @@ v1.x 打磨引擎,v2+ 在其上训练强化学习指挥官(自研 PPO)。需求
+ 
+ ```bash
+ # 全部测试
+-python3 -m pytest -q
++.venv/bin/pytest -q
+ # 单个测试文件
+-python3 -m pytest -q tests/test_state.py
++.venv/bin/pytest -q tests/test_state.py
+ # lint
+-ruff check src/ tests/
+-# 跑实验：务必用这个解释器，不要用裸 python
+-python3 src/run.py
++.venv/bin/ruff check src/ tests/
++# 跑实验：务必用这个解释器（uv sync 建的 .venv），不要用裸 python/python3
++.venv/bin/python src/run.py
+ ```
+ 
+ ## 硬约束
+diff --git a/docs/DECISIONS.md b/docs/DECISIONS.md
+index 8b1d0b5..90e4c18 100644
+--- a/docs/DECISIONS.md
++++ b/docs/DECISIONS.md
+@@ -24,6 +24,12 @@
+   改为 agent 在 /version-close 第 6 步执行;③报告建议不建 DECISIONS.md——但其
+   论证未覆盖「用户离线期自主决策留痕复核」场景(本文件的唯一职责),故保留,
+   职责限定为离线决策,不做通用设计日志(设计取舍仍落 plan.md/changelog)。
++- 2026-07-25 [AI-DRAFT] **出矿不做占位仲裁,允许暂时叠格**。若要求入口格为空才能
++  出矿,「满员矿点 + 排队工人站满全部入口格」会形成永久死锁(里面出不来→外面
++  进不去)。叠格是瞬态:占用图按「格上有人」计,叠格者后续移动自然散开。矿被拆
++  时驻内工人的弹出沿用同一约定。实现:src/teow/economy.py harvest_tick。
++- 2026-07-25 [AI-DRAFT] **施工被打断(工人死亡)不退款**;训练扣费在下单瞬间、
++  建造扣费在到场开工瞬间(避免「在途死亡退款」的对账复杂度)。
+ - 2026-07-25 [AI-DRAFT] **引擎设计采纳 jax-rts-engine 调研的四项修正**(报告见
+   docs/plans/20260725-jax-rts-engine/research.md):①实体表从 [2,E] 双player轴改为
+   **单表 [N=2*E_max] + owner 列**(HQ 槽固定 0 与 E_max);②抢格仲裁用
