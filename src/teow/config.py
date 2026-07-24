@@ -42,6 +42,9 @@ class Config:
     mine_time: int = 20      # 工人在矿内开采一趟所需 tick
     carry_cap: int = 10      # 一趟载荷(卸货时全额入账)
     move_cooldown: int = 2   # 每移动一格的冷却 tick(所有单位同速,v1.2 狗子再分化)
+    congestion_cost: int = 8 # 动态场里「穿过移动单位所在格」的附加代价:让对向
+    #                          工人流互相绕道、各走一条道。0 会复现对头死锁
+    #                          (audit P0-1),过大则拥挤时寻路过度绕远。
 
     # ---- 起始条件 ----
     start_ore: int = 100

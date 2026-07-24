@@ -41,9 +41,13 @@ from .state import (
 _DIRS = jnp.asarray([[-1, 0], [0, 1], [1, 0], [0, -1]], jnp.int32)  # N,E,S,W
 
 
-def _relax_fields(goal_seeds: jax.Array, blocked: jax.Array, k_iters: int) -> jax.Array:
-    """min-plus 松弛出「绕开 blocked」的距离场。goal_seeds bool [G,H,W],
-    blocked bool [H,W](目标格本身可以是障碍,种子强制为 0)。"""
+def _relax_fields(goal_seeds: jax.Array, blocked: jax.Array,
+                  cell_cost: jax.Array, k_iters: int) -> jax.Array:
+    """min-plus 松弛出「绕开 blocked、按 cell_cost 计价」的距离场。
+    goal_seeds bool [G,H,W];blocked bool [H,W] 硬障碍(目标格本身可以是障碍,
+    种子强制为 0);cell_cost int32 [H,W] 进入该格的代价(空地 1,被移动单位
+    占的格 1+congestion_cost——软障碍,让对向流互相绕道而不是对头冻结,
+    见 audit P0-1)。"""
     big = jnp.int32(BIG_DIST)
     d = jnp.where(goal_seeds, 0, big)
 
@@ -53,7 +57,7 @@ def _relax_fields(goal_seeds: jax.Array, blocked: jax.Array, k_iters: int) -> ja
         dn = jnp.pad(d[:, :-1, :], (pad[0], (1, 0), pad[1]), constant_values=big)
         lf = jnp.pad(d[:, :, 1:], (pad[0], pad[1], (0, 1)), constant_values=big)
         rt = jnp.pad(d[:, :, :-1], (pad[0], pad[1], (1, 0)), constant_values=big)
-        nd = jnp.minimum(jnp.minimum(up, dn), jnp.minimum(lf, rt)) + 1
+        nd = jnp.minimum(jnp.minimum(up, dn), jnp.minimum(lf, rt)) + cell_cost[None]
         nd = jnp.minimum(d, nd)
         nd = jnp.where(blocked[None], big, nd)
         nd = jnp.where(goal_seeds, 0, nd)
@@ -99,12 +103,18 @@ def movement_tick(state: WorldState, cfg: Config, mapdata: MapData,
                     | ((st.order == ORDER_HARVEST) & (st.phase != PH_MINING)))
     wants = on_board & is_unit & moving_order & ~arrived & (st.cooldown == 0)
 
-    # ---- 动态场:静止单位算障碍(站桩会永久堵路),移动单位不算 ----
-    stationary = on_board & (~(is_unit & moving_order & ~arrived))
+    # ---- 动态场:静止单位=硬障碍(站桩会永久堵路);移动单位=软障碍
+    # (穿其格 +congestion_cost),对向工人流据此互相绕道,消除对头死锁
+    # (audit P0-1:两拨采集工在走廊对头相遇后全体永久冻结)----
+    moving_unit = on_board & is_unit & moving_order & ~arrived
+    stationary = on_board & ~moving_unit
     occ_stat = (jnp.zeros((h, w), bool)
                 .at[st.pos[:, 0], st.pos[:, 1]].max(stationary))
+    occ_mov = (jnp.zeros((h, w), bool)
+               .at[st.pos[:, 0], st.pos[:, 1]].max(moving_unit))
     blocked = ~passable | occ_stat
-    dyn = _relax_fields(jnp.asarray(mapdata.goal_seeds), blocked, h + w)
+    cell_cost = 1 + cfg.congestion_cost * occ_mov.astype(jnp.int32)
+    dyn = _relax_fields(jnp.asarray(mapdata.goal_seeds), blocked, cell_cost, h + w)
 
     def fval(cell: jax.Array) -> jax.Array:
         fv = dyn[goal, cell[:, 0], cell[:, 1]]
