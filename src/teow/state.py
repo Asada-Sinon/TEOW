@@ -1,0 +1,125 @@
+"""世界状态:一张定容实体表 + 资源点表,全是静态形状数组。
+
+单表设计(调研报告 §7):前 e_max 行归玩家 0,后 e_max 行归玩家 1(owner 由行号
+决定,是常量,不进 state);每家 HQ 固定在自己半区的 0 号槽(全局槽 0 与 e_max)。
+死 = 翻 alive 位,生 = scatter 进本半区第一个空槽,绝不 resize。
+死槽「停泊」在无害值:pos 合法、hp 0、timer 0,算式照算,最后用掩码挑。
+
+WorldState 是 NamedTuple → JAX 自动视为 pytree。静态地图(MapData)不在这里。
+"""
+
+from __future__ import annotations
+
+from typing import NamedTuple
+
+import jax
+import jax.numpy as jnp
+import numpy as np
+
+from .config import TYPE_HQ, TYPE_WORKER, Config
+from .map import MapData
+
+# 常驻指令(state.order):控制器不下新指令(no-op)时按它继续行动
+ORDER_IDLE = 0
+ORDER_HARVEST = 1   # 采集循环(配合 phase)
+ORDER_BUILD = 2     # 去 target_node 建矿/泵
+ORDER_MOVE = 3      # 走到 target_cell 后转 IDLE
+ORDER_ATTACK = 4    # attack-move 向敌方 HQ
+
+# 采集循环相位(order==HARVEST 时有效)
+PH_TO_NODE = 0
+PH_MINING = 1       # 在矿内(inside=True)
+PH_TO_HQ = 2        # 满载返程
+
+
+class WorldState(NamedTuple):
+    # ---- 实体表 [N = 2*e_max] ----
+    alive: jax.Array        # bool  [N]
+    etype: jax.Array        # int8  [N]  TYPE_*
+    pos: jax.Array          # int32 [N,2] (row,col);inside 时保留入口格
+    hp: jax.Array           # int32 [N]
+    cooldown: jax.Array     # int8  [N]  移动冷却
+    order: jax.Array        # int8  [N]  ORDER_*
+    phase: jax.Array        # int8  [N]  PH_*
+    target_node: jax.Array  # int8  [N]  资源点 id;-1 无
+    target_cell: jax.Array  # int32 [N,2] MOVE/ATTACK 的目的格
+    cargo: jax.Array        # int16 [N]  工人载荷量
+    cargo_type: jax.Array   # int8  [N]  载荷资源类型(出矿时定格;不能从 target_node
+    #                                     推——途中矿被拆/被改派会把矿石错记成水)
+    mine_timer: jax.Array   # int16 [N]  矿内剩余开采 tick
+    inside: jax.Array       # bool  [N]  在矿内(离场:不占格/不可被打/不攻击)
+    btype: jax.Array        # int8  [N]  生产建筑当前在造的单位类型;0 无
+    btimer: jax.Array       # int16 [N]  生产剩余 tick
+    node_id: jax.Array      # int8  [N]  矿/泵实体所在资源点 id;-1 非采集建筑
+    # ---- 资源点表 [Nn] ----
+    node_owner: jax.Array        # int8  [Nn] -1 无主
+    node_ent: jax.Array          # int16 [Nn] 结构实体槽号;-1 未建
+    node_build_timer: jax.Array  # int16 [Nn] 建造剩余 tick;0 无施工
+    node_builder: jax.Array      # int16 [Nn] 施工工人槽号;-1 无
+    # ---- 全局 ----
+    resources: jax.Array    # int32 [2,2]  [player][RES_ORE/RES_WATER]
+    tick: jax.Array         # int32 标量
+    done: jax.Array         # bool 标量
+    winner: jax.Array       # int8 标量  -1 未分;0/1 胜者;2 和局
+
+
+def owner_of_slots(cfg: Config) -> jax.Array:
+    """int8 [N]:每个槽位的归属(常量,调用方闭包使用,不进 state)。"""
+    return jnp.concatenate([jnp.zeros(cfg.e_max, jnp.int8),
+                            jnp.ones(cfg.e_max, jnp.int8)])
+
+
+def hq_slot(player: int, cfg: Config) -> int:
+    return player * cfg.e_max
+
+
+def init_state(cfg: Config, mapdata: MapData) -> WorldState:
+    """初始局面:每家 1 座 HQ + start_workers 个工人,起始资源入库。
+    确定性(不吃 key):随机性只存在于 step 内的仲裁,由外部传入的 key 驱动。"""
+    n, nn = cfg.n_total, cfg.n_nodes
+
+    alive = np.zeros(n, bool)
+    etype = np.zeros(n, np.int8)
+    pos = np.zeros((n, 2), np.int32)
+    hp = np.zeros(n, np.int32)
+
+    for p in (0, 1):
+        base = hq_slot(p, cfg)
+        alive[base] = True
+        etype[base] = TYPE_HQ
+        pos[base] = mapdata.hq_pos[p]
+        hp[base] = cfg.hq_hp
+        for i in range(cfg.start_workers):
+            s = base + 1 + i
+            alive[s] = True
+            etype[s] = TYPE_WORKER
+            pos[s] = mapdata.spawn_pos[p, i]
+            hp[s] = cfg.worker_hp
+
+    return WorldState(
+        alive=jnp.asarray(alive),
+        etype=jnp.asarray(etype),
+        pos=jnp.asarray(pos),
+        hp=jnp.asarray(hp),
+        cooldown=jnp.zeros(n, jnp.int8),
+        order=jnp.zeros(n, jnp.int8),
+        phase=jnp.zeros(n, jnp.int8),
+        target_node=jnp.full(n, -1, jnp.int8),
+        target_cell=jnp.asarray(pos),
+        cargo=jnp.zeros(n, jnp.int16),
+        cargo_type=jnp.zeros(n, jnp.int8),
+        mine_timer=jnp.zeros(n, jnp.int16),
+        inside=jnp.zeros(n, bool),
+        btype=jnp.zeros(n, jnp.int8),
+        btimer=jnp.zeros(n, jnp.int16),
+        node_id=jnp.full(n, -1, jnp.int8),
+        node_owner=jnp.full(nn, -1, jnp.int8),
+        node_ent=jnp.full(nn, -1, jnp.int16),
+        node_build_timer=jnp.zeros(nn, jnp.int16),
+        node_builder=jnp.full(nn, -1, jnp.int16),
+        resources=jnp.asarray(
+            [[cfg.start_ore, cfg.start_water]] * 2, jnp.int32),
+        tick=jnp.asarray(0, jnp.int32),
+        done=jnp.asarray(False),
+        winner=jnp.asarray(-1, jnp.int8),
+    )
