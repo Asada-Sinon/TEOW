@@ -1,0 +1,35 @@
+[project]
+name = "teow"
+version = "0.1.0"
+description = "TEOW: a StarCraft-like 2D grid RTS engine in pure JAX, future home of an RL commander"
+requires-python = ">=3.10"
+dependencies = [
+    # 钉在 alicization 已验证可用的版本(本机 uv 缓存有轮子,装得快;
+    # rules/python-research.md 第 5 条:数值库固定版本)
+    "jax[cuda12]==0.6.2",
+    "numpy>=1.26",
+    "chex>=0.1.85",
+    "matplotlib>=3.8",
+]
+
+[dependency-groups]
+dev = [
+    "pytest>=8.0",
+    "ruff>=0.4",
+]
+
+[tool.uv]
+package = false
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+markers = [
+    "slow: 慢测试(训练冒烟等),verify.sh 门禁会排除,手动 pytest -m slow 跑",
+]
+
+[tool.ruff]
+line-length = 100
+target-version = "py310"
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "UP", "B"]

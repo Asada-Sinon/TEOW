@@ -46,3 +46,7 @@ env/
 .idea/
 *.swp
 # === end claude-workflow ===
+
+# === TEOW 项目特定 ===
+# 对局轨迹是大二进制,不进库(六项 provenance 的文本部分照常进库)
+experiments/**/*.npz
