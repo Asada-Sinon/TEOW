@@ -67,11 +67,16 @@ moving_order = ((st.order == ORDER_MOVE) | (st.order == ORDER_ATTACK)
                 | ((st.order == ORDER_HARVEST) & (st.phase != PH_MINING)))
 wants = on_board & is_unit & moving_order & ~arrived
 
-stationary = on_board & (~(is_unit & moving_order & ~arrived))
+moving_unit = on_board & is_unit & moving_order & ~arrived
+stationary = on_board & ~moving_unit
 occ_stat = jnp.zeros((cfg.grid_h, cfg.grid_w), bool).at[
     st.pos[:, 0], st.pos[:, 1]].max(stationary)
+occ_mov = jnp.zeros((cfg.grid_h, cfg.grid_w), bool).at[
+    st.pos[:, 0], st.pos[:, 1]].max(moving_unit)
 blocked = ~jnp.asarray(m.passable) | occ_stat
-dyn = _relax_fields(jnp.asarray(m.goal_seeds), blocked, cfg.grid_h + cfg.grid_w)
+cell_cost = 1 + cfg.congestion_cost * occ_mov.astype(jnp.int32)
+dyn = _relax_fields(jnp.asarray(m.goal_seeds), blocked, cell_cost,
+                    cfg.grid_h + cfg.grid_w)
 occ = occupancy_grid(st, cfg)
 
 pos_np = np.asarray(st.pos)

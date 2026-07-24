@@ -1,0 +1,13 @@
+{"tick": 1, "res_p0": [70, 40], "res_p1": [80, 50], "alive_p0": 5, "alive_p1": 5, "done": false, "winner": -1}
+{"tick": 101, "res_p0": [0, 30], "res_p1": [0, 30], "alive_p0": 7, "alive_p1": 9, "done": false, "winner": -1}
+{"tick": 201, "res_p0": [0, 30], "res_p1": [0, 30], "alive_p0": 8, "alive_p1": 9, "done": false, "winner": -1}
+{"tick": 301, "res_p0": [10, 30], "res_p1": [30, 20], "alive_p0": 8, "alive_p1": 12, "done": false, "winner": -1}
+{"tick": 401, "res_p0": [10, 30], "res_p1": [20, 0], "alive_p0": 8, "alive_p1": 11, "done": false, "winner": -1}
+{"tick": 501, "res_p0": [20, 30], "res_p1": [30, 30], "alive_p0": 7, "alive_p1": 14, "done": false, "winner": -1}
+{"tick": 601, "res_p0": [0, 30], "res_p1": [80, 80], "alive_p0": 8, "alive_p1": 14, "done": false, "winner": -1}
+{"tick": 701, "res_p0": [10, 30], "res_p1": [110, 160], "alive_p0": 7, "alive_p1": 14, "done": false, "winner": -1}
+{"tick": 801, "res_p0": [0, 30], "res_p1": [140, 250], "alive_p0": 9, "alive_p1": 16, "done": false, "winner": -1}
+{"tick": 901, "res_p0": [0, 30], "res_p1": [180, 350], "alive_p0": 11, "alive_p1": 18, "done": false, "winner": -1}
+{"tick": 1001, "res_p0": [20, 30], "res_p1": [240, 450], "alive_p0": 12, "alive_p1": 19, "done": false, "winner": -1}
+{"tick": 1101, "res_p0": [10, 30], "res_p1": [270, 540], "alive_p0": 15, "alive_p1": 21, "done": false, "winner": -1}
+{"tick": 1165, "res_p0": [0, 30], "res_p1": [300, 610], "alive_p0": 10, "alive_p1": 22, "done": true, "winner": 1}
