@@ -1,0 +1,3 @@
+run_dir: /home/michael/workspace/pi05/temp/TEOW/experiments/20260725-p01fix-random
+device: TFRT_CPU_0  p0=random p1=scripted seed=2
+结束 tick=810 winner=1(玩家1胜)  375 tick/s

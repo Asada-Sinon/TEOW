@@ -1,0 +1,12 @@
+eae8d2386f1c2c80080f22d911e116cbcb83a779
+dirty: True
+ M src/teow/config.py
+ M src/teow/movement.py
+?? experiments/20260725-p01fix-random-rev/
+?? experiments/20260725-p01fix-random/
+?? experiments/20260725-p01fix-seed1/
+?? experiments/20260725-v1.0-audit-random/
+?? experiments/20260725-v1.0-audit/
+?? explorations/audit_conservation_determinism.py
+?? explorations/audit_movement_deadlock.py
+?? explorations/audit_random_win_chain.py

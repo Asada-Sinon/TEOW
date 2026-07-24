@@ -1,0 +1,1 @@
+src/run.py play --p0 random --p1 scripted --seed 2 --slug v1.0-audit-random

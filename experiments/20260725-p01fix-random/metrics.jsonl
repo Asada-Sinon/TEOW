@@ -1,0 +1,10 @@
+{"tick": 1, "res_p0": [100, 50], "res_p1": [80, 50], "alive_p0": 5, "alive_p1": 5, "done": false, "winner": -1}
+{"tick": 101, "res_p0": [30, 40], "res_p1": [0, 30], "alive_p0": 7, "alive_p1": 9, "done": false, "winner": -1}
+{"tick": 201, "res_p0": [10, 10], "res_p1": [0, 30], "alive_p0": 9, "alive_p1": 10, "done": false, "winner": -1}
+{"tick": 301, "res_p0": [10, 20], "res_p1": [0, 50], "alive_p0": 9, "alive_p1": 13, "done": false, "winner": -1}
+{"tick": 401, "res_p0": [10, 40], "res_p1": [0, 100], "alive_p0": 9, "alive_p1": 15, "done": false, "winner": -1}
+{"tick": 501, "res_p0": [10, 60], "res_p1": [60, 170], "alive_p0": 9, "alive_p1": 16, "done": false, "winner": -1}
+{"tick": 601, "res_p0": [10, 100], "res_p1": [50, 230], "alive_p0": 9, "alive_p1": 18, "done": false, "winner": -1}
+{"tick": 701, "res_p0": [10, 130], "res_p1": [80, 240], "alive_p0": 8, "alive_p1": 20, "done": false, "winner": -1}
+{"tick": 801, "res_p0": [10, 180], "res_p1": [150, 260], "alive_p0": 2, "alive_p1": 22, "done": false, "winner": -1}
+{"tick": 810, "res_p0": [10, 180], "res_p1": [170, 260], "alive_p0": 0, "alive_p1": 22, "done": true, "winner": 1}

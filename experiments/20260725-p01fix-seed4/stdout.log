@@ -1,0 +1,3 @@
+run_dir: /home/michael/workspace/pi05/temp/TEOW/experiments/20260725-p01fix-seed4
+device: TFRT_CPU_0  p0=scripted p1=scripted seed=4
+结束 tick=737 winner=0(玩家0胜)  393 tick/s
