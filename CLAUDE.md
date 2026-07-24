@@ -53,18 +53,11 @@ R-P-I-V（Research → Plan → Implement → Validate）对应 7 个 skill：
 
 ## 项目特定
 
-### 需求入口 issue.md
-`issue.md` 是需求唯一入口。用户往「草稿箱」区写口语化想法;你看不懂就问,
-**完全吃透后**把它改写进对应版本的规格区(通透版,按版本号组织,不保留初稿)。
-实现只以 issue.md 的版本规格为依据,规格与代码冲突时以 issue.md 为准并停下来对齐。
-
-### 版本与 git 纪律
-- 版本号 v1.0 / v1.1 / … 推进;**commit 按功能/机制变动提交,频率远高于版本**,
-  message 一律以当前版本开头,例:`v1.0 采集一体循环:进驻与载荷状态机`。
-- commit 和 push 已获用户永久授权,直接执行不用问(force-push、改历史除外,禁止)。
-- **版本收尾四步**(缺一不可):①`python3 -m pytest -q` + `ruff check` 全绿
-  ②派**无上下文 agent**(engine-auditor)审核 ③写 `docs/changelog/vX.Y.md`
-  (新增/修复/平衡[Config 字段 old→new]/已知问题) ④`git tag vX.Y` 并 push。
+### 需求与版本循环
+需求唯一入口是 `issue.md`;版本循环纪律(issue.md 协议 / commit 规范 / changelog 契约 /
+版本完成五件套)**唯一定义在 `.claude/rules/versioning.md`**(无条件加载),此处不重复。
+版本收尾走 `/version-close`;commit 和 push 已获用户永久授权直接执行
+(force-push、改历史仍禁止)。
 
 ### JAX 引擎纪律
 - 世界状态 = NamedTuple pytree,全部定容数组(`E_max` 实体表 + alive 掩码),
