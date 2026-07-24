@@ -1,0 +1,48 @@
+# === claude-workflow (install.sh 自动追加，勿手动删除本行) ===
+# 删掉首尾这两行标记会导致下次安装重复追加本段。
+
+# Claude Code：本机私有设置（团队共享的是 .claude/settings.json）
+.claude/settings.local.json
+.claude/worktrees/
+# 个人版 CLAUDE.md 覆盖，只对你自己生效
+CLAUDE.local.md
+
+# 探索沙箱的输出：随时可重跑，不值得占版本库
+explorations/**/output/
+
+# install.sh 二次安装时为已存在文件生成的模板副本，diff 完就该删，别进版本库
+*.new
+
+# 实验产物区 experiments/ 本身必须进版本库 —— provenance（resolved config、git hash、
+# seed、启动命令、metrics）是结论的唯一支撑，ignore 掉等于毁掉可追溯性。
+# 这里只排除重跑就能再生的大体积权重/缓存。
+experiments/**/checkpoints/
+experiments/**/*.ckpt
+experiments/**/*.pt
+experiments/**/*.pth
+experiments/**/*.bin
+experiments/**/*.safetensors
+
+# Python 字节码 / 构建产物
+__pycache__/
+*.py[cod]
+*.egg-info/
+build/
+dist/
+
+# 虚拟环境
+.venv/
+venv/
+env/
+
+# 测试与类型检查缓存
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+.coverage
+
+# 编辑器 / 系统垃圾
+.DS_Store
+.idea/
+*.swp
+# === end claude-workflow ===

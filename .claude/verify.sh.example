@@ -1,0 +1,71 @@
+#!/usr/bin/env bash
+# ============================================================
+# 完成门禁示例  —— 由 .claude/hooks/verify_stop.py 调用
+# ============================================================
+# 启用方法：
+#     cp .claude/verify.sh.example .claude/verify.sh
+#     chmod +x .claude/verify.sh
+#     # 然后删掉不适用的段落，只留你项目真正要跑的检查
+#
+# 注意这个文件是 .example 后缀，install.sh 不会自动启用它。
+# 这是刻意的：装上模板就立刻多一道会阻断的门禁，体验很糟。
+#
+# ★ 性能要求：让它保持在 60 秒以内 ★
+#   这个脚本在 Claude **每一轮**打算结束时都会跑一次。
+#   跑 5 分钟的全量测试意味着你每轮都要干等 5 分钟。
+#   慢的东西（集成测试、端到端、训练冒烟）请放到 CI，不要放这里。
+#
+# 约定：
+#   * 退出码 0   = 通过，Claude 正常结束
+#   * 退出码 非0 = 不通过，最后 60 行输出会回给 Claude，让它去修
+#   * 临时跳过：SKIP_VERIFY=1 claude
+# ------------------------------------------------------------
+set -uo pipefail    # 故意不加 -e：我们要自己控制哪一步失败才算失败
+
+fail=0
+
+# ------------------------------------------------------------
+# Python 项目
+# ------------------------------------------------------------
+if [ -f pyproject.toml ] || [ -f setup.py ] || [ -f requirements.txt ]; then
+  if command -v pytest >/dev/null 2>&1; then
+    echo "==> pytest -x -q"
+    # -x 遇到第一个失败就停，-q 少输出 —— 都是为了控制在 60 秒内
+    pytest -x -q || fail=1
+  fi
+
+  if command -v ruff >/dev/null 2>&1; then
+    echo "==> ruff check ."
+    ruff check . || fail=1
+  fi
+
+  # 类型检查通常较慢，默认注释掉，需要再打开
+  # if command -v mypy >/dev/null 2>&1; then
+  #   echo "==> mypy"
+  #   mypy . || fail=1
+  # fi
+fi
+
+# ------------------------------------------------------------
+# Node 项目
+# ------------------------------------------------------------
+if [ -f package.json ]; then
+  echo "==> npm test"
+  npm test --silent || fail=1
+
+  # build 往往是最慢的一步。如果超过 60 秒，就删掉它，交给 CI。
+  echo "==> npm run build"
+  npm run build --silent || fail=1
+fi
+
+# ------------------------------------------------------------
+# 项目特定检查（按需添加）
+# ------------------------------------------------------------
+# 例：禁止把调试用的断点提交进去
+# if git grep -nE 'breakpoint\(\)|import pdb' -- '*.py' >/dev/null 2>&1; then
+#   echo "发现遗留的调试断点："
+#   git grep -nE 'breakpoint\(\)|import pdb' -- '*.py'
+#   fail=1
+# fi
+
+exit "$fail"
