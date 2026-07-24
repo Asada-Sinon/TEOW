@@ -43,6 +43,13 @@
   逻辑判定二者等价。正式训练/对局仍走 GPU。
 - 2026-07-25 [AI-DRAFT] **Python 钉 3.12、jax[cuda12] 钉 ==0.6.2**(与 alicization
   验证过的组合一致;3.14 无 jaxlib 轮子,浮动版本导致过 30 分钟的无效下载)。
+- 2026-07-25 [AI-DRAFT] **audit P0-1(对向工人流死锁)修复方案**:移动中单位从
+  「不算障碍」改为动态场**软障碍**(穿其格 +congestion_cost=8),对向流自动分道。
+  验证:冻结拖和的 seed1 复跑 733 tick 分胜负;random vs scripted 双向均由
+  scripted 获胜(此前 random 靠对方经济冻结取胜);14 测试仍全绿。
+- 2026-07-25 [AI-DRAFT] **audit P1-1 裁决**:attack-move 维持「仅步兵、目标固定
+  敌方 HQ」的 v1.0 实现,issue.md 规格文字系我改写时的含糊,已澄清成与实现一致
+  (通透版是我写的,该歧义不构成对用户原意的偏离;用户原稿未提 attack-move 细节)。
 - 2026-07-25 [AI-DRAFT] **观察待跟踪**:GPU 全量测试套曾出现一次孤立的
   test_adjacent_mutual_damage 失败,单跑与后续两次全套(CPU/GPU)均绿,未复现。
   若再现按 P0 排查(int32 scatter-add 理论上确定,不应 flaky)。
