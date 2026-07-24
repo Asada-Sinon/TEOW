@@ -7,13 +7,13 @@ v1.x 打磨引擎,v2+ 在其上训练强化学习指挥官(自研 PPO)。需求�
 
 ```bash
 # 全部测试
-python3 -m pytest -q
+.venv/bin/pytest -q
 # 单个测试文件
-python3 -m pytest -q tests/test_state.py
+.venv/bin/pytest -q tests/test_state.py
 # lint
-ruff check src/ tests/
-# 跑实验：务必用这个解释器，不要用裸 python
-python3 src/run.py
+.venv/bin/ruff check src/ tests/
+# 跑实验：务必用这个解释器（uv sync 建的 .venv），不要用裸 python/python3
+.venv/bin/python src/run.py
 ```
 
 ## 硬约束
