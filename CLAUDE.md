@@ -1,16 +1,17 @@
 # TEOW
 
-TODO: 一句话说明这个项目在做什么
+纯 JAX 实现的类星际 2D 网格 RTS 引擎(tick 制即时战略:采集/建造/升级/战斗),
+v1.x 打磨引擎,v2+ 在其上训练强化学习指挥官(自研 PPO)。需求唯一入口:`issue.md`。
 
 ## 命令
 
 ```bash
 # 全部测试
-# TODO(填测试命令)
+python3 -m pytest -q
 # 单个测试文件
-# TODO(填测试命令) tests/test_foo.py
+python3 -m pytest -q tests/test_state.py
 # lint
-# TODO(填 lint 命令)
+ruff check src/ tests/
 # 跑实验：务必用这个解释器，不要用裸 python
 python3 src/run.py
 ```
@@ -52,5 +53,30 @@ R-P-I-V（Research → Plan → Implement → Validate）对应 7 个 skill：
 
 ## 项目特定
 
-<!-- 留给你填：本项目独有的坑、命名约定、数据路径、外部服务、不许碰的东西。
-     判据：删掉这一行 Claude 会不会犯错？不会就别写。 -->
+### 需求入口 issue.md
+`issue.md` 是需求唯一入口。用户往「草稿箱」区写口语化想法;你看不懂就问,
+**完全吃透后**把它改写进对应版本的规格区(通透版,按版本号组织,不保留初稿)。
+实现只以 issue.md 的版本规格为依据,规格与代码冲突时以 issue.md 为准并停下来对齐。
+
+### 版本与 git 纪律
+- 版本号 v1.0 / v1.1 / … 推进;**commit 按功能/机制变动提交,频率远高于版本**,
+  message 一律以当前版本开头,例:`v1.0 采集一体循环:进驻与载荷状态机`。
+- commit 和 push 已获用户永久授权,直接执行不用问(force-push、改历史除外,禁止)。
+- **版本收尾四步**(缺一不可):①`python3 -m pytest -q` + `ruff check` 全绿
+  ②派**无上下文 agent**(engine-auditor)审核 ③写 `docs/changelog/vX.Y.md`
+  (新增/修复/平衡[Config 字段 old→new]/已知问题) ④`git tag vX.Y` 并 push。
+
+### JAX 引擎纪律
+- 世界状态 = NamedTuple pytree,全部定容数组(`E_max` 实体表 + alive 掩码),
+  死=翻掩码位、生=scatter 进空槽,**绝不 resize**;无 data-dependent 形状。
+- 静态地图数据闭包进 `build_step`,不进 state;PRNGKey 线程传入,不进 state,
+  不存在 numpy 全局随机等第二随机源。
+- tick 语义:世界按 tick 连续演化,建造/训练/采集/移动都消耗真实 tick;
+  每 tick 都可下指令,no-op 永远合法。单 tick 结算顺序见 `src/teow/step.py` 头注释。
+- **数值参数唯一真源是 `src/teow/config.py` 的 Config dataclass**,代码里出现平衡数字
+  字面量即 bug;平衡改动必须走 changelog 的「平衡」区(字段 old→new)。
+
+### 用户离线期决策协议
+用户睡觉/离线时你全权推进,但:**碰到不确定的先派 agent 调研、报告落
+`docs/plans/<YYYYMMDD>-<slug>/research.md`,再决策;不带不确定性决策**。
+所有自主决策 append 进 `docs/DECISIONS.md`(带日期与 [AI-DRAFT] 标注)供用户复核。
