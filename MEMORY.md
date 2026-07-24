@@ -38,3 +38,22 @@
 ---
 
 <!-- 真实的 [LEARN:tag] 条目从这一行下面开始，新的追加在最后。 -->
+
+### [LEARN:env] 测试与门禁必须 JAX_PLATFORMS=cpu,训练/对局才用 GPU
+- 现象: 同一套 14 项测试 GPU 跑 5min18s,CPU 只要 14s;单环境对局 GPU 27 tick/s
+  vs CPU 800+ tick/s。
+- 原因: 每个测试用不同 Config → 每个都触发整套 step 的 GPU jit 重编译;单环境
+  逐 tick 调用时 GPU kernel launch 开销占主导。GPU 优势要 vmap 批量才体现。
+- 对策: verify.sh 与 pytest 一律 `JAX_PLATFORMS=cpu`;v2 vmap rollout 前先 bench。
+- 来源: Session 2026-07-25
+
+### [LEARN:engine] 网格 RTS 里「静态最短路 + 严格改善 + 不许穿人」三件套必死锁
+- 现象: 三次不同形态的经济全冻结:站桩工人堵死唯一下坡格、僵尸建造工占矿入口、
+  对向工人流对头互堵(审计 P0-1,最隐蔽,要 300+ tick 才显形)。
+- 原因: 寻路场不认识单位就没法绕;指令没有失效清理就会永久站桩;移动单位互不
+  让路时严格改善门禁止一切侧移。
+- 对策: 动态场(静止单位=硬障碍,移动单位=软障碍 congestion_cost)+ 指令失效
+  自动转 IDLE + 落地/让路规避卸货环。改移动逻辑后必须跑 300+ tick 的完整对局
+  验证,单元测试测不出这类涌现死锁——无上下文审计 agent 抓出了主 context
+  自查漏掉的那个。
+- 来源: Session 2026-07-25

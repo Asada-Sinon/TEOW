@@ -38,3 +38,17 @@
 ---
 
 <!-- 真实的 session 记录从这一行下面开始写，最新的一节永远插在紧挨本行的下面。 -->
+
+## Session 2026-07-25(用户睡眠期自主推进)
+- 完成: v1.0 全部落地并打 tag——工作流特化(versioning 规则/engine-auditor/
+  /version-close)、issue.md 通透版、纯 JAX 引擎全链路、14 测试绿、两轮无上下文
+  审计(P0-1 对向工人流死锁已修复并复审确认)、docs/changelog/v1.0.md。
+  对局基准:scripted 互打 700-1200 tick 分胜负,random 双向皆负于 scripted
+  (experiments/20260725-v1.0-audit2/ 等)。
+- PENDING: ①用户醒后复核 docs/DECISIONS.md 全部 [AI-DRAFT] 条目(尤其三处
+  「调研报告建议 vs 用户指示」裁决与 tag 由 agent 执行);②用户看一眼
+  experiments/20260725-scripted-v-scripted/replay.gif 感受对局节奏,对
+  config.py 数值提改动意见;③下一版本 v1.1(升级系统)走 /plan 读 issue.md
+  第 63-71 行起手。
+- 坑: 跑任何 python 一律 `.venv/bin/python`(py3.12+jax0.6.2 钉版);测试/门禁
+  必须 `JAX_PLATFORMS=cpu`(GPU 每个 Config 变体重新 jit,5min vs 14s)。
