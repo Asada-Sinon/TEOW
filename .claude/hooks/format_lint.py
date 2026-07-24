@@ -88,7 +88,12 @@ def handle_prettier(path):
         # 包没装时 npx 直接失败，这属于"工具不存在"，静默跳过而不是报错
         if code != 0:
             low = out.lower()
-            if "could not determine executable" in low or "not found" in low:
+            if (
+                "could not determine executable" in low
+                or "not found" in low
+                # npm 新版(>=10)的"包未安装"文案,同属"工具不存在"
+                or "canceled due to missing packages" in low
+            ):
                 return []
             if out.strip():
                 return [out.strip()]
