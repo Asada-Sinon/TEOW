@@ -17,7 +17,7 @@ from teow.step import new_world
 def test_scripted_uses_garrison_and_flag():
     cfg = Config(seed=0)
     state, key, step_fn, m = new_world(cfg)
-    joint = make_joint_controller("scripted", "scripted", cfg=cfg, mapdata=m)
+    joint = make_joint_controller(*(["scripted"] * cfg.n_players), cfg=cfg, mapdata=m)
 
     def body(carry, _):
         st, k = carry

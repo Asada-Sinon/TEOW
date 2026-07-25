@@ -10,7 +10,7 @@ from teow.step import make_scan, new_world
 def rollout(seed: int, n: int = 300):
     cfg = Config(seed=seed)
     state, key, step_fn, m = new_world(cfg)
-    joint = make_joint_controller("scripted", "random", cfg=cfg, mapdata=m)
+    joint = make_joint_controller("scripted", "random", "scripted", "random", cfg=cfg, mapdata=m)
     scan = make_scan(step_fn, joint)
     final, _, dones = scan(state, key, n)
     return final
