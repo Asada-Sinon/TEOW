@@ -48,8 +48,8 @@ def _mine_world():
 def test_strongman_and_wagon_harvest_cycle():
     cfg, st, step_fn, m = _mine_world()
     # 手术台放一个大力士与一辆马车在矿旁,各派采集
-    st, sm = spawn(st, cfg, 0, 20, TYPE_STRONGMAN, cfg.strongman_hp, (3.0, 7.0))
-    st, wg = spawn(st, cfg, 0, 21, TYPE_WAGON, cfg.wagon_hp, (3.0, 9.0))
+    st, sm = spawn(st, cfg, 0, 20, TYPE_STRONGMAN, cfg.strongman_hp, (16.0, 18.0))
+    st, wg = spawn(st, cfg, 0, 21, TYPE_WAGON, cfg.wagon_hp, (14.0, 18.0))
     ore0 = int(st.resources[0, RES_ORE])
     st = drive(st, step_fn, {0: [(sm, a_harvest(0, cfg)),
                                  (wg, a_harvest(0, cfg))]}, 300, seed=7)
@@ -78,7 +78,7 @@ def test_harvesters_cannot_fight_or_garrison_but_can_build():
 
 def test_assigned_counts_type_agnostic():
     cfg, st, step_fn, m = _mine_world()
-    st, sm = spawn(st, cfg, 0, 20, TYPE_STRONGMAN, cfg.strongman_hp, (3.0, 7.0))
+    st, sm = spawn(st, cfg, 0, 20, TYPE_STRONGMAN, cfg.strongman_hp, (16.0, 18.0))
     st = drive(st, step_fn, {0: [(W0, a_harvest(0, cfg)),
                                  (sm, a_harvest(0, cfg))]}, 2, seed=1)
     both = (st.alive & (st.order == ORDER_HARVEST)

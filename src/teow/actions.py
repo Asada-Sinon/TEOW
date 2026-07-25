@@ -46,6 +46,9 @@ from .config import (
     RES_WATER,
     TYPE_ARCHER,
     TYPE_CAMP,
+    TYPE_FENCE_IRON,
+    TYPE_FENCE_STONE,
+    TYPE_FENCE_WOOD,
     TYPE_HEALER,
     TYPE_HEAVY,
     TYPE_HQ,
@@ -183,8 +186,22 @@ def a_research_line(line: int, cfg: Config) -> int:
     return _v14_base(cfg) + 9 + line
 
 
-def n_actions(cfg: Config) -> int:
+# ---- v1.5 追加块(栅栏三档;B2 = v1.4 块末尾)----
+FENCE_ORDER = (TYPE_FENCE_WOOD, TYPE_FENCE_STONE, TYPE_FENCE_IRON)
+
+
+def _v15_base(cfg: Config) -> int:
     return _v14_base(cfg) + 9 + N_LINES
+
+
+def a_build_fence(t: int, cfg: Config) -> int:
+    """采集单位在相邻空闲格起栅栏(v1.5;t ∈ FENCE_ORDER,解锁 木2/石3/铁5,
+    无数量上限;落位与扣费走 paid_orders_pass 的自由格建筑管线)。"""
+    return _v15_base(cfg) + FENCE_ORDER.index(t)
+
+
+def n_actions(cfg: Config) -> int:
+    return _v15_base(cfg) + len(FENCE_ORDER)
 
 
 def unit_costs(cfg: Config) -> jax.Array:
@@ -340,6 +357,17 @@ def legality_mask(state: WorldState, cfg: Config, mapdata: MapData,
                & (n_mor < mor_cap) & free_in_half
                & jnp.all(stock >= mor_cost, axis=-1))
     mask = mask.at[:, a_build_mortar(cfg)].set(can_mor)
+    # 栅栏三档(v1.5):解锁门独立(高级解锁后低级仍可造),无数量上限
+    fence_costs = {
+        TYPE_FENCE_WOOD: (cfg.fence_wood_cost_ore, cfg.fence_wood_cost_water),
+        TYPE_FENCE_STONE: (cfg.fence_stone_cost_ore, cfg.fence_stone_cost_water),
+        TYPE_FENCE_IRON: (cfg.fence_iron_cost_ore, cfg.fence_iron_cost_water),
+    }
+    for ft in FENCE_ORDER:
+        fc = jnp.asarray(fence_costs[ft], jnp.int32)
+        can_f = (actable & is_worker & (hq_lv >= unlock[ft]) & free_in_half
+                 & jnp.all(stock >= fc, axis=-1))
+        mask = mask.at[:, a_build_fence(ft, cfg)].set(can_f)
 
     # 训狗(v1.2):建成兵营空闲 + 半区有空槽 + 付得起
     is_bar = state.etype == TYPE_BARRACKS

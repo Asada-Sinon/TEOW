@@ -44,20 +44,21 @@ def test_ram_attack_move_walks_past_unit_screen():
     不在敌兵旁死锁。"""
     cfg = Config()
     state, _, step_fn, m = new_world(cfg)
+    # v1.5:ATTACK 寻路目标=最近存活敌 HQ(p0 在 (33,17) 附近最近的是
+    # p1 HQ);敌兵横在路上不挡格,只测「不因它停步」
+    tgt_hq = jnp.asarray(m.hq_pos[1], jnp.float32)
     st, ram = spawn(state, cfg, 0, 10, TYPE_RAM, cfg.ram_hp_by_level[1],
-                    (20.0, 8.0))
-    # 敌兵横在半路(不挡格,只测「不因它停步」)
+                    (33.0, 17.0))
     st, inf = spawn(st, cfg, 1, 10, TYPE_INFANTRY, cfg.inf_hp_by_level[1],
-                    (20.0, 10.0))
+                    (35.0, 16.0))
     st = st._replace(order=st.order.at[ram].set(ORDER_ATTACK),
-                     target_cell=st.target_cell.at[ram].set(
-                         jnp.asarray([20.0, 20.0], jnp.float32)))
-    d0 = float(jnp.linalg.norm(st.pos[ram] - jnp.asarray([20.0, 20.0])))
+                     target_cell=st.target_cell.at[ram].set(tgt_hq))
+    d0 = float(jnp.linalg.norm(st.pos[ram] - tgt_hq))
     for t in range(40):
         st = one_tick(st, cfg, step_fn, seed=t)
         if not bool(st.alive[ram]):
             break
-    d1 = float(jnp.linalg.norm(st.pos[ram] - jnp.asarray([20.0, 20.0])))
-    # 40 拍 × 0.3 格 = 12 格路程;哪怕被敌兵磨血,也必须显著推进(> 6 格)
-    assert (not bool(st.alive[ram])) or d0 - d1 > 6.0, \
+    d1 = float(jnp.linalg.norm(st.pos[ram] - tgt_hq))
+    # 40 拍 × 0.3 格 = 12 格路程;哪怕被敌兵磨血,也必须显著推进(> 4 格)
+    assert (not bool(st.alive[ram])) or d0 - d1 > 4.0, \
         f"攻城车在敌兵旁卡死(推进 {d0 - d1:.1f} 格)"

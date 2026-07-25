@@ -22,10 +22,10 @@ def test_hq_death_wipes_player_and_frees_nodes():
     st = drive(state, step_fn, {0: [(hq1 + 1, a_build(2))]}, 200)
     assert int(st.node_owner[2]) == 1
     st, twr = spawn(st, cfg, 1, 30, TYPE_TOWER, cfg.tower_hp_by_level[1],
-                    (18.0, 12.0))
+                    (38.0, 18.0))
     st = st._replace(
         flag_active=st.flag_active.at[1, 0].set(True),
-        flag_pos=st.flag_pos.at[1, 0].set(jnp.asarray([15.0, 15.0])))
+        flag_pos=st.flag_pos.at[1, 0].set(jnp.asarray([36.0, 20.0])))
     n_p1_before = int(jnp.sum(st.alive & (owner == 1)))
     assert n_p1_before >= 6  # HQ+工人×4+矿+塔
 
@@ -37,7 +37,13 @@ def test_hq_death_wipes_player_and_frees_nodes():
     assert int(st.node_owner[2]) == -1 and int(st.node_ent[2]) == -1, \
         "淘汰者的矿泵必须释放点位"
     assert not bool(jnp.any(st.flag_active[1])), "淘汰者军旗必须撤除"
-    # 双人局:剩一家即胜
+    # 四人局:还剩 0/2/3 三家 → 淘汰不终局
+    assert not bool(st.done) and int(st.winner) == -1
+    # 再淘汰 2/3:只剩玩家 0 → 胜
+    st = st._replace(hp=st.hp.at[hq_slot(2, cfg)].set(0)
+                          .at[hq_slot(3, cfg)].set(0))
+    st = step_fn(st, jnp.full(cfg.n_total, A_NOOP, jnp.int32),
+                 jax.random.PRNGKey(8))
     assert bool(st.done) and int(st.winner) == 0
 
 
@@ -50,20 +56,23 @@ def test_winner_encoding_draw_is_n_players():
 
 
 def test_mutual_hq_kill_same_tick_draw():
+    """全部 HQ 同 tick 齐灭 → 和局 P,全场清空。"""
     cfg = Config()
     state, _, step_fn, m = new_world(cfg)
-    hq0, hq1 = hq_slot(0, cfg), hq_slot(1, cfg)
-    st = state._replace(hp=state.hp.at[hq0].set(0).at[hq1].set(0))
+    hp = state.hp
+    for p in range(cfg.n_players):
+        hp = hp.at[hq_slot(p, cfg)].set(0)
+    st = state._replace(hp=hp)
     st = step_fn(st, jnp.full(cfg.n_total, A_NOOP, jnp.int32),
                  jax.random.PRNGKey(3))
     assert bool(st.done) and int(st.winner) == cfg.n_players
-    # 双方全清场
+    # 全清场
     assert int(jnp.sum(st.alive)) == 0
 
 
 def test_eliminated_enemy_garrison_on_its_node_goes_idle():
     """敌方(p0)驻守在 p1 矿泵旁,p1 被淘汰 → 点位释放 → p0 驻守兵转 IDLE。"""
-    from teow.state import ORDER_GARRISON, ORDER_IDLE
+    from teow.state import ORDER_GARRISON
     cfg = Config(start_ore=500, start_water=300)
     state, _, step_fn, m = new_world(cfg)
     hq1 = hq_slot(1, cfg)
@@ -74,13 +83,14 @@ def test_eliminated_enemy_garrison_on_its_node_goes_idle():
     st = drive(st, step_fn, {0: [(W0, a_build(0))]}, 200)
     assert int(st.node_owner[0]) == 0
     st, inf = spawn(st, cfg, 0, 40, TYPE_INFANTRY, cfg.inf_hp_by_level[1],
-                    (5.0, 5.0))
+                    (24.0, 20.0))
     from teow.actions import a_garrison_node
     st = drive(st, step_fn, {0: [(inf, a_garrison_node(0, cfg))]}, 3)
     assert int(st.order[inf]) == ORDER_GARRISON
-    # p1 淘汰 → p1 全清;p0 驻守不受影响
+    # p1 淘汰 → p1 全清;对局继续(还剩 0/2/3),p0 驻守不受影响
     st = st._replace(hp=st.hp.at[hq1].set(0))
     st = step_fn(st, jnp.full(cfg.n_total, A_NOOP, jnp.int32),
                  jax.random.PRNGKey(9))
-    assert bool(st.done)
-    assert int(st.order[inf]) in (ORDER_GARRISON, ORDER_IDLE)  # 终局冻结语义
+    assert not bool(st.done)
+    assert int(jnp.sum(st.alive & (owner_of_slots(cfg) == 1))) == 0
+    assert int(st.order[inf]) == ORDER_GARRISON, "无关玩家的驻守不该被扰动"

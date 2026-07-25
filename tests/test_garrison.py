@@ -39,7 +39,8 @@ def anchor_dist(st, m, inf_s):
 def garrisoned_at_node0(cfg):
     """公共前置:步兵从 6 格外驻守 node 0,走到圈内。"""
     state, _, step_fn, m = new_world(cfg)
-    st, mine_s, inf_s = setup_mine_and_inf(cfg, state, m, (2.0, 14.0))
+    inf_rc = (float(m.node_pos[0][0]) - 5.0, float(m.node_pos[0][1]) + 4.0)
+    st, mine_s, inf_s = setup_mine_and_inf(cfg, state, m, inf_rc)
     st = drive(st, step_fn, {0: [(inf_s, a_garrison_node(0, cfg))]}, 60)
     return st, step_fn, m, mine_s, inf_s
 

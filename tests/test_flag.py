@@ -50,11 +50,11 @@ def test_plant_requires_barracks():
     inf = hq_slot(0, cfg) + 20
     # 无兵营:插旗非法
     state, _, _, m = new_world(cfg)
-    st0 = add_unit(cfg, state, inf, TYPE_INFANTRY, (12.0, 12.0))
+    st0 = add_unit(cfg, state, inf, TYPE_INFANTRY, (31.0, 31.0))
     assert not bool(legality_mask(st0, cfg, m, owner)[inf, a_plant_flag(cfg)])
     # 有建成兵营:合法
     _, st, _, m2, _ = barracks_world()
-    st1 = add_unit(cfg, st, inf, TYPE_INFANTRY, (12.0, 12.0))
+    st1 = add_unit(cfg, st, inf, TYPE_INFANTRY, (31.0, 31.0))
     assert bool(legality_mask(st1, cfg, m2, owner)[inf, a_plant_flag(cfg)])
 
 
@@ -62,7 +62,7 @@ def test_flag_cap_three():
     cfg, st, step_fn, m, _ = barracks_world()
     owner = owner_of_slots(cfg)
     dog = hq_slot(0, cfg) + 21
-    st = add_unit(cfg, st, dog, TYPE_DOG, (12.0, 12.0))
+    st = add_unit(cfg, st, dog, TYPE_DOG, (31.0, 31.0))
     for t in range(cfg.max_flags):
         st = drive(st, step_fn, {0: [(dog, a_plant_flag(cfg))]}, 1, seed=t)
     assert st.flag_active[0].tolist() == [True] * cfg.max_flags
@@ -82,7 +82,7 @@ def test_plant_on_node_cell_masked():
 def test_recall_idles_garrisoned():
     cfg, st, step_fn, m, bar = barracks_world()
     dog = hq_slot(0, cfg) + 23
-    st = add_unit(cfg, st, dog, TYPE_DOG, (12.0, 12.0))
+    st = add_unit(cfg, st, dog, TYPE_DOG, (31.0, 31.0))
     st = drive(st, step_fn, {0: [(dog, a_plant_flag(cfg))],
                              1: [(dog, a_garrison_flag(0, cfg))]}, 2)
     assert int(st.order[dog]) == ORDER_GARRISON
@@ -103,11 +103,11 @@ def test_recall_idles_garrisoned():
 def test_garrison_flag_pathing():
     cfg, st, step_fn, _, _ = barracks_world()
     dog = hq_slot(0, cfg) + 24
-    st = add_unit(cfg, st, dog, TYPE_DOG, (12.0, 4.0))
+    st = add_unit(cfg, st, dog, TYPE_DOG, (31.0, 23.0))
     # 手术立一面 8 格外的旗(引擎语义只认 flag_active/flag_pos,不问来源)
     st = st._replace(
         flag_active=st.flag_active.at[0, 0].set(True),
-        flag_pos=st.flag_pos.at[0, 0].set(jnp.asarray([12.0, 12.0])))
+        flag_pos=st.flag_pos.at[0, 0].set(jnp.asarray([31.0, 31.0])))
     st = drive(st, step_fn, {0: [(dog, a_garrison_flag(0, cfg))]}, 25)
     assert flag_dist(st, dog, 0, 0) <= cfg.garrison_hold_radius + 1e-3
     assert int(st.order[dog]) == ORDER_GARRISON
@@ -134,7 +134,7 @@ def test_recall_with_same_tick_attack():
     # (不被撤旗清理打回 IDLE),garrison_id 残值一并清
     cfg, st, step_fn, _, bar = barracks_world()
     dog = hq_slot(0, cfg) + 26
-    st = add_unit(cfg, st, dog, TYPE_DOG, (12.0, 12.0))
+    st = add_unit(cfg, st, dog, TYPE_DOG, (31.0, 31.0))
     st = drive(st, step_fn, {0: [(dog, a_plant_flag(cfg))],
                              1: [(dog, a_garrison_flag(0, cfg))]}, 2)
     assert int(st.order[dog]) == ORDER_GARRISON

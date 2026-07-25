@@ -24,7 +24,7 @@ def test_adjacent_mutual_damage_and_mutual_kill():
     cfg = Config()
     state, _, step_fn, m = new_world(cfg)
     # 两个敌对步兵面对面放在中路空地
-    a_rc, b_rc = (12, 5), (12, 6)
+    a_rc, b_rc = (31, 30), (31, 31)   # 六边形中路空地(v1.5)
     st = spawn_inf(state, cfg, 0, 10, a_rc)
     st = spawn_inf(st, cfg, 1, 10, b_rc)
     sa, sb = hq_slot(0, cfg) + 10, hq_slot(1, cfg) + 10
@@ -43,16 +43,21 @@ def test_adjacent_mutual_damage_and_mutual_kill():
 
 
 def test_hq_destroyed_ends_game_and_freezes():
+    """v1.5 四人:摧毁一家=淘汰不终局;打掉最后一个对手才分胜负。"""
     cfg = Config()
     state, _, step_fn, m = new_world(cfg)
-    hq1 = hq_slot(1, cfg)
-    # 敌 HQ 压到 1 血,派一个步兵贴脸。
-    # 站位选 HQ 东侧 (r, c+1):敌方初始工人都在 HQ 西侧(玩家 0 出生位的旋转像),
-    # 若站西侧,目标偏好「先打单位」会让步兵去砍工人而不是 HQ。
-    st = state._replace(hp=state.hp.at[hq1].set(1))
-    st = spawn_inf(st, cfg, 0, 10, (int(m.hq_pos[1][0]), int(m.hq_pos[1][1]) + 1))
-
     key = jax.random.PRNGKey(0)
+    # 先手术淘汰玩家 2/3(只剩 0 vs 1),再让步兵补刀 HQ1
+    hq1 = hq_slot(1, cfg)
+    st = state._replace(
+        hp=state.hp.at[hq_slot(2, cfg)].set(0).at[hq_slot(3, cfg)].set(0))
+    st = step_fn(st, jnp.full(cfg.n_total, A_NOOP, jnp.int32), key)
+    assert not bool(st.done), "淘汰两家后仍有两家存活,不该终局"
+    # 敌 HQ 压到 1 血,步兵站远离敌工人一侧贴脸(目标偏好先打单位)
+    st = st._replace(hp=st.hp.at[hq1].set(1))
+    # p1 工人在 HQ 东侧列(出生像),站西侧一格避开「先打单位」偏好
+    st = spawn_inf(st, cfg, 0, 10, (int(m.hq_pos[1][0]), int(m.hq_pos[1][1]) - 1))
+
     st1 = step_fn(st, jnp.full(cfg.n_total, A_NOOP, jnp.int32), key)
     assert bool(st1.done) and int(st1.winner) == 0
 
@@ -70,4 +75,4 @@ def test_timeout_draw():
     for _ in range(6):
         key, sub = jax.random.split(key)
         st = step_fn(st, jnp.full(cfg.n_total, A_NOOP, jnp.int32), sub)
-    assert bool(st.done) and int(st.winner) == 2
+    assert bool(st.done) and int(st.winner) == cfg.n_players  # P=和局

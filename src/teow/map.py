@@ -1,16 +1,21 @@
-"""静态地图:通行格、资源点布局、HQ 位置、BFS 距离场。
+"""静态地图(v1.5:六边形四人布局):通行格、资源点、HQ、BFS 距离场。
 
 全部在 jit 外用 numpy 构建一次,连同距离场一起闭包进 build_step(不进 state、
-不进 scan carry——照 alicization terrain 与调研报告 §5.5 的纪律)。
+不进 scan carry)。
 
-寻路方案(docs/plans/20260725-jax-rts-engine/research.md §2):目标点集固定且少
-(n_nodes 个资源点 + 2 个 HQ),对每个目标做一次 BFS 得 dist_fields[G,H,W];
-单位每 tick 对 4 邻 + 原地做 masked argmin 下降,即经典 flow-field 寻路,
-对静态障碍是精确最短路,被挡时自动绕行。裸贪心会在凹障碍卡死工人,不用。
+几何(v1.5,plan D4 + critic B-1):
+- 方格网格上雕**平顶六边形**可行区:中心取奇数镜像轴 (cy,cx),
+  |dr| ≤ b 且 |dc| ≤ a·(1 − |dr|/(2b));界外 passable=False。
+- 对称群 = Klein 四群:σh: r→2cy−r,σv: c→2cx−c,ρ=σhσv(180°)。
+  玩家 0(左上斜边中点附近)定义全部布局,玩家 1=σh 像(左下)、
+  玩家 2=σv 像(右上)、玩家 3=ρ 像(右下);(位置,类型) 集合在三个操作下
+  严格自映射(E/W 顶点的公共矿水放在不动行 r=cy 上,σv 把 E 对映到 W)。
+- 资源点 20 个:每家家门 1矿1水(8)+ E/W 顶点各 1矿1水(4)+
+  NE 轨道 1矿1水 的四元轨道(8)。编号:0..7 = 玩家 p 的 (矿,水)
+  按 p 序(与 v1.3「0/1=玩家0 近家」惯例兼容),8..19 公共。
 
-对称性:地图在 180° 旋转(r,c)->(H-1-r,W-1-c) 下 (位置,类型) 集合自映射——
-近家点与双角公共点的旋转像类型均保持不变,严格镜像公平(v1.3 起公共点为
-左下 1矿1水 + 右上其旋转像;v1.0-v1.2「中央公共点旋转换类型」的取舍已退役)。
+寻路:每目标一张 BFS 场(资源点 + P 个 HQ),单位下降场;旗的动态通道
+在 movement 拼接。布局字面量属地图几何,不属平衡数值(map.py 惯例)。
 """
 
 from __future__ import annotations
@@ -27,14 +32,14 @@ class MapData(NamedTuple):
     """静态地图数据(numpy,构建后只读)。goal 编号:0..n_nodes-1 = 资源点,
     n_nodes+p = 玩家 p 的 HQ。"""
 
-    passable: np.ndarray     # bool [H,W]  资源点格与 HQ 格不可通行
+    passable: np.ndarray     # bool [H,W]  界外/资源点格/HQ 格不可通行
     node_pos: np.ndarray     # int32 [Nn,2]
     node_type: np.ndarray    # int32 [Nn]  RES_ORE / RES_WATER
-    hq_pos: np.ndarray       # int32 [2,2]
-    spawn_pos: np.ndarray    # int32 [2,start_workers,2]  初始工人站位
-    dist_fields: np.ndarray  # int32 [Nn+2,H,W]  到各静态 goal 的 BFS 步数;
+    hq_pos: np.ndarray       # int32 [P,2]
+    spawn_pos: np.ndarray    # int32 [P,start_workers,2]  初始工人站位
+    dist_fields: np.ndarray  # int32 [Nn+P,H,W]  到各静态 goal 的 BFS 步数;
     #                          不可达=BIG_DIST。旗的动态通道不在此(movement 拼接)
-    goal_seeds: np.ndarray   # bool  [Nn+2,H,W]  静态 goal 种子格(movement 动态场用)
+    goal_seeds: np.ndarray   # bool  [Nn+P,H,W]  静态 goal 种子格
 
     @property
     def n_nodes(self) -> int:
@@ -42,11 +47,6 @@ class MapData(NamedTuple):
 
 
 BIG_DIST = 10**6  # 不可达哨兵;masked argmin 的 BIG 惩罚也用它
-
-
-def _rot(rc: tuple[int, int], h: int, w: int) -> tuple[int, int]:
-    """180° 旋转。玩家 1 的所有布局 = 玩家 0 布局的旋转像。"""
-    return (h - 1 - rc[0], w - 1 - rc[1])
 
 
 def _bfs_field(passable: np.ndarray, src: tuple[int, int]) -> np.ndarray:
@@ -67,75 +67,118 @@ def _bfs_field(passable: np.ndarray, src: tuple[int, int]) -> np.ndarray:
 
 
 def build_map(cfg: Config) -> MapData:
-    """确定性布局(只由 cfg 决定,不吃随机):
-
-    - HQ0 (3,3),HQ1 = 旋转像 (H-4,W-4)。
-    - 每家附近 1 矿 1 水(距 HQ 约 5-6 格,「靠近但不贴脸」,留出防守纵深);
-    - 公共点左下 1 矿 1 水,右上为其旋转像(类型不变),构成抢点/扩张博弈(v1.3)。
-    布局按 24×24 标定;其他尺寸按比例缩放并 clip 到界内。
-    """
+    """确定性六边形四人布局(只由 cfg 决定,不吃随机)。要求 n_players=4、
+    n_nodes=20、方形网格 ≥32(布局参数按网格尺寸比例推导)。"""
     h, w = cfg.grid_h, cfg.grid_w
-    if h < 12 or w < 12:
-        raise ValueError(f"grid 至少 12×12,收到 {h}×{w}")
+    if h != w or h < 32:
+        raise ValueError(f"v1.5 六边形布局要求方形网格且 ≥32×32,收到 {h}×{w}")
+    if cfg.n_players != 4:
+        raise ValueError(f"v1.5 布局固定 4 玩家,cfg.n_players={cfg.n_players}")
+    if cfg.n_nodes != 20:
+        raise ValueError(f"v1.5 布局固定 20 资源点,cfg.n_nodes={cfg.n_nodes}")
 
-    def scale(rc: tuple[int, int]) -> tuple[int, int]:
-        r = min(max(round(rc[0] * h / 24), 0), h - 1)
-        c = min(max(round(rc[1] * w / 24), 0), w - 1)
-        return (r, c)
+    # 镜像轴取奇数中心(critic B-1):h=64 → cy=31,镜像 r→62−r,行/列 63
+    # 恒在 hex 外
+    cy = (h - 2) // 2 if h % 2 == 0 else (h - 1) // 2
+    cx = cy
+    a = cx - 3                      # E/W 顶点半宽
+    b = round(a * 0.866)            # 上下平边半高(正六边形比例)
+    b = min(b, cy - 1)
 
-    hq0 = scale((3, 3))
-    hq1 = _rot(hq0, h, w)
+    def sh(rc):  # σh 上下镜像
+        return (2 * cy - rc[0], rc[1])
 
-    # 玩家 0 的近家点 + 左下公共对;玩家 1 侧/右上取旋转像(类型一律不变,
-    # (位置,类型) 集合在 180° 旋转下自映射,严格公平——见文件头「对称性」)
-    ore0 = scale((2, 8))
-    water0 = scale((8, 2))
-    publ_ore = scale((17, 4))    # 左下公共矿(v1.3 双角布局,初值可调)
-    publ_water = scale((20, 7))  # 左下公共水
-    node_pos_list = [ore0, water0, _rot(ore0, h, w), _rot(water0, h, w),
-                     publ_ore, publ_water,
-                     _rot(publ_ore, h, w), _rot(publ_water, h, w)]
-    node_type_list = [RES_ORE, RES_WATER, RES_ORE, RES_WATER,
-                      RES_ORE, RES_WATER, RES_ORE, RES_WATER]
-    if cfg.n_nodes != len(node_pos_list):
-        raise ValueError(f"v1.3 布局固定 8 个资源点,cfg.n_nodes={cfg.n_nodes} 不支持")
+    def sv(rc):  # σv 左右镜像
+        return (rc[0], 2 * cx - rc[1])
+
+    def rho(rc):  # 180°
+        return (2 * cy - rc[0], 2 * cx - rc[1])
+
+    def in_hex(rc) -> bool:
+        dr, dc = abs(rc[0] - cy), abs(rc[1] - cx)
+        return dr <= b and dc <= a * (1 - dr / (2 * b))
+
+    # 六边形 passable 掩码
+    rr, cc = np.meshgrid(np.arange(h), np.arange(w), indexing="ij")
+    drm, dcm = np.abs(rr - cy), np.abs(cc - cx)
+    passable = (drm <= b) & (dcm <= a * (1 - drm / (2 * b)))
+
+    def frac(fy: float, fx: float) -> tuple[int, int]:
+        """按 (b,a) 比例取整的中心相对坐标。"""
+        return (cy + round(fy * b), cx + round(fx * a))
+
+    # 玩家 0(左上斜边中点附近,往里收让出建设纵深)
+    hq0 = frac(-0.46, -0.64)
+    home_ore0 = (hq0[0] - 5, hq0[1] + 4)
+    home_water0 = (hq0[0] + 6, hq0[1] - 3)
+    # 公共点:E 顶点近旁(放不动行 r=cy 上,σv 生成 W 侧)+ NE 轨道
+    e_ore = (cy, cx + round(0.86 * a))
+    e_water = (cy, cx + round(0.68 * a))
+    ne_ore = frac(-0.875, 0.39)
+    ne_water = frac(-0.75, 0.54)
+
+    for rc in (hq0, home_ore0, home_water0, e_ore, e_water, ne_ore, ne_water):
+        if not in_hex(rc):
+            raise ValueError(f"布局点 {rc} 落在六边形外(网格 {h},a={a},b={b})")
+
+    # 玩家像:1=σh(左下) 2=σv(右上) 3=ρ(右下)
+    ops = (lambda rc: rc, sh, sv, rho)
+    hq_list = [op(hq0) for op in ops]
+    node_pos_list: list[tuple[int, int]] = []
+    node_type_list: list[int] = []
+    for op in ops:                       # 0..7 家门点(p 序,矿前水后)
+        node_pos_list += [op(home_ore0), op(home_water0)]
+        node_type_list += [RES_ORE, RES_WATER]
+    # 8..11:E/W 顶点(E 定义,σv 生成 W;不动行上 σh 自映射)
+    node_pos_list += [e_ore, e_water, sv(e_ore), sv(e_water)]
+    node_type_list += [RES_ORE, RES_WATER, RES_ORE, RES_WATER]
+    # 12..19:NE 轨道四元像
+    for op in ops:
+        node_pos_list += [op(ne_ore), op(ne_water)]
+        node_type_list += [RES_ORE, RES_WATER]
+
+    assert len(node_pos_list) == cfg.n_nodes
+
+    # (位置,类型) 集合在三个对称操作下自映射(布局公平性的机器可查口径)
+    pt = {(tuple(p), t) for p, t in zip(node_pos_list, node_type_list, strict=True)}
+    for op in (sh, sv, rho):
+        assert {(op(p), t) for p, t in pt} == pt, "资源点 (位置,类型) 未自映射"
+        assert {op(p) for p in hq_list} == set(hq_list), "HQ 集未自映射"
 
     node_pos = np.asarray(node_pos_list, dtype=np.int32)
     node_type = np.asarray(node_type_list, dtype=np.int32)
-    hq_pos = np.asarray([hq0, hq1], dtype=np.int32)
+    hq_pos = np.asarray(hq_list, dtype=np.int32)
 
-    # 唯一性检查:任何两个占位(HQ/资源点)不得重叠
-    occupied = {tuple(p) for p in node_pos_list} | {hq0, hq1}
-    if len(occupied) != len(node_pos_list) + 2:
+    occupied = {tuple(p) for p in node_pos_list} | {tuple(p) for p in hq_list}
+    if len(occupied) != len(node_pos_list) + len(hq_list):
         raise ValueError("地图布局重叠:HQ 或资源点撞格")
 
-    passable = np.ones((h, w), dtype=bool)
     for r, c in node_pos_list:
         passable[r, c] = False
-    passable[hq0] = False
-    passable[hq1] = False
+    for r, c in hq_list:
+        passable[r, c] = False
 
-    # 初始工人:HQ 东侧一列可通行格(不够则绕 8 邻找),两家旋转对称
-    def worker_spawns(hq: tuple[int, int]) -> list[tuple[int, int]]:
+    # 初始工人:HQ 朝地图中心方向的候选格里取前 start_workers 个,
+    # 各玩家用各自的像(严格对称)
+    def worker_spawns(hq: tuple[int, int], op) -> list[tuple[int, int]]:
         out: list[tuple[int, int]] = []
-        candidates = [(hq[0] + dr, hq[1] + dc)
-                      for dc in (1, 2) for dr in (-1, 0, 1, 2)]
-        for rc in candidates:
-            if 0 <= rc[0] < h and 0 <= rc[1] < w and passable[rc] and rc not in out:
+        # 玩家 0 的候选序(朝中心=右下方向);像玩家直接映射同一候选序
+        cands0 = [(hq0[0] + dr, hq0[1] + dc)
+                  for dc in (1, 2, 3) for dr in (1, 0, 2, -1, 3)]
+        for rc0 in cands0:
+            rc = op(rc0)
+            if (0 <= rc[0] < h and 0 <= rc[1] < w and passable[rc]
+                    and rc not in out):
                 out.append(rc)
             if len(out) == cfg.start_workers:
                 return out
         raise ValueError("HQ 周围可通行格不足以放下初始工人")
 
-    sp0 = worker_spawns(hq0)
-    sp1 = [_rot(rc, h, w) for rc in sp0]  # 严格旋转像,保证两家出生位对称
-    for rc in sp1:
-        if not passable[rc]:
-            raise ValueError("玩家 1 工人出生位不可通行(布局 bug)")
-    spawn_pos = np.asarray([sp0, sp1], dtype=np.int32)
+    spawns = [worker_spawns(hq_list[p], ops[p]) for p in range(4)]
+    spawn_pos = np.asarray(spawns, dtype=np.int32)
 
     # 距离场:每个资源点一张 + 每个 HQ 一张
-    goals = node_pos_list + [hq0, hq1]
+    goals = node_pos_list + hq_list
     fields = [_bfs_field(passable, tuple(p)) for p in goals]
     dist_fields = np.stack(fields).astype(np.int32)
     goal_seeds = np.zeros((len(goals), h, w), dtype=bool)

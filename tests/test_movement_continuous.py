@@ -33,14 +33,14 @@ def test_mirror_head_on_collision_resolves():
     from teow.state import ORDER_MOVE
     cfg = Config()
     state, _, step_fn, m = new_world(cfg)
-    st = spawn_inf(state, cfg, 0, 10, (12.0, 4.0))
-    st = spawn_inf(st, cfg, 1, 10, (12.0, 19.0))
+    st = spawn_inf(state, cfg, 0, 10, (31.0, 20.0))
+    st = spawn_inf(st, cfg, 1, 10, (31.0, 42.0))
     sa, sb = hq_slot(0, cfg) + 10, hq_slot(1, cfg) + 10
     # 相向 MOVE:目标=对方起点,路径精确共线
     st = st._replace(
         order=st.order.at[sa].set(ORDER_MOVE).at[sb].set(ORDER_MOVE),
-        target_cell=st.target_cell.at[sa].set(jnp.asarray([12.0, 19.0]))
-                                  .at[sb].set(jnp.asarray([12.0, 4.0])))
+        target_cell=st.target_cell.at[sa].set(jnp.asarray([31.0, 42.0]))
+                                  .at[sb].set(jnp.asarray([31.0, 20.0])))
 
     key = jax.random.PRNGKey(0)
     for _ in range(120):
@@ -62,7 +62,7 @@ def test_units_never_inside_building_cells():
     cfg = Config()
     state, key, step_fn, m = new_world(cfg)
     from teow.controller import make_joint_controller
-    joint = jax.jit(make_joint_controller("scripted", "scripted", cfg=cfg, mapdata=m))
+    joint = jax.jit(make_joint_controller(*(["scripted"] * cfg.n_players), cfg=cfg, mapdata=m))
     passable = jnp.asarray(m.passable)
     st = state
     for t in range(400):

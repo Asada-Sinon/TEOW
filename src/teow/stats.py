@@ -19,6 +19,9 @@ from .config import (
     TYPE_BARRACKS,
     TYPE_CAMP,
     TYPE_DOG,
+    TYPE_FENCE_IRON,
+    TYPE_FENCE_STONE,
+    TYPE_FENCE_WOOD,
     TYPE_HEALER,
     TYPE_HEAVY,
     TYPE_HQ,
@@ -64,6 +67,9 @@ def hp_table(cfg: Config) -> jax.Array:
         TYPE_HEALER: cfg.healer_hp_by_level,
         TYPE_RAM: cfg.ram_hp_by_level,
         TYPE_MORTAR: _flat(cfg.mortar_hp),
+        TYPE_FENCE_WOOD: _flat(cfg.fence_wood_hp),
+        TYPE_FENCE_STONE: _flat(cfg.fence_stone_hp),
+        TYPE_FENCE_IRON: _flat(cfg.fence_iron_hp),
     }
     return jnp.asarray([rows.get(t, (0,) * 8) for t in range(N_TYPES)], jnp.int32)
 

@@ -1,8 +1,8 @@
 """v1.4 涌现验证:富开局覆盖局里 scripted AI 真的用上整棵兵种树。
 
-配置=覆盖局标定值(explorations 同款;默认 config 的对局节奏测试仍在
-test_scripted_v13):富开局 + 基地目标 5 + 攻击阈值 14,seed 0 实测时间线
-mortar 391 → bar5 1242 → ram 1622 → mortar 开火 1636 → 1952 分胜负。
+配置=覆盖局标定值(默认 config 的对局节奏测试仍在 test_scripted_v13):
+富开局+基地目标 5+攻击阈值 16(v1.5 六边形四人图重标定),seed 0 实测
+healer 1020 → mage 1340 → ram 1760 → 迫击炮开火 1880 → 1950 分胜负。
 断言全部走事件旗(any over scan),不做时间线断言。"""
 
 import jax
@@ -23,14 +23,16 @@ from teow.controller import make_joint_controller
 from teow.state import ORDER_GARRISON
 from teow.step import new_world
 
-COVER_CFG = dict(start_ore=3500, start_water=2200, ai_base_level_target=5,
-                 ai_worker_target=6, ai_attack_threshold=14)
+# v1.5 六边形四人图重标定:5000/3200+阈值16,seed0-2 实测九兵种+迫击炮开火+
+# 兵营5 全出现(1950 tick 分胜负)
+COVER_CFG = dict(start_ore=5000, start_water=3200, ai_base_level_target=5,
+                 ai_worker_target=6, ai_attack_threshold=16)
 
 
 def test_scripted_exercises_full_unit_tree():
     cfg = Config(seed=0, **COVER_CFG)
     state, key, step_fn, m = new_world(cfg)
-    joint = make_joint_controller("scripted", "scripted", cfg=cfg, mapdata=m)
+    joint = make_joint_controller(*(["scripted"] * cfg.n_players), cfg=cfg, mapdata=m)
 
     watch_types = (TYPE_STRONGMAN, TYPE_WAGON, TYPE_ARCHER, TYPE_HEAVY,
                    TYPE_MAGE, TYPE_HEALER, TYPE_RAM, TYPE_MORTAR)

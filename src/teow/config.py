@@ -32,7 +32,10 @@ TYPE_MAGE = 15       # 法师(v1.4;兵营4,远程单体魔法,无视护甲)
 TYPE_HEALER = 16     # 奶妈神官(v1.4;兵营4,不攻击,自动奶血量比例最低友军单位)
 TYPE_RAM = 17        # 攻城车(v1.4;兵营5,近战,只能打建筑)
 TYPE_MORTAR = 18     # 迫击炮(v1.4;防御建筑,HQ3 解锁,限1,弹道+盲区+范围衰减)
-N_TYPES = 32  # per-type 表长(19..31 留给 v1.5 栅栏 / v1.6 防御建筑与空军)
+TYPE_FENCE_WOOD = 19   # 木栅栏(v1.5;HQ2,占格挡路可被打,无攻击无上限)
+TYPE_FENCE_STONE = 20  # 石栅栏(v1.5;HQ3)
+TYPE_FENCE_IRON = 21   # 铁栅栏(v1.5;HQ5;三档独立建筑,高级解锁后低级仍可造)
+N_TYPES = 32  # per-type 表长(22..31 留给 v1.6 防御建筑与空军)
 
 # 资源类型编码(state.resources 的第二维;与资源点 node_type 一致)
 RES_ORE = 0
@@ -60,7 +63,10 @@ BTASK_BUILD_CAMP = -4     # 在建训练营的专属标记(建成前 hp 线性�
 BTASK_BUILD_BARRACKS = -5  # 在建兵营
 BTASK_BUILD_TOWER = -6     # 在建哨塔
 BTASK_BUILD_MORTAR = -7    # 在建迫击炮(v1.4 Phase 3)
-# −8..−15 留给 v1.5/v1.6 在建建筑
+BTASK_BUILD_FENCE_WOOD = -8   # 在建木栅栏(v1.5)
+BTASK_BUILD_FENCE_STONE = -9  # 在建石栅栏(v1.5)
+BTASK_BUILD_FENCE_IRON = -10  # 在建铁栅栏(v1.5)
+# −11..−15 留给 v1.6 在建建筑
 BTASK_RESEARCH_BASE = -16  # 研发线 l 的任务码 = -(16+l),l∈[0,8) → −16..−23
 
 
@@ -73,15 +79,15 @@ class Config:
     seed: int = 0
 
     # ---- 世界 ----
-    grid_h: int = 24
-    grid_w: int = 24
-    episode_len: int = 3000  # 超时判和局(winner=2)
+    grid_h: int = 64         # v1.5:方格网格上雕六边形可行区(规格「约 64」)
+    grid_w: int = 64
+    episode_len: int = 6000  # 超时判和局(winner=P);[AI-DRAFT] 大图四人局翻倍
 
     # ---- 容量(静态形状;e_max 满 = 天然人口上限,是特性不是 bug)----
-    n_players: int = 2       # 玩家数 P(v1.5 起引擎全泛化;编译期静态量。
+    n_players: int = 4       # 玩家数 P(v1.5:四人自由混战;编译期静态量。
     #                          胜负编码:-1 未分,0..P-1 胜者,P=和局)
     e_max: int = 64          # 每玩家实体槽数(单位+建筑共用一张表)
-    n_nodes: int = 8         # 资源点数:每家附近 1矿+1水,左下/右上公共各 1矿+1水
+    n_nodes: int = 20        # 资源点数(v1.5):每家家门 1矿1水×4 + 六边形顶点公共 12
     # 采集名额(v1.3 指派即占用):按矿泵等级查「可同时指派(order==HARVEST)」
     # 的工人上限;名额在指派侧占用,不因工人出矿运输而释放。0 位是废位。
     harvest_slots_by_level: tuple = (0, 3, 3, 4, 4, 5, 5, 6)
@@ -195,6 +201,23 @@ class Config:
     mortar_cost_water: int = 60
     mortar_build_time: int = 110
     mortar_hp: int = 150
+
+    # ---- 栅栏(v1.5;三档独立建筑,占格挡路,无攻击,无数量上限,不可升级。
+    #      解锁 木HQ2/石HQ3/铁HQ5=规格;数值 [AI-DRAFT])----
+    fence_wood_cost_ore: int = 10
+    fence_wood_cost_water: int = 0
+    fence_wood_build_time: int = 20
+    fence_wood_hp: int = 80
+    fence_stone_cost_ore: int = 25
+    fence_stone_cost_water: int = 5
+    fence_stone_build_time: int = 35
+    fence_stone_hp: int = 200
+    fence_stone_armor: int = 20
+    fence_iron_cost_ore: int = 40
+    fence_iron_cost_water: int = 20
+    fence_iron_build_time: int = 50
+    fence_iron_hp: int = 400
+    fence_iron_armor: int = 40
 
     # ---- 等级体系 ----
     # 约定:所有 *_by_level 表长 8,直接用等级 1..7 下标(0 位是废位填 0);
@@ -313,7 +336,8 @@ class Config:
     def unlock_level_by_type(self) -> tuple:
         """基地几级解锁该**建筑**的建造;0=不受限(单位走 train_level_by_type)。"""
         return self._t32({TYPE_CAMP: 2, TYPE_BARRACKS: 2, TYPE_TOWER: 2,
-                          TYPE_MORTAR: 3})
+                          TYPE_MORTAR: 3, TYPE_FENCE_WOOD: 2,
+                          TYPE_FENCE_STONE: 3, TYPE_FENCE_IRON: 5})
 
     @property
     def train_level_by_type(self) -> tuple:
@@ -374,7 +398,9 @@ class Config:
             TYPE_HQ: self.hq_armor, TYPE_INFANTRY: self.infantry_armor,
             TYPE_TOWER: self.tower_armor, TYPE_WAGON: self.wagon_armor,
             TYPE_LCAV: self.lcav_armor, TYPE_HEAVY: self.heavy_armor,
-            TYPE_RAM: self.ram_armor, TYPE_MORTAR: self.mortar_armor})
+            TYPE_RAM: self.ram_armor, TYPE_MORTAR: self.mortar_armor,
+            TYPE_FENCE_STONE: self.fence_stone_armor,
+            TYPE_FENCE_IRON: self.fence_iron_armor})
 
     @property
     def dmg_magic_by_type(self) -> tuple:

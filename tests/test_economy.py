@@ -240,12 +240,12 @@ def test_building_never_placed_on_inside_worker_entry_cell():
     # 升基地到 2(解锁营)
     from teow.actions import a_upgrade
     st = drive(state, step_fn, {0: [(hq, a_upgrade(cfg))]}, cfg.base_up_time[1] + 1)
-    # 手术台:把 2 号工人塞进「矿内」状态,入口格 E=(10,10);
-    # 建造者 1 号工人站 (9,9),E 是其 _SPAWN_DIRS 第一候选 (+1,+1)
-    E = jnp.asarray([10.0, 10.0], jnp.float32)
+    # 手术台:把 2 号工人塞进「矿内」状态,入口格 E=(30,30);
+    # 建造者 1 号工人站 (9,9),E 是其 _SPAWN_DIRS 第一候选 (+1,+1)(坐标取六边形腹地)
+    E = jnp.asarray([30.0, 30.0], jnp.float32)
     w_in, w_b = hq + 2, hq + 1
     st = st._replace(
-        pos=st.pos.at[w_in].set(E).at[w_b].set(jnp.asarray([9.0, 9.0])),
+        pos=st.pos.at[w_in].set(E).at[w_b].set(jnp.asarray([29.0, 29.0])),
         inside=st.inside.at[w_in].set(True),
         order=st.order.at[w_in].set(ORDER_HARVEST),
         phase=st.phase.at[w_in].set(PH_MINING),
@@ -256,6 +256,6 @@ def test_building_never_placed_on_inside_worker_entry_cell():
     camp = int(jnp.argmax((st.etype == TYPE_CAMP) & st.alive))
     assert bool(st.alive[camp]) and int(st.etype[camp]) == TYPE_CAMP
     ccell = cell_of(st.pos[camp])
-    assert not bool(jnp.all(ccell == jnp.asarray([10, 10]))), \
+    assert not bool(jnp.all(ccell == jnp.asarray([30, 30]))), \
         "营落在矿内工人的入口格上:出矿即活埋"
     assert int(st.etype[w_in]) == TYPE_WORKER

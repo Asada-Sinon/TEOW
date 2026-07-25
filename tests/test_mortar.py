@@ -58,13 +58,13 @@ def test_build_unlock_hq3_and_cap1():
 def test_blind_zone_and_flight_delay_and_falloff():
     cfg = Config()
     state, _, step_fn, m = new_world(cfg)
-    st, mor = spawn_mortar(state, cfg, 0, 10, (12.0, 4.0))
+    st, mor = spawn_mortar(state, cfg, 0, 10, (31.0, 26.0))
     # 盲区内敌兵(d=2.0 < min 2.5):永不被打
     st, near = spawn(st, cfg, 1, 10, TYPE_INFANTRY, cfg.inf_hp_by_level[1],
-                     (12.0, 6.0))
+                     (31.0, 28.0))
     # 环内敌兵(d=5.0 ∈ [2.5, 7]):挨炮
     st, far = spawn(st, cfg, 1, 11, TYPE_INFANTRY, cfg.inf_hp_by_level[1],
-                    (12.0, 9.0))
+                    (31.0, 31.0))
     hp0 = cfg.inf_hp_by_level[1]
     # 开火拍:锁点放弹,尚无伤害
     st = one_tick(st, cfg, step_fn)
@@ -88,15 +88,15 @@ def test_dodge_by_moving_out_of_locked_point():
     from teow.state import ORDER_MOVE
     cfg = Config()
     state, _, step_fn, m = new_world(cfg)
-    st, mor = spawn_mortar(state, cfg, 0, 10, (12.0, 4.0))
+    st, mor = spawn_mortar(state, cfg, 0, 10, (31.0, 26.0))
     st, tgt = spawn(st, cfg, 1, 10, TYPE_INFANTRY, cfg.inf_hp_by_level[1],
-                    (12.0, 9.0))
+                    (31.0, 31.0))
     # 开火拍后立刻命令目标横向撤离(速度 0.5 × 7 拍 = 3.5 格 > aoe 1.5)
-    st = one_tick(st, cfg, step_fn)          # 迫击炮开火,锁 (12,9)
+    st = one_tick(st, cfg, step_fn)          # 迫击炮开火,锁定目标点
     assert int(st.shell_timer[mor]) == cfg.mortar_flight_time
     st = st._replace(
         order=st.order.at[tgt].set(ORDER_MOVE),
-        target_cell=st.target_cell.at[tgt].set(jnp.asarray([18.0, 9.0])))
+        target_cell=st.target_cell.at[tgt].set(jnp.asarray([37.0, 31.0])))
     for t in range(cfg.mortar_flight_time + 1):
         st = one_tick(st, cfg, step_fn, seed=10 + t)
     assert int(st.hp[tgt]) == cfg.inf_hp_by_level[1], "走位出圈仍被炸:锁点语义破了"
@@ -105,17 +105,17 @@ def test_dodge_by_moving_out_of_locked_point():
 def test_no_building_splash_and_cooldown_and_shell_dies():
     cfg = Config()
     state, _, step_fn, m = new_world(cfg)
-    st, mor = spawn_mortar(state, cfg, 0, 10, (12.0, 4.0))
+    st, mor = spawn_mortar(state, cfg, 0, 10, (31.0, 26.0))
     # 敌方建筑(哨塔)在环内:迫击炮不打建筑(选目标就滤掉)
     from teow.config import TYPE_TOWER
     st, twr = spawn(st, cfg, 1, 10, TYPE_TOWER, cfg.tower_hp_by_level[1],
-                    (12.0, 9.5))  # 塔射程 4 够不到炮(5.5),炮也不该打塔
+                    (31.0, 31.5))  # 塔射程 4 够不到炮(5.5),炮也不该打塔
     st = one_tick(st, cfg, step_fn)
     assert int(st.shell_timer[mor]) == 0, "环内只有建筑不该开火"
     assert int(st.hp[twr]) == cfg.tower_hp_by_level[1]
     # 放一个敌兵触发开火;开火后冷却期内不再放第二发
     st, inf = spawn(st, cfg, 1, 11, TYPE_INFANTRY, cfg.inf_hp_by_level[1],
-                    (12.0, 9.0))
+                    (31.0, 31.0))
     st = one_tick(st, cfg, step_fn, seed=1)
     assert int(st.shell_timer[mor]) == cfg.mortar_flight_time
     assert int(st.atk_cd[mor]) == cfg.mortar_atk_period - 1
