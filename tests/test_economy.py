@@ -8,7 +8,8 @@ import jax.numpy as jnp
 
 from teow.actions import A_NOOP, a_build, a_harvest, a_train_worker, legality_mask
 from teow.config import RES_ORE, TYPE_MINE, TYPE_WORKER, Config
-from teow.state import ORDER_IDLE, hq_slot, owner_of_slots
+from teow.economy import assigned_counts
+from teow.state import ORDER_HARVEST, ORDER_IDLE, hq_slot, owner_of_slots
 from teow.step import new_world
 
 W0 = 1  # 玩家 0 的 1 号工人槽(0 是 HQ)
@@ -74,22 +75,96 @@ def test_build_mine_then_harvest_cycle():
     assert gained >= 2 * cfg.worker_carry_by_level[1]
 
 
-def test_node_capacity_enforced():
-    cfg = Config()
+def _built_mine_world(cfg):
+    """公共起手:W0 把 0 号矿建成(1 级),4 个初始工人全部空闲可派。"""
     state, _, step_fn, m = new_world(cfg)
+    st = drive(state, step_fn, {0: [(W0, a_build(0))]}, 200)
+    assert int(st.node_ent[0]) >= 0
+    return st, step_fn, m
+
+
+def test_harvest_cap_never_exceeded():
+    cfg = Config()
+    st, step_fn, m = _built_mine_world(cfg)
     node = 0
-    # 建矿 + 全部 4 个工人都派去采集,再多训 2 个也派去
-    plan = {0: [(W0, a_build(node))]}
-    st = drive(state, step_fn, plan, 200)
+    cap = cfg.harvest_slots_by_level[int(st.level[int(st.node_ent[node])])]
     acts = {0: [(W0 + i, a_harvest(node, cfg)) for i in range(cfg.start_workers)]}
     st = drive(st, step_fn, acts, 300, seed=2)
-    # 驻内人数任何时刻不超容量:跑若干 tick 逐拍检查
+    # 指派数与驻内人数任何时刻都不超该点等级名额:跑若干 tick 逐拍检查
     key = jax.random.PRNGKey(3)
     for _ in range(60):
         key, sub = jax.random.split(key)
         st = step_fn(st, jnp.full(cfg.n_total, A_NOOP, jnp.int32), sub)
-        inside_n = int(jnp.sum(st.inside))
-        assert inside_n <= cfg.node_capacity
+        assert int(jnp.sum(st.inside)) <= cap
+        assert int(assigned_counts(st, cfg)[node]) <= cap
+
+
+def test_harvest_slots_cap():
+    cfg = Config()
+    st, step_fn, m = _built_mine_world(cfg)
+    node = 0
+    # 4 工人同 tick 对同一 1 级矿(名额 3)下 HARV:同 tick 超发仲裁按槽号
+    # 保前 3 个,第 4 个被拒且保持原指令(IDLE)
+    acts = {0: [(W0 + i, a_harvest(node, cfg)) for i in range(4)]}
+    st = drive(st, step_fn, acts, 1, seed=2)
+    assert int(assigned_counts(st, cfg)[node]) == cfg.harvest_slots_by_level[1]
+    assert int(st.order[W0 + 2]) == ORDER_HARVEST
+    assert int(st.order[W0 + 3]) == ORDER_IDLE
+
+
+def test_harvest_slots_no_rotation_exploit():
+    cfg = Config()
+    st, step_fn, m = _built_mine_world(cfg)
+    node = 0
+    acts = {0: [(W0 + i, a_harvest(node, cfg)) for i in range(3)]}
+    st = drive(st, step_fn, acts, 1, seed=2)
+    owner = owner_of_slots(cfg)
+    # 名额是指派即占用:即使有工人出矿进入运输段(inside=False),
+    # 第 4 工人的 HARV 掩码也始终是 False(轮转卡名额的老 bug 不复存在)
+    key = jax.random.PRNGKey(4)
+    seen_transport = False
+    for _ in range(200):
+        key, sub = jax.random.split(key)
+        st = step_fn(st, jnp.full(cfg.n_total, A_NOOP, jnp.int32), sub)
+        legal = legality_mask(st, cfg, m, owner)
+        assert not bool(legal[W0 + 3, a_harvest(node, cfg)])
+        in_transit = bool(jnp.any(st.alive & (st.order == ORDER_HARVEST)
+                                  & ~st.inside & (st.cargo > 0)))
+        seen_transport = seen_transport or in_transit
+    assert seen_transport  # 确认真的覆盖到了出矿运输时刻
+
+
+def test_harvest_slots_upgrade_expands():
+    cfg = Config()
+    st, step_fn, m = _built_mine_world(cfg)
+    node = 0
+    acts = {0: [(W0 + i, a_harvest(node, cfg)) for i in range(3)]}
+    st = drive(st, step_fn, acts, 1, seed=2)
+    owner = owner_of_slots(cfg)
+    ent = int(st.node_ent[node])
+    assert not bool(legality_mask(st, cfg, m, owner)[W0 + 3, a_harvest(node, cfg)])
+    # 手术把矿提到 3 级(名额 3→4;升级链路本身由 test_upgrade 覆盖)
+    st = st._replace(level=st.level.at[ent].set(3))
+    assert bool(legality_mask(st, cfg, m, owner)[W0 + 3, a_harvest(node, cfg)])
+    st = drive(st, step_fn, {0: [(W0 + 3, a_harvest(node, cfg))]}, 1, seed=5)
+    assert int(assigned_counts(st, cfg)[node]) == cfg.harvest_slots_by_level[3]
+
+
+def test_harvest_slot_released_on_death():
+    cfg = Config()
+    st, step_fn, m = _built_mine_world(cfg)
+    node = 0
+    acts = {0: [(W0 + i, a_harvest(node, cfg)) for i in range(3)]}
+    st = drive(st, step_fn, acts, 1, seed=2)
+    owner = owner_of_slots(cfg)
+    assert not bool(legality_mask(st, cfg, m, owner)[W0 + 3, a_harvest(node, cfg)])
+    # 手术杀掉一个已指派工人(hp 归零),走一拍让 cleanup_deaths 结算
+    st = st._replace(hp=st.hp.at[W0 + 1].set(0))
+    st = step_fn(st, jnp.full(cfg.n_total, A_NOOP, jnp.int32), jax.random.PRNGKey(6))
+    assert not bool(st.alive[W0 + 1])
+    assert bool(legality_mask(st, cfg, m, owner)[W0 + 3, a_harvest(node, cfg)])
+    st = drive(st, step_fn, {0: [(W0 + 3, a_harvest(node, cfg))]}, 1, seed=7)
+    assert int(assigned_counts(st, cfg)[node]) == cfg.harvest_slots_by_level[1]
 
 
 def test_legality_basics():

@@ -1,8 +1,9 @@
 """经济:生产(训练完成落地)、建造(到场开工/完工落地)、采集一体循环。
 
 同 tick 竞争的仲裁纪律(调研报告 §1/§5):
-- 入驻抢槽/开工抢点:按资源点逐点处理(Nn=8 的 Python 循环,编译期展开),
-  点内排序用槽号(同一玩家内部无公平性问题),跨玩家用每 tick 随机先手位防偏置。
+- 指派抢名额(v1.3,在 actions.apply_orders)/开工抢点:按资源点逐点处理
+  (Nn=8 的 Python 循环,编译期展开),点内排序用槽号(同一玩家内部无公平性
+  问题),开工跨玩家用每 tick 随机先手位防偏置;入驻不再仲裁(名额指派侧已封顶)。
 - 出矿:无条件弹回入口格,允许暂时叠格(防「排队工人站满入口」死锁,见函数内注释)。
 - 同玩家同 tick 多笔建造支出:按点序对账扣费,余额不足的工地顺延(不欠账)。
 
@@ -55,11 +56,14 @@ def occupancy_grid(state: WorldState, cfg: Config) -> jax.Array:
     return occ.at[cell[:, 0], cell[:, 1]].max(on)
 
 
-def inside_counts(state: WorldState, cfg: Config) -> jax.Array:
-    """int32 [Nn]:各资源点当前驻内工人数。"""
+def assigned_counts(state: WorldState, cfg: Config) -> jax.Array:
+    """int32 [Nn]:各点已指派工人数(alive & order==HARVEST,含在途/矿内/运输段)。
+    名额占用的唯一口径(v1.3 指派即占用):残留 target_node 被 order 门控。"""
     tn = jnp.clip(state.target_node.astype(jnp.int32), 0, cfg.n_nodes - 1)
+    assigned = (state.alive & (state.order == ORDER_HARVEST)
+                & (state.target_node >= 0))
     return (jnp.zeros(cfg.n_nodes, jnp.int32)
-            .at[tn].add((state.inside).astype(jnp.int32)))
+            .at[tn].add(assigned.astype(jnp.int32)))
 
 
 def upgrade_cost_of(state, cfg: Config) -> jax.Array:
@@ -508,34 +512,27 @@ def construction_tick(state: WorldState, cfg: Config, mapdata: MapData,
 
 def harvest_tick(state: WorldState, cfg: Config, mapdata: MapData,
                  owner: jax.Array) -> WorldState:
-    """采集一体循环:入驻(抢槽)→ 矿内倒计时 → 出矿(抢出口格)→ 到家卸货。"""
+    """采集一体循环:入驻 → 矿内倒计时 → 出矿(弹回入口格)→ 到家卸货。"""
     node_type = jnp.asarray(mapdata.node_type)
     npos = jnp.asarray(mapdata.node_pos, jnp.float32)
     tn = jnp.clip(state.target_node.astype(jnp.int32), 0, cfg.n_nodes - 1)
     harv = state.alive & (state.order == ORDER_HARVEST) & (state.target_node >= 0)
 
     st = state
-    # ---- 入驻:到达半径内 + 点归属己方且结构在 + 容量余额,同点按槽号排队 ----
+    # ---- 入驻:到达半径内 + 点归属己方且结构在。v1.3 名额制下不再做容量
+    # 仲裁——名额在指派侧(掩码 + apply_orders 同 tick 仲裁)已保证每点
+    # order==HARVEST 数 ≤ 等级名额,驻内数不可能超。----
     d_node = jnp.linalg.norm(st.pos - npos[tn], axis=-1)
-    want_in = (harv & ~st.inside & (st.phase == PH_TO_NODE)
-               & (d_node <= cfg.reach_radius)
-               & (st.node_owner[tn] == owner) & (st.node_ent[tn] >= 0))
-    counts = inside_counts(st, cfg)                        # [Nn]
+    enter = (harv & ~st.inside & (st.phase == PH_TO_NODE)
+             & (d_node <= cfg.reach_radius)
+             & (st.node_owner[tn] == owner) & (st.node_ent[tn] >= 0))
     # 开采耗时按各工人所属玩家的工人线等级查表(v1.1)
     wl = st.upgrades[owner.astype(jnp.int32), LINE_WORKER]           # [N]
     my_mine_time = jnp.asarray(cfg.worker_mine_time_by_level)[wl]    # [N]
-    inside = st.inside
-    mine_timer = st.mine_timer
-    phase = st.phase
-    for k in range(cfg.n_nodes):  # 编译期展开
-        cand = want_in & (st.target_node == k)
-        rank = jnp.cumsum(cand.astype(jnp.int32)) - 1      # 槽号序内的名次
-        enter = cand & (counts[k] + rank < cfg.node_capacity)
-        inside = inside | enter
-        mine_timer = jnp.where(enter, my_mine_time, mine_timer)
-        phase = jnp.where(enter, PH_MINING, phase)
-    st = st._replace(inside=inside, mine_timer=mine_timer.astype(jnp.int16),
-                     phase=phase.astype(jnp.int8))
+    st = st._replace(
+        inside=st.inside | enter,
+        mine_timer=jnp.where(enter, my_mine_time, st.mine_timer).astype(jnp.int16),
+        phase=jnp.where(enter, PH_MINING, st.phase).astype(jnp.int8))
 
     # ---- 矿内倒计时 ----
     mt = jnp.where(st.inside & (st.mine_timer > 0), st.mine_timer - 1, st.mine_timer)

@@ -83,8 +83,11 @@ def scripted_actions(state: WorldState, cfg: Config, mapdata: MapData,
                .at[tn].add((mine & (st.order == ORDER_BUILD)).astype(jnp.int32)))
     claimable = ((st.node_owner == -1) & (st.node_build_timer == 0)
                  & (pending == 0))                                          # [Nn]
+    ent_n = jnp.clip(st.node_ent.astype(jnp.int32), 0, cfg.n_total - 1)     # [Nn]
+    caps = jnp.asarray(cfg.harvest_slots_by_level, jnp.int32)[
+        jnp.clip(jnp.where(st.node_ent >= 0, st.level[ent_n], 0), 0, 7)]
     harvestable = ((st.node_owner == player) & (st.node_ent >= 0)
-                   & (assigned < cfg.node_capacity))                        # [Nn]
+                   & (assigned < caps))                                     # [Nn]
 
     # 付得起才派建造者(audit v1.1 P2 活锁根因:无主点+付不起 → 同一空闲工人
     # 每 tick 被重复指派、动作被掩码、永不落入采集分支,水收入归零 1200+ tick。
@@ -154,7 +157,13 @@ def scripted_actions(state: WorldState, cfg: Config, mapdata: MapData,
                      jnp.asarray(cfg.inf_res_cost_water)[lc]]),
         jnp.asarray([jnp.asarray(cfg.worker_res_cost_ore)[lc],
                      jnp.asarray(cfg.worker_res_cost_water)[lc]]))
-    spare = st.resources[player] - jnp.where(research_pending, res_cost, 0)
+    # 升本预留(v1.3 名额制配套):单点采集压到 3 人后练兵不再有余粮自然溢出,
+    # 基地未到 ai_base_level_target 时练兵先留出升本成本+预备金,否则矿石永远
+    # 在练兵线以下打转,3000 tick 全程升不了本(与研发预留同根同款)
+    base_pending = base_lv < cfg.ai_base_level_target
+    reserve = (jnp.where(research_pending, res_cost, 0)
+               + jnp.where(base_pending, up_cost + cfg.ai_upgrade_reserve, 0))
+    spare = st.resources[player] - reserve
     inf_ok = jnp.all(spare >= jnp.asarray(
         [cfg.infantry_cost_ore, cfg.infantry_cost_water]))
     dog_ok = jnp.all(spare >= jnp.asarray(

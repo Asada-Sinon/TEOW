@@ -10,7 +10,8 @@
   2                 ATTACK   attack-move 向敌方 HQ(仅步兵)
   3..6              MOVE     N/E/S/W 走一格(到达即转 IDLE)
   7..7+Nn-1         BUILD_k  去资源点 k 建矿/泵(类型由点决定;仅工人)
-  7+Nn..7+2Nn-1     HARV_k   指派到资源点 k 的采集循环(仅工人,点须己方已建)
+  7+Nn..7+2Nn-1     HARV_k   指派到资源点 k 的采集循环(仅工人,点须己方已建
+                             且名额未满——v1.3 指派即占用,重复下达豁免)
   7+2Nn             TRAIN_W  训练工人(仅 HQ)
   8+2Nn             TRAIN_I  训练步兵(仅 HQ)
 
@@ -150,14 +151,22 @@ def legality_mask(state: WorldState, cfg: Config, mapdata: MapData,
         mask = mask.at[:, A_MOVE0 + d].set(actable & (is_worker | is_inf) & ok)
 
     # 建造/采集:逐点([Nn,N] 小矩阵,Nn=8)
+    from .economy import assigned_counts  # 名额口径唯一定义处,避免双真源
     ncost = node_costs(cfg, mapdata)                      # [Nn,2]
     stock = state.resources[owner.astype(jnp.int32)]      # [N,2] 各实体所属玩家的库存
+    acounts = assigned_counts(state, cfg)                 # [Nn] 指派即占用(v1.3)
+    slots_tbl = jnp.asarray(cfg.harvest_slots_by_level, jnp.int32)
     for k in range(nn):
         unclaimed = (state.node_owner[k] == -1) & (state.node_build_timer[k] == 0)
         afford = jnp.all(stock >= ncost[k], axis=-1)
         mask = mask.at[:, a_build(k)].set(actable & is_worker & unclaimed & afford)
         mine_up = (state.node_owner[k] == owner) & (state.node_ent[k] >= 0)
-        mask = mask.at[:, a_harvest(k, cfg)].set(actable & is_worker & mine_up)
+        # 名额未满才可新指派;已指派到 k 者豁免(重复下同一指令 no-op 化)
+        ent_k = jnp.clip(state.node_ent[k].astype(jnp.int32), 0, cfg.n_total - 1)
+        cap_k = slots_tbl[jnp.clip(state.level[ent_k].astype(jnp.int32), 0, 7)]
+        already_k = (state.order == ORDER_HARVEST) & (state.target_node == k)
+        mask = mask.at[:, a_harvest(k, cfg)].set(
+            actable & is_worker & mine_up & ((acounts[k] < cap_k) | already_k))
 
     # 训练:HQ 空闲 + 本半区有空槽 + 付得起
     ucost = unit_costs(cfg)
@@ -256,6 +265,33 @@ def apply_orders(state: WorldState, actions: jax.Array, cfg: Config,
     资源点建造扣费在工人到场开工时(economy.start_constructions)。"""
     legal = legality_mask(state, cfg, mapdata, owner)
     act = jnp.where(legal[jnp.arange(cfg.n_total), actions], actions, A_NOOP)
+
+    # ---- 采集名额同 tick 超发仲裁(v1.3):掩码只见已写入的指派,看不见同 tick
+    # 并发申请(仿 v1.1 研发去重先例),按槽号 rank 裁到等级名额;被裁者动作退回
+    # NOOP、保持原指令(与训练落地顺延同哲学)。重复下达当前指派(no-op 化)
+    # 不占新名额、不参与仲裁。----
+    is_harv_a = (act >= a_harvest(0, cfg)) & (act < a_harvest(cfg.n_nodes, cfg))
+    harv_k_a = act - a_harvest(0, cfg)                     # 仅 is_harv_a 位有效
+    reissue = (is_harv_a & (state.order == ORDER_HARVEST)
+               & (state.target_node == harv_k_a))
+    new_cmd_a = ((act == A_STOP) | (act == A_ATTACK)
+                 | ((act >= A_MOVE0) & (act < A_MOVE0 + 4))
+                 | ((act >= a_build(0)) & (act < a_build(cfg.n_nodes)))
+                 | is_harv_a)
+    # 现存指派数,排除「本 tick 拿到新指令」者(从 A 点改派 k 点者同 tick 释放
+    # A 名额);原地重下者保留原名额
+    hold = (state.alive & (state.order == ORDER_HARVEST)
+            & (state.target_node >= 0) & (~new_cmd_a | reissue))
+    tn_a = jnp.clip(state.target_node.astype(jnp.int32), 0, cfg.n_nodes - 1)
+    assigned_excl = (jnp.zeros(cfg.n_nodes, jnp.int32)
+                     .at[tn_a].add(hold.astype(jnp.int32)))
+    slots_tbl = jnp.asarray(cfg.harvest_slots_by_level, jnp.int32)
+    for k in range(cfg.n_nodes):  # 编译期展开
+        cand = is_harv_a & (harv_k_a == k) & ~reissue
+        ent_k = jnp.clip(state.node_ent[k].astype(jnp.int32), 0, cfg.n_total - 1)
+        cap_k = slots_tbl[jnp.clip(state.level[ent_k].astype(jnp.int32), 0, 7)]
+        rank = jnp.cumsum(cand.astype(jnp.int32)) - 1      # 槽号序内的名次
+        act = jnp.where(cand & (assigned_excl[k] + rank >= cap_k), A_NOOP, act)
 
     is_stop = act == A_STOP
     is_att = act == A_ATTACK

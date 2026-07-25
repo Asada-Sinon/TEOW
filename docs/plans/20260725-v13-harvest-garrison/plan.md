@@ -293,6 +293,20 @@
 
 ## 发现但未做
 
+- **Phase 2 例外扩界(已做,记档供 validate 对账)**:名额制把 1 级点采集从
+  4 人压到 3 人后,`test_scripted_upgrades` 挂掉(诊断:矿石被练兵吃在升本线
+  以下打转,733 tick 分胜负但全场 0 升本)。依例外条款动了
+  `src/teow/controller.py` 科技优先预留块一处:基地未到 ai_base_level_target
+  时,练兵预留追加「升本成本+ai_upgrade_reserve」(与 Phase 1 的研发预留同根
+  同款)。Phase 5 改 controller 时须复核相容性。
+- `src/teow/actions.py` apply_orders 名额仲裁的已知角落(plan 设计自带,按
+  plan 原样实现):工人从 A 点改派 k 点会同 tick 释放 A 名额,若它在 k 被仲裁
+  拒绝(act 退回 NOOP、保留 HARVEST A),而同 tick 另一工人恰好拿走了被释放的
+  A 名额,则 A 点瞬时超额 1。scripted 从不同 tick 改派(只派 IDLE 工人),仅
+  random 控制器可触发;端到端审计的「每点指派数 ≤ 名额」不变量若在 random 局
+  上跑需注意此口径。修法(若要修):改派的旧名额释放改为「新指派成功才释放」
+  (两遍仲裁),但会让满员点之间的同 tick 对换互卡一拍。
+
 - **Phase 1 例外扩界(已做,非未做,记档供 validate 对账)**:8 点地图让
   `test_scripted_upgrades` 行为回归挂掉(全场 0 研发),依 /impl 例外条款
   (不改无法完成本 phase)动了 `src/teow/controller.py` 三处 scripted 决策:
