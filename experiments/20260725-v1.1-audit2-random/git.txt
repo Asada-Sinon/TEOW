@@ -1,0 +1,9 @@
+a9808392bc428edcdbaabf9dbcc247a9407aaa16
+dirty: True
+?? experiments/20260725-v1.1-audit-random/
+?? experiments/20260725-v1.1-audit/
+?? experiments/20260725-v1.1-audit2-random/
+?? experiments/20260725-v1.1-audit2/
+?? explorations/audit_v11_conservation_invariants.py
+?? explorations/audit_v11_random_win_seed12.py
+?? explorations/repro_double_research_same_tick.py
