@@ -1,0 +1,5 @@
+0fe4645e5205d39d0d00763c12900f05d37097b1
+dirty: True
+ M src/teow/render.py
+?? experiments/20260725-v1.1-demo/
+?? experiments/20260725-v1.1-smoke/

@@ -12,6 +12,7 @@ import pathlib
 import numpy as np
 
 from .config import (
+    TYPE_CAMP,
     TYPE_HQ,
     TYPE_INFANTRY,
     TYPE_MINE,
@@ -44,14 +45,24 @@ def _draw_frame(ax, frame: dict, e_max: int, passable: np.ndarray,
         marker = "D" if node_type[k] == 0 else "o"
         ax.plot(c, r, marker, ms=14, mfc="none", mec=col, mew=2)
 
+    level = frame.get("level")
     for i in np.flatnonzero(alive):
         r, c = pos[i]
         col = P_COLOR[int(owner[i])]
         t = etype[i]
+        # 建筑等级角标(v1.1;等级 1 不标,减少视觉噪音)
+        if (level is not None and t in (TYPE_HQ, TYPE_MINE, TYPE_PUMP, TYPE_CAMP)
+                and int(level[i]) > 1):
+            ax.text(c + 0.45, r - 0.45, str(int(level[i])), fontsize=7,
+                    color=col, ha="left", va="bottom", weight="bold")
         if t == TYPE_HQ:
             ax.plot(c, r, "s", ms=16, color=col)
         elif t in (TYPE_MINE, TYPE_PUMP):
             ax.plot(c, r, "s", ms=10, color=col, alpha=0.8)
+        elif t == TYPE_CAMP:
+            # 在建(btype<0)半透明,建成实心
+            building = frame["btype"][i] < 0
+            ax.plot(c, r, "p", ms=12, color=col, alpha=0.4 if building else 0.9)
         elif t == TYPE_WORKER:
             ms = 4 if inside[i] else 6
             alpha = 0.4 if inside[i] else 1.0
@@ -63,11 +74,15 @@ def _draw_frame(ax, frame: dict, e_max: int, passable: np.ndarray,
 
     res = frame["resources"]
     # 标题用 ASCII:matplotlib 默认字体没有 CJK 字形,中文会渲染成豆腐块
+    up = frame.get("upgrades")
+    up_txt = ""
+    if up is not None:
+        up_txt = (f"   P0 lv{up[0][0]}/{up[0][1]}  P1 lv{up[1][0]}/{up[1][1]}")
     ax.set_title(
         f"tick {int(frame['tick'])}   "
         f"P0 ore {res[0][0]} water {res[0][1]}  |  "
-        f"P1 ore {res[1][0]} water {res[1][1]}",
-        fontsize=10)
+        f"P1 ore {res[1][0]} water {res[1][1]}{up_txt}",
+        fontsize=9)
 
 
 def replay_run(run_dir: pathlib.Path, fps: int = 20, save: str | None = None) -> None:

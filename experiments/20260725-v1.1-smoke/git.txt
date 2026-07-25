@@ -1,0 +1,7 @@
+bd6c7461633d105d40c3a1908b70987bb1cec1cc
+dirty: True
+ M src/run.py
+ M src/teow/config.py
+ M src/teow/controller.py
+?? experiments/20260725-v1.1-smoke/
+?? tests/test_scripted_upgrades.py
