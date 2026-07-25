@@ -4,7 +4,8 @@
 乱给)。动作只是「改写常驻指令」——真正的行动(移动/开采/生产)由 step 各阶段按
 常驻指令推进,所以 no-op ≠ 发呆。
 
-动作表(n_actions = 17 + 3*Nn;Nn=8 时共 41,完整 id 布局见各 a_*() 定义):
+动作表(n_actions = 18 + 3*Nn + 2*F,F=max_flags;Nn=8、F=3 时共 48,
+完整 id 布局见各 a_*() 定义):
   0                 NOOP     维持现状
   1                 STOP     清除常驻指令(矿内工人不可用,先等它出来)
   2                 ATTACK   attack-move 向敌方 HQ(仅步兵)
@@ -16,6 +17,9 @@
   8+2Nn             TRAIN_I  训练步兵(仅 HQ)
   16+2Nn            GARR_HQ  驻守己方 HQ(仅战斗单位,v1.3)
   17+2Nn..17+3Nn-1  GARR_k   驻守己方资源点 k 的矿泵(仅战斗单位,v1.3)
+  17+3Nn..17+3Nn+F-1  GARR_FLAG_j  驻守己方 j 号旗(仅战斗单位,v1.3)
+  17+3Nn+F          PLANT    在脚下插旗(仅战斗单位;免费即时,须拥有建成兵营)
+  18+3Nn+F..17+3Nn+2F  RECALL_j  撤 j 号旗(挂在建成兵营上,远程即时)
 
 合法性掩码从第一天就是引擎输出(调研报告 §5.8):v2 的 RL invalid-action-masking
 直接复用,random 控制器也靠它只在合法动作里采样。
@@ -114,8 +118,24 @@ def a_garrison_node(k: int, cfg: Config) -> int:
     return 17 + 2 * cfg.n_nodes + k
 
 
+def a_garrison_flag(j: int, cfg: Config) -> int:
+    """驻守己方 j 号旗(v1.3;仅战斗单位,旗须激活)。"""
+    return 17 + 3 * cfg.n_nodes + j
+
+
+def a_plant_flag(cfg: Config) -> int:
+    """在自身脚下插旗(v1.3;仅战斗单位。免费、即时,须拥有建成兵营,
+    每玩家至多 max_flags 面,脚下格须非资源点/建筑占用格)。"""
+    return 17 + 3 * cfg.n_nodes + cfg.max_flags
+
+
+def a_recall_flag(j: int, cfg: Config) -> int:
+    """撤 j 号旗(v1.3;挂在建成兵营上,远程即时;原驻守该旗的兵原地转 IDLE)。"""
+    return 18 + 3 * cfg.n_nodes + cfg.max_flags + j
+
+
 def n_actions(cfg: Config) -> int:
-    return 17 + 3 * cfg.n_nodes
+    return 18 + 3 * cfg.n_nodes + 2 * cfg.max_flags
 
 
 def unit_costs(cfg: Config) -> jax.Array:
@@ -271,6 +291,29 @@ def legality_mask(state: WorldState, cfg: Config, mapdata: MapData,
         ok = (actable & is_camp & (lv >= 2) & (state.btimer == 0)
               & (cur < lv) & ~busy_same & jnp.all(stock >= rcost, axis=-1))
         mask = mask.at[:, a_research(line, cfg)].set(ok)
+
+    # ---- 军旗(v1.3):插旗/驻守旗/撤旗 ----
+    # 「拥有兵营」= 建成(btype>=0 排除在建负值任务;critic m-2:自由格建筑
+    # 开工瞬间即 alive,在建不算)。规格明文 1 级即可、无空闲要求——正在训狗
+    # 的兵营(btype==TYPE_DOG)仍算「拥有」,也仍可撤旗(撤旗免费即时,
+    # 不占生产位)。
+    bar_built = state.alive & is_bar & (state.btype >= 0)
+    has_bar = jnp.stack([
+        jnp.any((owner == 0) & bar_built),
+        jnp.any((owner == 1) & bar_built),
+    ])[half]
+    my_flags = jnp.sum(state.flag_active.astype(jnp.int32), axis=1)[half]
+    from .movement import building_cells
+    bcells = building_cells(state, cfg)
+    mycell = jnp.clip(cell_of(state.pos), 0, jnp.asarray([h - 1, w - 1]))
+    cell_free = (passable[mycell[:, 0], mycell[:, 1]]
+                 & ~bcells[mycell[:, 0], mycell[:, 1]])
+    mask = mask.at[:, a_plant_flag(cfg)].set(
+        actable & is_inf & has_bar & (my_flags < cfg.max_flags) & cell_free)
+    for j in range(cfg.max_flags):
+        fj = state.flag_active[half, j]
+        mask = mask.at[:, a_garrison_flag(j, cfg)].set(actable & is_inf & fj)
+        mask = mask.at[:, a_recall_flag(j, cfg)].set(actable & bar_built & fj)
     return mask
 
 
@@ -322,6 +365,10 @@ def apply_orders(state: WorldState, actions: jax.Array, cfg: Config,
     is_gnode = ((act >= a_garrison_node(0, cfg))
                 & (act < a_garrison_node(cfg.n_nodes, cfg)))
     gar_k = jnp.clip(act - a_garrison_node(0, cfg), 0, cfg.n_nodes - 1)
+    is_gflag = ((act >= a_garrison_flag(0, cfg))
+                & (act < a_garrison_flag(cfg.max_flags, cfg)))
+    gf_j = jnp.clip(act - a_garrison_flag(0, cfg), 0, cfg.max_flags - 1)
+    is_plant = act == a_plant_flag(cfg)
     # 训狗不在此扣费:同 tick 多座兵营可同时下单,走 paid_orders_pass 对账
 
     build_k = jnp.where(is_build, act - a_build(0), -1).astype(jnp.int8)
@@ -334,13 +381,15 @@ def apply_orders(state: WorldState, actions: jax.Array, cfg: Config,
     order = jnp.where(is_move, ORDER_MOVE, order)
     order = jnp.where(is_build, ORDER_BUILD, order)
     order = jnp.where(is_harv, ORDER_HARVEST, order)
-    order = jnp.where(is_ghq | is_gnode, ORDER_GARRISON, order)
+    order = jnp.where(is_ghq | is_gnode | is_gflag, ORDER_GARRISON, order)
 
     # 驻守锚点 id(v1.3):A_STOP 顺手清残值;其余改派指令留残值无害——
     # garrison_id 的一切消费方都门控在 order==ORDER_GARRISON 上
     garrison_id = jnp.where(is_stop, -1, state.garrison_id)
     garrison_id = jnp.where(is_ghq, 0, garrison_id)
-    garrison_id = jnp.where(is_gnode, gar_k + 1, garrison_id).astype(jnp.int8)
+    garrison_id = jnp.where(is_gnode, gar_k + 1, garrison_id)
+    garrison_id = jnp.where(is_gflag, cfg.n_nodes + 1 + gf_j,
+                            garrison_id).astype(jnp.int8)
 
     target_node = jnp.where(is_build, build_k, state.target_node)
     target_node = jnp.where(is_harv, harv_k, target_node)
@@ -354,6 +403,10 @@ def apply_orders(state: WorldState, actions: jax.Array, cfg: Config,
     node_pos_f = jnp.asarray(mapdata.node_pos, jnp.float32)
     target_cell = jnp.where(is_ghq[:, None], own_hq, target_cell)
     target_cell = jnp.where(is_gnode[:, None], node_pos_f[gar_k], target_cell)
+    # 驻守旗:锚点=旗位(撤旗即失效,由下方撤旗清理兜底,movement 无需特判)
+    target_cell = jnp.where(
+        is_gflag[:, None],
+        state.flag_pos[owner.astype(jnp.int32), gf_j], target_cell)
 
     # 换指令时相位复位;带着货被改派采集 → 先回家卸货再进循环
     # (「满载」按该工人当前线级的载荷判;历史低级载荷也 >0 即回家,用 >0 更稳)
@@ -370,12 +423,52 @@ def apply_orders(state: WorldState, actions: jax.Array, cfg: Config,
     btimer = jnp.where(is_tw, cfg.worker_time, state.btimer)
     btimer = jnp.where(is_ti, cfg.infantry_time, btimer).astype(jnp.int16)
 
+    # ---- 军旗表更新(v1.3;免费无扣费,留在本函数不进 paid_orders_pass)。
+    # 求值顺序(critic M-2):撤旗对单位的清理在个体 order 覆写**之后**——
+    # 同 tick 既被撤旗又收到新指令(如 ATTACK)者,新指令生效、不被打回 IDLE,
+    # 只清「覆写后仍为 GARRISON 指向该旗」者。撤旗先于插旗结算,腾出的旗位
+    # 同 tick 可复用。----
+    own_i32 = owner.astype(jnp.int32)
+    flag_pos = state.flag_pos
+    flag_active = state.flag_active
+    for p in (0, 1):  # 编译期展开
+        for j in range(cfg.max_flags):
+            rec = jnp.any((act == a_recall_flag(j, cfg)) & (own_i32 == p))
+            flag_active = flag_active.at[p, j].set(
+                jnp.where(rec, False, flag_active[p, j]))
+            flag_pos = flag_pos.at[p, j].set(
+                jnp.where(rec, -1.0, flag_pos[p, j]))
+            ref = (rec & (own_i32 == p)
+                   & (garrison_id == cfg.n_nodes + 1 + j))
+            order = jnp.where(ref & (order == ORDER_GARRISON),
+                              ORDER_IDLE, order)
+            # 指向被撤旗的 garrison_id 残值一并清(含同 tick 被改派 ATTACK 者
+            # ——order 已是新指令,不打回 IDLE;规格「引擎保证无悬空引用」)
+            garrison_id = jnp.where(ref, -1, garrison_id).astype(jnp.int8)
+    # 插旗:同 tick 多申请按槽号逐个批(每轮批槽号最小者进最小空旗位),
+    # 旗位耗尽后其余申请自动 no-op(与训练落地顺延同哲学)
+    slots_p = jnp.arange(cfg.n_total)
+    for p in (0, 1):  # 编译期展开
+        cand = is_plant & (own_i32 == p)
+        for _ in range(cfg.max_flags):
+            widx = jnp.argmax(cand)                # 全 False 返 0,do 门控
+            free_j = jnp.argmax(~flag_active[p])
+            do = jnp.any(cand) & jnp.any(~flag_active[p])
+            cell = jnp.round(state.pos[widx])      # 旗落申请者脚下格心
+            flag_pos = flag_pos.at[p, free_j].set(
+                jnp.where(do, cell, flag_pos[p, free_j]))
+            flag_active = flag_active.at[p, free_j].set(
+                jnp.where(do, True, flag_active[p, free_j]))
+            cand = cand & (slots_p != widx)
+
     return state._replace(
         order=order.astype(jnp.int8),
         phase=phase,
         target_node=target_node,
         target_cell=target_cell,
         garrison_id=garrison_id,
+        flag_pos=flag_pos,
+        flag_active=flag_active,
         btype=btype,
         btimer=btimer,
         resources=state.resources - pay,

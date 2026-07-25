@@ -87,3 +87,9 @@
   build_step,单步 masked-argmin 下降(防凹障碍卡死工人毁掉经济信号);
   ④战斗照抄 SMAX:masked argmin 选邻接目标(全无效必须门控)+ .at[].add 同时
   结算 + 先结算后翻 alive(允许同归于尽)。
+- 2026-07-25 [AI-DRAFT] **v1.3 Phase 4「拥有建成兵营」判定 = `btype >= 0`,不采
+  plan 字面的 `btype == 0`**。issue.md 规格写「解锁条件 = 拥有兵营(1 级即可)」
+  「撤旗挂在兵营上,免费、即时」,均无「空闲」要求;btype==0 是训狗 legality 的
+  空闲判定,借用过来会把正在训狗的兵营排除在「拥有」之外(插旗突然非法),并让
+  Phase 5 总攻 tick「兵营边训狗边撤旗」被掩码卡死。btype>=0 恰好只排除在建
+  (BTASK_BUILD_BARRACKS<0),命中 plan critic m-2 的本意。规格优先于 plan 字面。

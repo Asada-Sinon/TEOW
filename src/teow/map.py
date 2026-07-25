@@ -32,8 +32,9 @@ class MapData(NamedTuple):
     node_type: np.ndarray    # int32 [Nn]  RES_ORE / RES_WATER
     hq_pos: np.ndarray       # int32 [2,2]
     spawn_pos: np.ndarray    # int32 [2,start_workers,2]  初始工人站位
-    dist_fields: np.ndarray  # int32 [G,H,W]  到各 goal 的 BFS 步数;不可达=BIG_DIST
-    goal_seeds: np.ndarray   # bool  [G,H,W]  各 goal 的种子格(movement 动态场用)
+    dist_fields: np.ndarray  # int32 [Nn+2,H,W]  到各静态 goal 的 BFS 步数;
+    #                          不可达=BIG_DIST。旗的动态通道不在此(movement 拼接)
+    goal_seeds: np.ndarray   # bool  [Nn+2,H,W]  静态 goal 种子格(movement 动态场用)
 
     @property
     def n_nodes(self) -> int:

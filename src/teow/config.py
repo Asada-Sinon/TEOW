@@ -56,6 +56,7 @@ class Config:
     # 采集名额(v1.3 指派即占用):按矿泵等级查「可同时指派(order==HARVEST)」
     # 的工人上限;名额在指派侧占用,不因工人出矿运输而释放。0 位是废位。
     harvest_slots_by_level: tuple = (0, 3, 3, 4, 4, 5, 5, 6)
+    max_flags: int = 3       # 军旗(v1.3):每玩家上限,不随任何等级增加
 
     # ---- 采集一体循环 ----
     # 开采耗时/载荷已并入工人经济线的 *_by_level 表(v1.1);一趟入账公式:
@@ -191,5 +192,7 @@ class Config:
 
     @property
     def n_goals(self) -> int:
-        """距离场数量:每个资源点一张 + 每个 HQ 一张。"""
-        return self.n_nodes + 2
+        """距离场数量:每个资源点一张 + 每个 HQ 一张(静态,MapData.goal_seeds
+        只含这 n_nodes+2 张)+ 2 玩家 × max_flags 张军旗动态通道(v1.3,
+        种子每 tick 由 state.flag_pos/flag_active 生成,见 movement)。"""
+        return self.n_nodes + 2 + 2 * self.max_flags

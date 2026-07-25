@@ -15,7 +15,8 @@ def test_shapes_and_types():
     m = build_map(cfg)
     assert m.passable.shape == (cfg.grid_h, cfg.grid_w)
     assert m.node_pos.shape == (cfg.n_nodes, 2)
-    assert m.dist_fields.shape == (cfg.n_goals, cfg.grid_h, cfg.grid_w)
+    # MapData 只含静态场(Nn+2);n_goals 含旗动态通道,由 movement 每 tick 拼接
+    assert m.dist_fields.shape == (cfg.n_nodes + 2, cfg.grid_h, cfg.grid_w)
     # 每家附近 1矿1水 + 左下/右上公共各 1矿1水(v1.3 双角布局)
     assert list(m.node_type) == [RES_ORE, RES_WATER, RES_ORE, RES_WATER,
                                  RES_ORE, RES_WATER, RES_ORE, RES_WATER]
@@ -51,7 +52,7 @@ def test_obstacles_impassable():
 def test_dist_fields():
     cfg = Config()
     m = build_map(cfg)
-    for g in range(cfg.n_goals):
+    for g in range(cfg.n_nodes + 2):  # 静态场:资源点 + HQ(旗动态场不在 MapData)
         f = m.dist_fields[g]
         src = m.node_pos[g] if g < cfg.n_nodes else m.hq_pos[g - cfg.n_nodes]
         assert f[src[0], src[1]] == 0

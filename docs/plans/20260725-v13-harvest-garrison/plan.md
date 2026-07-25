@@ -293,6 +293,17 @@
 
 ## 发现但未做
 
+- **Phase 4 例外扩界(已做,记档供 validate 对账)**:①`tests/test_map.py`
+  两处 `cfg.n_goals` 断言(dist_fields 形状、场遍历)在 n_goals 10→16 后必挂,
+  依例外条款改为静态口径 `cfg.n_nodes + 2`(plan 未列此测试改动);
+  ②「拥有建成兵营」判定用 `btype >= 0`(排除在建负值任务)而非 plan 字面的
+  `btype == 0`:issue.md 规格「拥有兵营(1 级即可)」「撤旗挂在兵营上,免费
+  即时」均无空闲要求,btype==0 会把正在训狗的兵营排除、并卡死 Phase 5 总攻
+  tick 的撤旗;规格优先于 plan,已记 docs/DECISIONS.md;③撤旗清理在
+  「order 仍为 GARRISON → IDLE」之外,把**指向被撤旗的 garrison_id 残值一律
+  清 -1**(含同 tick 被改派 ATTACK 者)——这是 plan 自己的 critic M-2 回归
+  用例断言 `garrison_id==-1` 所要求的口径,字面 plan 只写了清 GARRISON 者。
+
 - **Phase 2 例外扩界(已做,记档供 validate 对账)**:名额制把 1 级点采集从
   4 人压到 3 人后,`test_scripted_upgrades` 挂掉(诊断:矿石被练兵吃在升本线
   以下打转,733 tick 分胜负但全场 0 升本)。依例外条款动了

@@ -59,6 +59,9 @@ class WorldState(NamedTuple):
     garrison_id: jax.Array  # int8  [N]  驻守锚点 id;-1 无。0=己方 HQ,
     #                                     1..Nn=资源点 k=id-1(Nn+1..Nn+3=旗 j,v1.3
     #                                     Phase 4)。消费方必须门控 order==GARRISON。
+    # ---- 军旗表 [2, max_flags](v1.3;旗不是实体:无血量、不可拆)----
+    flag_pos: jax.Array     # f32  [2,F,2] 旗所在格心;未激活 -1
+    flag_active: jax.Array  # bool [2,F]
     # ---- 资源点表 [Nn] ----
     node_owner: jax.Array        # int8  [Nn] -1 无主
     node_ent: jax.Array          # int16 [Nn] 结构实体槽号;-1 未建
@@ -130,6 +133,8 @@ def init_state(cfg: Config, mapdata: MapData) -> WorldState:
         node_id=jnp.full(n, -1, jnp.int8),
         level=jnp.ones(n, jnp.int8),
         garrison_id=jnp.full(n, -1, jnp.int8),
+        flag_pos=jnp.full((2, cfg.max_flags, 2), -1.0, jnp.float32),
+        flag_active=jnp.zeros((2, cfg.max_flags), bool),
         node_owner=jnp.full(nn, -1, jnp.int8),
         node_ent=jnp.full(nn, -1, jnp.int16),
         node_build_timer=jnp.zeros(nn, jnp.int16),

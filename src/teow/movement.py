@@ -106,13 +106,19 @@ def movement_tick(state: WorldState, cfg: Config, mapdata: MapData,
     goal = jnp.where(st.order == ORDER_ATTACK, cfg.n_nodes + (1 - own_i), tn)
     goal = jnp.where((st.order == ORDER_HARVEST) & (st.phase == PH_TO_HQ),
                      cfg.n_nodes + own_i, goal)
-    # 驻守(v1.3):锚点 0=己方 HQ 场,1..Nn=点 k 场(现有 Nn+2 张场直接覆盖);
-    # 场只用来取方向——到达/步长/回岗一律对 target_cell 求欧氏距离
-    # (goal_center 对越界 goal 会 clip 错场,critic B-1)
-    gid = jnp.clip(st.garrison_id.astype(jnp.int32), 0, cfg.n_nodes)
+    # 驻守(v1.3):锚点 0=己方 HQ 场,1..Nn=点 k 场,Nn+1..Nn+F=己方旗 j 的
+    # 动态场(goal 索引 Nn+2 + own*F + j);场只用来取方向——到达/步长/回岗
+    # 一律对 target_cell 求欧氏距离(goal_center 对越界 goal 会 clip 错场,
+    # critic B-1)
+    gid = jnp.clip(st.garrison_id.astype(jnp.int32), 0,
+                   cfg.n_nodes + cfg.max_flags)
     is_gar = st.order == ORDER_GARRISON
-    goal = jnp.where(is_gar,
-                     jnp.where(gid == 0, cfg.n_nodes + own_i, gid - 1), goal)
+    gar_goal = jnp.where(
+        gid == 0, cfg.n_nodes + own_i,
+        jnp.where(gid <= cfg.n_nodes, gid - 1,
+                  cfg.n_nodes + 2 + own_i * cfg.max_flags
+                  + (gid - cfg.n_nodes - 1)))
+    goal = jnp.where(is_gar, gar_goal, goal)
     use_field = ((st.order == ORDER_HARVEST) | (st.order == ORDER_BUILD)
                  | (st.order == ORDER_ATTACK) | is_gar)
     goal_center = jnp.where(
@@ -149,7 +155,17 @@ def movement_tick(state: WorldState, cfg: Config, mapdata: MapData,
     # ——实测退化成布朗游走,一趟采集 35→140 tick。v1.1 需要 congestion 分道,
     # 连续模式下对向流由圆形互推物理解决,不再需要场层面的分道。
     cell_cost = 1 + cfg.stationary_cost * occ_stat.astype(jnp.int32)
-    dyn = _relax_fields(jnp.asarray(mapdata.goal_seeds), blocked, cell_cost, h + w)
+    # 动态旗场种子(v1.3):静态 Nn+2 张后接 2 玩家 × max_flags 张,每 tick 由
+    # flag_pos/flag_active scatter 生成;未激活旗 → 无种子(全 BIG 场,但没有
+    # 消费方:goal 只在 order==GARRISON 且 gid 指向激活旗时才指到这里)
+    nf = 2 * cfg.max_flags
+    fcell = jnp.clip(cell_of(st.flag_pos.reshape(nf, 2)), 0,
+                     jnp.asarray([h - 1, w - 1]))
+    flag_seeds = (jnp.zeros((nf, h, w), bool)
+                  .at[jnp.arange(nf), fcell[:, 0], fcell[:, 1]]
+                  .set(st.flag_active.reshape(nf)))
+    seeds = jnp.concatenate([jnp.asarray(mapdata.goal_seeds), flag_seeds], axis=0)
+    dyn = _relax_fields(seeds, blocked, cell_cost, h + w)
     # 双线性采样前 clip 哨兵(critic S-3)
     dyn_c = jnp.minimum(dyn, 4 * (h + w)).astype(jnp.float32)
 
