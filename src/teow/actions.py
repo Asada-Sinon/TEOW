@@ -27,6 +27,8 @@ from .config import (
     RES_WATER,
     TYPE_HQ,
     TYPE_INFANTRY,
+    TYPE_MINE,
+    TYPE_PUMP,
     TYPE_WORKER,
     Config,
 )
@@ -65,8 +67,14 @@ def a_train_infantry(cfg: Config) -> int:
     return 8 + 2 * cfg.n_nodes
 
 
-def n_actions(cfg: Config) -> int:
+def a_upgrade(cfg: Config) -> int:
+    """建筑通用自升级(v1.1):HQ/矿/泵(/营)。扣费不在 apply_orders,
+    在 economy.paid_orders_pass 按槽号顺序对账(同 tick 多笔支出防透支)。"""
     return 9 + 2 * cfg.n_nodes
+
+
+def n_actions(cfg: Config) -> int:
+    return 10 + 2 * cfg.n_nodes
 
 
 def unit_costs(cfg: Config) -> jax.Array:
@@ -133,15 +141,28 @@ def legality_mask(state: WorldState, cfg: Config, mapdata: MapData,
         hq_idle & jnp.all(stock >= ucost[0], axis=-1))
     mask = mask.at[:, a_train_infantry(cfg)].set(
         hq_idle & jnp.all(stock >= ucost[1], axis=-1))
+
+    # 升级(v1.1):建筑空闲(btimer==0,critic S-1:否则覆写在训单位)+ 上限链
+    # + 乐观付得起(最终扣费在 paid_orders_pass 顺序对账,同 tick 多笔不透支)
+    from .economy import upgrade_cost_of  # 集中定价,避免双真源
+    lv = state.level.astype(jnp.int32)
+    hq_lv = state.level[half * cfg.e_max].astype(jnp.int32)   # 各实体所属玩家的基地级
+    is_node_b = (state.etype == TYPE_MINE) | (state.etype == TYPE_PUMP)
+    cap_ok = jnp.where(is_hq, lv < cfg.base_max_level, lv < hq_lv)
+    up_cost = upgrade_cost_of(state, cfg)                     # [N,2] 按类型/等级
+    can_up = (actable & (is_hq | is_node_b) & (state.btimer == 0) & cap_ok
+              & jnp.all(stock >= up_cost, axis=-1))
+    mask = mask.at[:, a_upgrade(cfg)].set(can_up)
     return mask
 
 
 def apply_orders(state: WorldState, actions: jax.Array, cfg: Config,
-                 mapdata: MapData, owner: jax.Array) -> WorldState:
-    """把本 tick 的动作写成常驻指令。非法 → NOOP。
-    训练在此立刻扣费开工(v1 每家只有 1 座 HQ,同 tick 同玩家至多一笔训练支出,
-    对库存的检查是安全的;建造扣费在工人到场开工时,见 economy.start_constructions
-    ——那里有同 tick 多工地的顺序对账)。"""
+                 mapdata: MapData, owner: jax.Array) -> tuple[WorldState, jax.Array]:
+    """把本 tick 的动作写成常驻指令,返回 (state, 合法化后的动作)。非法 → NOOP。
+    训练在此立刻扣费开工(每家只有 1 座 HQ,同 tick 同玩家至多一笔训练支出,
+    对库存的检查是安全的);**升级/研发/建营这类可同 tick 多笔的支出不在本函数**,
+    由 economy.paid_orders_pass 拿返回的合法化动作按槽号顺序对账(critic B-1);
+    资源点建造扣费在工人到场开工时(economy.start_constructions)。"""
     legal = legality_mask(state, cfg, mapdata, owner)
     act = jnp.where(legal[jnp.arange(cfg.n_total), actions], actions, A_NOOP)
 
@@ -194,4 +215,4 @@ def apply_orders(state: WorldState, actions: jax.Array, cfg: Config,
         btype=btype,
         btimer=btimer,
         resources=state.resources - pay,
-    )
+    ), act

@@ -16,9 +16,11 @@ import jax
 import jax.numpy as jnp
 
 from .config import (
+    BTASK_UPGRADE,
     LINE_INFANTRY,
     LINE_WORKER,
     RES_WATER,
+    TYPE_HQ,
     TYPE_MINE,
     TYPE_PUMP,
     TYPE_WORKER,
@@ -54,6 +56,69 @@ def inside_counts(state: WorldState, cfg: Config) -> jax.Array:
     tn = jnp.clip(state.target_node.astype(jnp.int32), 0, cfg.n_nodes - 1)
     return (jnp.zeros(cfg.n_nodes, jnp.int32)
             .at[tn].add((state.inside).astype(jnp.int32)))
+
+
+def upgrade_cost_of(state, cfg: Config) -> jax.Array:
+    """int32 [N,2]:每个实体「从当前等级升一级」的(ore,water)成本,按类型查表。
+    定价唯一定义处(legality 乐观检查与 paid_orders_pass 实扣都用它)。
+    非可升级类型返回 0(调用方用类型掩码门控)。"""
+    lv = jnp.clip(state.level.astype(jnp.int32), 0, 7)
+    is_hq = state.etype == TYPE_HQ
+    ore = jnp.where(is_hq, jnp.asarray(cfg.base_up_cost_ore)[lv],
+                    jnp.asarray(cfg.node_up_cost_ore)[lv])
+    wat = jnp.where(is_hq, jnp.asarray(cfg.base_up_cost_water)[lv],
+                    jnp.asarray(cfg.node_up_cost_water)[lv])
+    return jnp.stack([ore, wat], axis=-1)
+
+
+def upgrade_time_of(state, cfg: Config) -> jax.Array:
+    """int32 [N]:每个实体升一级的耗时,按类型查表。"""
+    lv = jnp.clip(state.level.astype(jnp.int32), 0, 7)
+    is_hq = state.etype == TYPE_HQ
+    return jnp.where(is_hq, jnp.asarray(cfg.base_up_time)[lv],
+                     jnp.asarray(cfg.node_up_time)[lv])
+
+
+def paid_orders_pass(state: WorldState, act: jax.Array, cfg: Config,
+                     owner: jax.Array) -> WorldState:
+    """同 tick 可能多笔的付费指令(v1.1:A_UPGRADE;v1.2+ 扩展建营/研发)的
+    **顺序对账扣费**(critic B-1):同玩家按槽号累计支出,超出库存的笔自动
+    no-op,库存恒 ≥0。act 必须是 apply_orders 返回的合法化动作。"""
+    from .actions import a_upgrade
+
+    want = act == a_upgrade(cfg)
+    cost = upgrade_cost_of(state, cfg) * want[:, None]     # [N,2]
+    own_i = owner.astype(jnp.int32)
+
+    # 每玩家沿槽号的累计支出(含本行),两种资源都要放得下
+    afford = jnp.zeros(cfg.n_total, bool)
+    stock = state.resources
+    for p in (0, 1):  # 编译期展开
+        mine_cost = cost * (own_i == p)[:, None]
+        cum = jnp.cumsum(mine_cost, axis=0)                # [N,2] 含本行
+        ok = jnp.all(cum <= stock[p][None, :], axis=-1)
+        afford = jnp.where(own_i == p, ok, afford)
+    do = want & afford
+
+    pay = (jnp.zeros_like(stock)
+           .at[own_i].add(jnp.where(do[:, None], cost, 0)))
+    up_t = upgrade_time_of(state, cfg)
+    return state._replace(
+        resources=stock - pay,
+        btype=jnp.where(do, BTASK_UPGRADE, state.btype).astype(jnp.int8),
+        btimer=jnp.where(do, up_t, state.btimer).astype(jnp.int16),
+    )
+
+
+def special_tasks_tick(state: WorldState, cfg: Config) -> WorldState:
+    """负数 btype 任务的完成结算(解码唯一集中处;完成分支必须 btype←0,
+    否则「btype<0 & btimer==0」下一 tick 重复触发,level 每 tick+1 直到溢出)。
+    btimer 的递减复用 production_tick(它对所有 btimer>0 无差别倒数)。"""
+    done = state.alive & (state.btype < 0) & (state.btimer == 0)
+    upg = done & (state.btype == BTASK_UPGRADE)
+    level = jnp.where(upg, state.level + 1, state.level).astype(jnp.int8)
+    btype = jnp.where(done, 0, state.btype).astype(jnp.int8)
+    return state._replace(level=level, btype=btype)
 
 
 def _unit_spawn_hp(cfg: Config, ut: jax.Array, upgrades_p: jax.Array) -> jax.Array:
