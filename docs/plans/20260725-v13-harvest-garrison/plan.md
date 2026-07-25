@@ -293,6 +293,13 @@
 
 ## 发现但未做
 
+- **端到端验证观察(未做)**:①audit_v13_invariants 对 run.py 录制的
+  trajectory.npz 760 帧逐位一致——审计链(new_world+joint+split(key,3))与
+  run.py 正式链路等价,故 Phase 7 观察的分歧可归属到诊断脚本
+  `explorations/debug_v13_scripted_garrison.py` 一侧(具体差异点仍未定位);
+  ②seed 7 与 seed 0 的 scripted 对决终局完全相同(P0 胜 @1519),
+  Phase 6 的「seed 不敏感」在 run.py 正式链路同样成立。
+
 - **Phase 7 观察(未做)**:同 seed 0 的 scripted vs scripted,`run.py play` 正式
   链路结果为 P0 胜 @1519 tick(experiments/20260725-v13-frontend-demo/),与
   Phase 5 诊断脚本时间线(P1 胜 @1116、P0 全场 0 军队)不一致——两条链路存在
