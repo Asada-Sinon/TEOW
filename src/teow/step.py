@@ -62,11 +62,11 @@ def build_step(cfg: Config, mapdata: MapData):
     def step(state: WorldState, actions: jax.Array, key: jax.Array) -> WorldState:
         k_claim, k_move = jax.random.split(key)
         st = production_tick(state, cfg, mapdata)
-        st = special_tasks_tick(st, cfg)   # 负数 btype 任务完成(升级/研发)
+        st = special_tasks_tick(st, cfg, owner)  # 负数 btype 任务(升级/研发/建营)
         st = construction_tick(st, cfg, mapdata, owner)
         st = harvest_tick(st, cfg, mapdata, owner)
         st, act = apply_orders(st, actions, cfg, mapdata, owner)
-        st = paid_orders_pass(st, act, cfg, owner)  # 多笔付费指令顺序对账(B-1)
+        st = paid_orders_pass(st, act, cfg, mapdata, owner)  # 付费指令顺序对账(B-1)
         st = start_constructions(st, cfg, mapdata, owner, k_claim)
         st = movement_tick(st, cfg, mapdata, owner, k_move)
         st = combat_tick(st, cfg, owner)

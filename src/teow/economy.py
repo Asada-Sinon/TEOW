@@ -20,7 +20,9 @@ from .config import (
     LINE_INFANTRY,
     LINE_WORKER,
     RES_WATER,
+    TYPE_CAMP,
     TYPE_HQ,
+    TYPE_INFANTRY,
     TYPE_MINE,
     TYPE_PUMP,
     TYPE_WORKER,
@@ -64,10 +66,13 @@ def upgrade_cost_of(state, cfg: Config) -> jax.Array:
     非可升级类型返回 0(调用方用类型掩码门控)。"""
     lv = jnp.clip(state.level.astype(jnp.int32), 0, 7)
     is_hq = state.etype == TYPE_HQ
+    is_camp = state.etype == TYPE_CAMP
     ore = jnp.where(is_hq, jnp.asarray(cfg.base_up_cost_ore)[lv],
                     jnp.asarray(cfg.node_up_cost_ore)[lv])
+    ore = jnp.where(is_camp, jnp.asarray(cfg.camp_up_cost_ore)[lv], ore)
     wat = jnp.where(is_hq, jnp.asarray(cfg.base_up_cost_water)[lv],
                     jnp.asarray(cfg.node_up_cost_water)[lv])
+    wat = jnp.where(is_camp, jnp.asarray(cfg.camp_up_cost_water)[lv], wat)
     return jnp.stack([ore, wat], axis=-1)
 
 
@@ -75,50 +80,166 @@ def upgrade_time_of(state, cfg: Config) -> jax.Array:
     """int32 [N]:每个实体升一级的耗时,按类型查表。"""
     lv = jnp.clip(state.level.astype(jnp.int32), 0, 7)
     is_hq = state.etype == TYPE_HQ
-    return jnp.where(is_hq, jnp.asarray(cfg.base_up_time)[lv],
-                     jnp.asarray(cfg.node_up_time)[lv])
+    is_camp = state.etype == TYPE_CAMP
+    t = jnp.where(is_hq, jnp.asarray(cfg.base_up_time)[lv],
+                  jnp.asarray(cfg.node_up_time)[lv])
+    return jnp.where(is_camp, jnp.asarray(cfg.camp_up_time)[lv], t)
 
 
 def paid_orders_pass(state: WorldState, act: jax.Array, cfg: Config,
-                     owner: jax.Array) -> WorldState:
-    """同 tick 可能多笔的付费指令(v1.1:A_UPGRADE;v1.2+ 扩展建营/研发)的
-    **顺序对账扣费**(critic B-1):同玩家按槽号累计支出,超出库存的笔自动
-    no-op,库存恒 ≥0。act 必须是 apply_orders 返回的合法化动作。"""
-    from .actions import a_upgrade
+                     mapdata: MapData, owner: jax.Array) -> WorldState:
+    """同 tick 可能多笔的付费指令(升级/研发/建营)的**顺序对账扣费**
+    (critic B-1):同玩家按槽号累计支出,超出库存的笔自动 no-op,库存恒 ≥0。
+    act 必须是 apply_orders 返回的合法化动作。
+    结算顺序(固定,写死防漂移):①升级+研发按槽号 cumsum 对账 ②建营
+    (同玩家同 tick 至多批准一座,用①之后的余额)。"""
+    from .actions import a_build_camp, a_research, a_upgrade
+    from .config import (
+        BTASK_BUILD_CAMP,
+        BTASK_RESEARCH_INF,
+        BTASK_RESEARCH_WORKER,
+        LINE_INFANTRY,
+        LINE_WORKER,
+        TYPE_CAMP,
+    )
 
-    want = act == a_upgrade(cfg)
-    cost = upgrade_cost_of(state, cfg) * want[:, None]     # [N,2]
     own_i = owner.astype(jnp.int32)
+    st = state
 
-    # 每玩家沿槽号的累计支出(含本行),两种资源都要放得下
+    # ---- ① 升级 + 研发:统一 cumsum 对账 ----
+    w_up = act == a_upgrade(cfg)
+    w_ri = act == a_research(LINE_INFANTRY, cfg)
+    w_rw = act == a_research(LINE_WORKER, cfg)
+    cur_i = st.upgrades[own_i, LINE_INFANTRY].astype(jnp.int32)
+    cur_w = st.upgrades[own_i, LINE_WORKER].astype(jnp.int32)
+    cost = upgrade_cost_of(st, cfg) * w_up[:, None]
+    cost += (jnp.stack([jnp.asarray(cfg.inf_res_cost_ore)[cur_i],
+                        jnp.asarray(cfg.inf_res_cost_water)[cur_i]], -1)
+             * w_ri[:, None])
+    cost += (jnp.stack([jnp.asarray(cfg.worker_res_cost_ore)[cur_w],
+                        jnp.asarray(cfg.worker_res_cost_water)[cur_w]], -1)
+             * w_rw[:, None])
+    want = w_up | w_ri | w_rw
+
     afford = jnp.zeros(cfg.n_total, bool)
-    stock = state.resources
+    stock = st.resources
     for p in (0, 1):  # 编译期展开
-        mine_cost = cost * (own_i == p)[:, None]
-        cum = jnp.cumsum(mine_cost, axis=0)                # [N,2] 含本行
+        cum = jnp.cumsum(cost * (own_i == p)[:, None], axis=0)  # 含本行
         ok = jnp.all(cum <= stock[p][None, :], axis=-1)
         afford = jnp.where(own_i == p, ok, afford)
     do = want & afford
 
-    pay = (jnp.zeros_like(stock)
-           .at[own_i].add(jnp.where(do[:, None], cost, 0)))
-    up_t = upgrade_time_of(state, cfg)
-    return state._replace(
-        resources=stock - pay,
-        btype=jnp.where(do, BTASK_UPGRADE, state.btype).astype(jnp.int8),
-        btimer=jnp.where(do, up_t, state.btimer).astype(jnp.int16),
+    pay = jnp.zeros_like(stock).at[own_i].add(jnp.where(do[:, None], cost, 0))
+    stock = stock - pay
+    task = jnp.where(w_ri, BTASK_RESEARCH_INF,
+                     jnp.where(w_rw, BTASK_RESEARCH_WORKER, BTASK_UPGRADE))
+    t = jnp.where(w_ri, jnp.asarray(cfg.inf_res_time)[cur_i],
+                  jnp.where(w_rw, jnp.asarray(cfg.worker_res_time)[cur_w],
+                            upgrade_time_of(st, cfg)))
+    st = st._replace(
+        resources=stock,
+        btype=jnp.where(do, task, st.btype).astype(jnp.int8),
+        btimer=jnp.where(do, t, st.btimer).astype(jnp.int16),
     )
 
+    # ---- ② 建营:同玩家取槽号最小的申请者,落其相邻第一空闲格 ----
+    camp_cost = jnp.asarray([cfg.camp_cost_ore, cfg.camp_cost_water], jnp.int32)
+    occ = occupancy_grid(st, cfg)
+    passable = jnp.asarray(mapdata.passable)
+    h, w = cfg.grid_h, cfg.grid_w
+    for p in (0, 1):  # 编译期展开
+        cand = (act == a_build_camp(cfg)) & (own_i == p)
+        bidx = jnp.argmax(cand)                # 全 False 返 0,has 门控
+        has = jnp.any(cand) & jnp.all(st.resources[p] >= camp_cost)
 
-def special_tasks_tick(state: WorldState, cfg: Config) -> WorldState:
-    """负数 btype 任务的完成结算(解码唯一集中处;完成分支必须 btype←0,
+        cells = st.pos[bidx] + _SPAWN_DIRS
+        inb = ((cells[:, 0] >= 0) & (cells[:, 0] < h)
+               & (cells[:, 1] >= 0) & (cells[:, 1] < w))
+        cc = jnp.clip(cells, 0, jnp.asarray([h - 1, w - 1]))
+        ok = inb & passable[cc[:, 0], cc[:, 1]] & ~occ[cc[:, 0], cc[:, 1]]
+        ci = jnp.argmax(ok)
+        base = p * cfg.e_max
+        free = jax.lax.dynamic_slice(~st.alive, (base,), (cfg.e_max,))
+        slot = base + jnp.argmax(free)
+        do_c = has & jnp.any(ok) & jnp.any(free)
+        cell = cc[ci]
+        start_hp = jnp.asarray(cfg.camp_hp_by_level)[2] // 10
+
+        st = st._replace(
+            resources=st.resources.at[p].add(jnp.where(do_c, -camp_cost, 0)),
+            alive=st.alive.at[slot].set(jnp.where(do_c, True, st.alive[slot])),
+            etype=st.etype.at[slot].set(
+                jnp.where(do_c, TYPE_CAMP, st.etype[slot]).astype(jnp.int8)),
+            pos=st.pos.at[slot].set(jnp.where(do_c, cell, st.pos[slot])),
+            hp=st.hp.at[slot].set(jnp.where(do_c, start_hp, st.hp[slot])),
+            level=st.level.at[slot].set(
+                jnp.where(do_c, 1, st.level[slot]).astype(jnp.int8)),
+            btype=st.btype.at[slot].set(
+                jnp.where(do_c, BTASK_BUILD_CAMP, st.btype[slot]).astype(jnp.int8)),
+            btimer=st.btimer.at[slot].set(
+                jnp.where(do_c, cfg.camp_build_time, st.btimer[slot]).astype(jnp.int16)),
+        )
+        occ = occ.at[cell[0], cell[1]].max(do_c)  # 防两家同格(远隔,保险)
+    return st
+
+
+def special_tasks_tick(state: WorldState, cfg: Config,
+                       owner: jax.Array) -> WorldState:
+    """负数 btype 任务的推进与完成结算(解码唯一集中处;完成分支必须 btype←0,
     否则「btype<0 & btimer==0」下一 tick 重复触发,level 每 tick+1 直到溢出)。
     btimer 的递减复用 production_tick(它对所有 btimer>0 无差别倒数)。"""
-    done = state.alive & (state.btype < 0) & (state.btimer == 0)
-    upg = done & (state.btype == BTASK_UPGRADE)
-    level = jnp.where(upg, state.level + 1, state.level).astype(jnp.int8)
-    btype = jnp.where(done, 0, state.btype).astype(jnp.int8)
-    return state._replace(level=level, btype=btype)
+    from .config import (
+        BTASK_BUILD_CAMP,
+        BTASK_RESEARCH_INF,
+        BTASK_RESEARCH_WORKER,
+    )
+    st = state
+    own_i = owner.astype(jnp.int32)
+
+    # ---- 在建营的 hp 线性成长(增量式,伤害得以保留;完成拍补齐整数余数,
+    # 使「未挨打的建成营 = 满血」恒成立)----
+    full = int(cfg.camp_hp_by_level[2])
+    start = full // 10
+    t_build = cfg.camp_build_time
+    g = (full - start) // t_build  # 每 tick 增量(可为 0,余数在完成拍补)
+    growing = st.alive & (st.btype == BTASK_BUILD_CAMP) & (st.btimer > 0)
+    hp = st.hp + jnp.where(growing, g, 0)
+
+    done = st.alive & (st.btype < 0) & (st.btimer == 0)
+
+    # 建营完成:level=2(建成即 2 级,issue v1.1)+ 补 hp 余数。
+    # 成长只发生在 btimer>0 的 T-1 个 tick(完成拍 btimer 已归 0),余数按 T-1 算,
+    # 保证「未挨打的建成营 = 满血」恒成立。
+    camp_done = done & (st.btype == BTASK_BUILD_CAMP)
+    remainder = (full - start) - g * (t_build - 1)
+    hp = hp + jnp.where(camp_done, remainder, 0)
+    level = jnp.where(camp_done, 2, st.level)
+
+    # 自升级完成
+    upg = done & (st.btype == BTASK_UPGRADE)
+    level = jnp.where(upg, level + 1, level).astype(jnp.int8)
+
+    # 研发完成:该玩家对应线 +1(legality 保证同线同 tick 至多一营在研),
+    # 存量单位 hp 补上限差额(plan:不缩放,保伤痕)
+    upgrades = st.upgrades
+    for line, code, hp_table, ut in (
+        (LINE_INFANTRY, BTASK_RESEARCH_INF, cfg.inf_hp_by_level, TYPE_INFANTRY),
+        (LINE_WORKER, BTASK_RESEARCH_WORKER, cfg.worker_hp_by_level, TYPE_WORKER),
+    ):
+        rdone = done & (st.btype == code)
+        for p in (0, 1):  # 编译期展开
+            hit = jnp.any(rdone & (own_i == p))
+            old = upgrades[p, line].astype(jnp.int32)
+            new = jnp.minimum(old + 1, 7)
+            upgrades = upgrades.at[p, line].set(
+                jnp.where(hit, new, old).astype(jnp.int8))
+            delta = jnp.asarray(hp_table)[new] - jnp.asarray(hp_table)[old]
+            bump = st.alive & (own_i == p) & (st.etype == ut)
+            hp = hp + jnp.where(hit & bump, delta, 0)
+
+    btype = jnp.where(done, 0, st.btype).astype(jnp.int8)
+    return st._replace(hp=hp.astype(jnp.int32), level=level,
+                       upgrades=upgrades, btype=btype)
 
 
 def _unit_spawn_hp(cfg: Config, ut: jax.Array, upgrades_p: jax.Array) -> jax.Array:

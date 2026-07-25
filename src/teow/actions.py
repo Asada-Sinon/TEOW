@@ -25,6 +25,7 @@ import jax.numpy as jnp
 
 from .config import (
     RES_WATER,
+    TYPE_CAMP,
     TYPE_HQ,
     TYPE_INFANTRY,
     TYPE_MINE,
@@ -68,13 +69,24 @@ def a_train_infantry(cfg: Config) -> int:
 
 
 def a_upgrade(cfg: Config) -> int:
-    """建筑通用自升级(v1.1):HQ/矿/泵(/营)。扣费不在 apply_orders,
+    """建筑通用自升级(v1.1):HQ/矿/泵/营。扣费不在 apply_orders,
     在 economy.paid_orders_pass 按槽号顺序对账(同 tick 多笔支出防透支)。"""
     return 9 + 2 * cfg.n_nodes
 
 
-def n_actions(cfg: Config) -> int:
+def a_build_camp(cfg: Config) -> int:
+    """工人在自身相邻空闲格起技能训练营(基地≥camp_unlock_level 解锁)。
+    扣费+落格+占槽都在 paid_orders_pass(同 tick 同玩家至多批准一座)。"""
     return 10 + 2 * cfg.n_nodes
+
+
+def a_research(line: int, cfg: Config) -> int:
+    """训练营研发:line 0=步兵捆绑线,1=工人经济线。"""
+    return 11 + line + 2 * cfg.n_nodes
+
+
+def n_actions(cfg: Config) -> int:
+    return 13 + 2 * cfg.n_nodes
 
 
 def unit_costs(cfg: Config) -> jax.Array:
@@ -148,11 +160,44 @@ def legality_mask(state: WorldState, cfg: Config, mapdata: MapData,
     lv = state.level.astype(jnp.int32)
     hq_lv = state.level[half * cfg.e_max].astype(jnp.int32)   # 各实体所属玩家的基地级
     is_node_b = (state.etype == TYPE_MINE) | (state.etype == TYPE_PUMP)
+    is_camp = state.etype == TYPE_CAMP
     cap_ok = jnp.where(is_hq, lv < cfg.base_max_level, lv < hq_lv)
     up_cost = upgrade_cost_of(state, cfg)                     # [N,2] 按类型/等级
-    can_up = (actable & (is_hq | is_node_b) & (state.btimer == 0) & cap_ok
+    can_up = (actable & (is_hq | is_node_b | is_camp) & (state.btimer == 0) & cap_ok
               & jnp.all(stock >= up_cost, axis=-1))
     mask = mask.at[:, a_upgrade(cfg)].set(can_up)
+
+    # 建训练营(v1.1):工人 + 基地解锁 + 半区有空槽 + 乐观付得起
+    # (落格与最终扣费在 paid_orders_pass;同玩家同 tick 至多批准一座)
+    camp_cost = jnp.asarray([cfg.camp_cost_ore, cfg.camp_cost_water], jnp.int32)
+    can_camp = (actable & is_worker & (hq_lv >= cfg.camp_unlock_level)
+                & free_in_half & jnp.all(stock >= camp_cost, axis=-1))
+    mask = mask.at[:, a_build_camp(cfg)].set(can_camp)
+
+    # 研发(v1.1):建成的营(level>=2)空闲 + 线级<营级 + 付得起
+    # + 本玩家没有别的营在研同一条线(防同线并研双倍跳级)
+    from .config import (
+        BTASK_RESEARCH_INF,
+        BTASK_RESEARCH_WORKER,
+        LINE_INFANTRY,
+        LINE_WORKER,
+    )
+    line_lv = state.upgrades[half]                            # [N,2]
+    for line, code, cost_o, cost_w in (
+        (LINE_INFANTRY, BTASK_RESEARCH_INF,
+         cfg.inf_res_cost_ore, cfg.inf_res_cost_water),
+        (LINE_WORKER, BTASK_RESEARCH_WORKER,
+         cfg.worker_res_cost_ore, cfg.worker_res_cost_water),
+    ):
+        cur = line_lv[:, line].astype(jnp.int32)
+        rcost = jnp.stack([jnp.asarray(cost_o)[cur], jnp.asarray(cost_w)[cur]], -1)
+        busy_same = jnp.stack([
+            jnp.any((owner == 0) & state.alive & (state.btype == code)),
+            jnp.any((owner == 1) & state.alive & (state.btype == code)),
+        ])[half]
+        ok = (actable & is_camp & (lv >= 2) & (state.btimer == 0)
+              & (cur < lv) & ~busy_same & jnp.all(stock >= rcost, axis=-1))
+        mask = mask.at[:, a_research(line, cfg)].set(ok)
     return mask
 
 
