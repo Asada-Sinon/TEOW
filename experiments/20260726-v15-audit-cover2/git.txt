@@ -1,0 +1,10 @@
+bfcd968c568bebeea15c2005550fbc7c89b703c5
+dirty: True
+ M src/teow/economy.py
+ M src/teow/state.py
+ M tests/test_determinism.py
+ M tests/test_elimination.py
+ M tests/test_scripted_v13.py
+ M tests/test_upgrade.py
+?? experiments/20260726-v15-audit-cover2/
+?? experiments/20260726-v15-audit-default2/

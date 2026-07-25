@@ -1,7 +1,7 @@
 """世界状态:一张定容实体表 + 资源点表,全是静态形状数组。
 
-单表设计(调研报告 §7):前 e_max 行归玩家 0,后 e_max 行归玩家 1(owner 由行号
-决定,是常量,不进 state);每家 HQ 固定在自己半区的 0 号槽(全局槽 0 与 e_max)。
+单表设计(调研报告 §7):玩家 p 占行块 [p*e_max,(p+1)*e_max)(owner 由行号
+决定,是常量,不进 state);每家 HQ 固定在自己行块的 0 号槽(v1.5 起 P 家泛化)。
 死 = 翻 alive 位,生 = scatter 进本半区第一个空槽,绝不 resize。
 死槽「停泊」在无害值:pos 合法、hp 0、timer 0,算式照算,最后用掩码挑。
 
@@ -34,7 +34,7 @@ PH_TO_HQ = 2        # 满载返程
 
 
 class WorldState(NamedTuple):
-    # ---- 实体表 [N = 2*e_max] ----
+    # ---- 实体表 [N = n_players*e_max] ----
     alive: jax.Array        # bool  [N]
     etype: jax.Array        # int8  [N]  TYPE_*
     pos: jax.Array          # f32   [N,2] (row,col) 连续坐标(v1.2)。坐标约定:
@@ -63,17 +63,17 @@ class WorldState(NamedTuple):
     #                                     置 period-1,每 tick 递减;普通攻击者恒 0)
     shell_timer: jax.Array  # int16 [N]  在途炮弹剩余飞行 tick(v1.4 迫击炮;0=无弹)
     shell_target: jax.Array  # f32  [N,2] 炮弹锁定落点(开火拍的目标位置)
-    # ---- 军旗表 [2, max_flags](v1.3;旗不是实体:无血量、不可拆)----
-    flag_pos: jax.Array     # f32  [2,F,2] 旗所在格心;未激活 -1
-    flag_active: jax.Array  # bool [2,F]
+    # ---- 军旗表 [P, max_flags](v1.3;旗不是实体:无血量、不可拆)----
+    flag_pos: jax.Array     # f32  [P,F,2] 旗所在格心;未激活 -1
+    flag_active: jax.Array  # bool [P,F]
     # ---- 资源点表 [Nn] ----
     node_owner: jax.Array        # int8  [Nn] -1 无主
     node_ent: jax.Array          # int16 [Nn] 结构实体槽号;-1 未建
     node_build_timer: jax.Array  # int16 [Nn] 建造剩余 tick;0 无施工
     node_builder: jax.Array      # int16 [Nn] 施工工人槽号;-1 无
     # ---- 全局 ----
-    resources: jax.Array    # int32 [2,2]  [player][RES_ORE/RES_WATER]
-    upgrades: jax.Array     # int8  [2,N_LINES]  [player][线],初始 1(v1.4 八线,
+    resources: jax.Array    # int32 [P,2]  [player][RES_ORE/RES_WATER]
+    upgrades: jax.Array     # int8  [P,N_LINES]  [player][线],初始 1(v1.4 八线,
     #                                       按兵种);全局生效(存量+未来单位),
     #                                       营被拆仍保留
     tick: jax.Array         # int32 标量

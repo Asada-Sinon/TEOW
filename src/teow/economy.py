@@ -457,9 +457,10 @@ def start_constructions(state: WorldState, cfg: Config, mapdata: MapData,
     arrived = (state.alive & ~state.inside & (state.order == ORDER_BUILD)
                & (state.target_node >= 0) & (my_d <= cfg.reach_radius))
 
-    # 本 tick 先手玩家(v1.5 critic B-2:bernoulli 只出 0/1,四人下玩家 2/3
-    # 跨玩家平票永败——改均匀 randint,P 家等概率)
-    first = jax.random.randint(key, (), 0, cfg.n_players).astype(jnp.int8)
+    # 本 tick 玩家随机排列作主序(v1.5 终审 P1-1:randint 单先手只分
+    # 「先手/其余」两档,非先手玩家间仍按玩家号裁决,i<j 赢 3/4;
+    # 完整排列才是真平票公平——每 tick 重抽,期望胜率各 1/P)
+    perm = jax.random.permutation(key, cfg.n_players)      # [P] 玩家优先序
     from .actions import node_costs
     ncost = node_costs(cfg, mapdata)                       # [Nn,2]
 
@@ -470,7 +471,8 @@ def start_constructions(state: WorldState, cfg: Config, mapdata: MapData,
         claimable = (st.node_owner[k] == -1) & (st.node_build_timer[k] == 0)
         cand = arrived & (st.target_node == k)
         # 先手玩家优先,再按槽号
-        score = slots + cfg.n_total * (owner != first)
+        score = (perm[owner.astype(jnp.int32)].astype(jnp.int32)
+                 * cfg.n_total + slots)
         score = jnp.where(cand, score, jnp.iinfo(jnp.int32).max)
         widx = jnp.argmin(score)
         has = jnp.any(cand) & claimable

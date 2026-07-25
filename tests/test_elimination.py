@@ -94,3 +94,37 @@ def test_eliminated_enemy_garrison_on_its_node_goes_idle():
     assert not bool(st.done)
     assert int(jnp.sum(st.alive & (owner_of_slots(cfg) == 1))) == 0
     assert int(st.order[inf]) == ORDER_GARRISON, "无关玩家的驻守不该被扰动"
+
+
+def test_cross_player_claim_arbitration_is_fair():
+    """v1.5 终审 P1-1 回归:四家工人同 tick 到场抢同一无主公共点,多 key 统计
+    各家中签率应无系统偏置(随机排列主序;旧 randint 单先手下 p0 赢 p3 达 3/4)。"""
+    import numpy as np
+
+    from teow.economy import start_constructions
+    from teow.state import ORDER_BUILD
+
+    cfg = Config()
+    state, _, step_fn, m = new_world(cfg)
+    node_k = 8  # E 顶点公共矿(四家等义)
+    node_rc = jnp.asarray(m.node_pos[node_k], jnp.float32)
+    st = state
+    workers = []
+    for p in range(cfg.n_players):
+        s = hq_slot(p, cfg) + 1  # 各家 1 号工人
+        workers.append(s)
+        st = st._replace(
+            pos=st.pos.at[s].set(node_rc + jnp.asarray([0.0, 1.0])),
+            order=st.order.at[s].set(ORDER_BUILD),
+            target_node=st.target_node.at[s].set(node_k),
+        )
+    owner = owner_of_slots(cfg)
+    wins = np.zeros(cfg.n_players, int)
+    for seed in range(200):
+        out = start_constructions(st, cfg, m, owner,
+                                  jax.random.PRNGKey(seed))
+        w = int(out.node_owner[node_k])
+        assert w >= 0, "必须有人中签"
+        wins[w] += 1
+    # 200 次抽样,均匀期望 50/家;任何一家 <20 或 >85 视为系统性偏置
+    assert wins.min() >= 20 and wins.max() <= 85, f"抢点中签分布失衡: {wins.tolist()}"
