@@ -356,6 +356,10 @@
   random 控制器可触发;端到端审计的「每点指派数 ≤ 名额」不变量若在 random 局
   上跑需注意此口径。修法(若要修):改派的旧名额释放改为「新指派成功才释放」
   (两遍仲裁),但会让满员点之间的同 tick 对换互卡一拍。
+  **→ 已修复(收尾阶段)**:v1.3 终审把此角落升级为 P1-1(超额并非瞬时,
+  两名持有者都不改派就持续 cap+K,v2 RL 可稳定构造)。按上述修法落地:
+  HARVEST 改派者旧名额保守持有、新指派成功才释放,回归用例
+  tests/test_economy.py::test_harvest_reassign_rejected_keeps_cap。
 
 - **Phase 1 例外扩界(已做,非未做,记档供 validate 对账)**:8 点地图让
   `test_scripted_upgrades` 行为回归挂掉(全场 0 研发),依 /impl 例外条款

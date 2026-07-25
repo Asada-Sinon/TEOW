@@ -7,8 +7,8 @@
    /建筑掉血必有敌方近战单位在 melee_range 内(塔只攻单位的交叉核对)
 ⑤停摆:最大卸货间隔、HARVEST 在途最长连续不动
 ⑥v1.3 专项:每点指派数 ≤ 该点等级名额(未建点须为 0;口径=alive&HARVEST&target_node,
-   与 economy.assigned_counts 同源;注:random 控制器同 tick 改派有已知瞬时 +1 角落,
-   见 plan「发现但未做」,scripted 局不触发)/flag_active 每玩家 ≤ max_flags
+   与 economy.assigned_counts 同源;原「random 同 tick 改派瞬时 +1」角落已修——
+   终审 P1-1,改派旧名额改为新指派成功才释放,本不变量现无豁免口径)/flag_active 每玩家 ≤ max_flags
    /GARRISON 单位 garrison_id 有效(-1 禁止;node 目标须己方已建;旗目标须激活)
    /撤旗后无单位引用该旗(任意 order 的 garrison_id 残值均不得指向未激活旗)
    ;并统计驻守/军旗是否出现过(端到端判据 3)。

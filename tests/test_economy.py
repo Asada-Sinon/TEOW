@@ -167,6 +167,45 @@ def test_harvest_slot_released_on_death():
     assert int(assigned_counts(st, cfg)[node]) == cfg.harvest_slots_by_level[1]
 
 
+def test_harvest_reassign_rejected_keeps_cap():
+    # v1.3 终审 P1-1 回归:同 tick「w1 从 A 点改派 k 点被仲裁拒绝 + 新人涌入 A」
+    # 不得把 A 顶到 cap+1——HARVEST 改派的旧名额必须「新指派成功才释放」。
+    cfg = Config(start_ore=500, start_water=500)
+    st, step_fn, m = _built_mine_world(cfg)
+    hq = hq_slot(0, cfg)
+    # 再建 1 号点(近家水泵),W0 建完转 IDLE
+    st = drive(st, step_fn, {0: [(W0, a_build(1))]}, 200, seed=8)
+    assert int(st.node_ent[1]) >= 0
+    # 串行训 3 个新工人(落槽位置不做假设,训完对比 alive 集合取新增)
+    before = {i for i in range(cfg.n_total)
+              if bool(st.alive[i]) and int(st.etype[i]) == TYPE_WORKER}
+    for i in range(3):
+        st = drive(st, step_fn, {0: [(hq, a_train_worker(cfg))]},
+                   cfg.worker_time + 2, seed=10 + i)
+    w_new = sorted({i for i in range(cfg.n_total)
+                    if bool(st.alive[i]) and int(st.etype[i]) == TYPE_WORKER}
+                   - before)
+    assert len(w_new) == 3
+    # 铺垫:w1(=W0+3)独占 A=0 点(1/3);W0+1、W0+2 占 k=1 点(2/3)
+    st = drive(st, step_fn, {0: [(W0 + 3, a_harvest(0, cfg)),
+                                 (W0 + 1, a_harvest(1, cfg)),
+                                 (W0 + 2, a_harvest(1, cfg))]}, 1, seed=20)
+    # 同 tick:W0(槽号低)与 w1 抢 k 的最后 1 个名额(w1 rank 高被拒回 A),
+    # 3 个新工人同时涌入 A
+    acts = {0: [(W0, a_harvest(1, cfg)), (W0 + 3, a_harvest(1, cfg))]
+            + [(w, a_harvest(0, cfg)) for w in w_new]}
+    st = drive(st, step_fn, acts, 1, seed=21)
+    counts = assigned_counts(st, cfg)
+    cap = cfg.harvest_slots_by_level[1]
+    # 核心不变量:两点任何一侧都不得超名额
+    assert int(counts[0]) <= cap and int(counts[1]) <= cap
+    # w1 改派被拒:保持对 A 的原指派;A 点因 w1 保守持有,3 新人只进 2 个
+    assert int(st.order[W0 + 3]) == ORDER_HARVEST
+    assert int(st.target_node[W0 + 3]) == 0
+    assert int(counts[0]) == cap
+    assert int(st.order[w_new[2]]) == ORDER_IDLE
+
+
 def test_legality_basics():
     cfg = Config()
     state, _, _, m = new_world(cfg)

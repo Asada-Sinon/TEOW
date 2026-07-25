@@ -339,10 +339,13 @@ def apply_orders(state: WorldState, actions: jax.Array, cfg: Config,
                  | ((act >= A_MOVE0) & (act < A_MOVE0 + 4))
                  | ((act >= a_build(0)) & (act < a_build(cfg.n_nodes)))
                  | is_harv_a)
-    # 现存指派数,排除「本 tick 拿到新指令」者(从 A 点改派 k 点者同 tick 释放
-    # A 名额);原地重下者保留原名额
+    # 现存指派数:非 HARVEST 新指令(STOP/ATTACK/MOVE/BUILD)必然生效,旧名额
+    # 立即释放;HARVEST 改派(A 点 → k 点)可能被下方仲裁按 rank 拒绝,旧名额
+    # 保守持有——「新指派成功才释放」,否则同 tick「改派被拒 + 空位被新人抢走」
+    # 会把 A 点顶到 cap+1 且两名持有者都不动就一直超额(v1.3 终审 P1-1)。
+    # 代价:满员点之间同 tick 对换互卡一拍(下 tick 掩码即放行)。
     hold = (state.alive & (state.order == ORDER_HARVEST)
-            & (state.target_node >= 0) & (~new_cmd_a | reissue))
+            & (state.target_node >= 0) & (~new_cmd_a | is_harv_a))
     tn_a = jnp.clip(state.target_node.astype(jnp.int32), 0, cfg.n_nodes - 1)
     assigned_excl = (jnp.zeros(cfg.n_nodes, jnp.int32)
                      .at[tn_a].add(hold.astype(jnp.int32)))

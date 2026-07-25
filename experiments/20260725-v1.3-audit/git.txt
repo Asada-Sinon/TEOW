@@ -1,0 +1,4 @@
+1f86d130a763ed59c94d75e4ecdedb20de67761b
+dirty: True
+?? experiments/20260725-v1.3-audit/
+?? fig/
