@@ -1,0 +1,7 @@
+4130f1f07aee49a1e7fa795dce60270f7bcf27a3
+dirty: True
+ M explorations/audit_conservation_determinism.py
+ M explorations/audit_v11_conservation_invariants.py
+ M src/teow/controller.py
+?? experiments/20260725-p0-tooldebt-check/
+?? experiments/20260725-p0-verify/

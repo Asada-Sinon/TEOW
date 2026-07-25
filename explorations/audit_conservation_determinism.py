@@ -78,6 +78,17 @@ for t in range(cfg.episode_len):
     drop = np.maximum(drop, 0)
     dep = np.zeros((2, 2), np.int64)
     np.add.at(dep, (owner, prev["cargo_type"].astype(int)), drop)
+    # 口径补丁(v1.1 复审 P2):**卸货即死**——卸货(harvest_tick)先于战斗结算,
+    # 到家环上带货的 HARVEST 工人同 tick 阵亡时入账真实发生,但 alive_both 漏记。
+    # 判据:前帧 在到家环(d_hq==1)+ TO_HQ 相 + HARVEST 指令 + 带货,本帧死亡。
+    died = prev["alive"] & ~cur["alive"]
+    from teow.state import PH_TO_HQ  # noqa: E402
+    d_hq = np.asarray(m.dist_fields)[cfg.n_nodes + owner,
+                                     prev["pos"][:, 0], prev["pos"][:, 1]]
+    dep_dead = (died & (prev["cargo"] > 0) & (d_hq == 1)
+                & (prev["phase"] == PH_TO_HQ) & (prev["order"] == ORDER_HARVEST))
+    np.add.at(dep, (owner[dep_dead], prev["cargo_type"][dep_dead].astype(int)),
+              prev["cargo"][dep_dead].astype(np.int64))
     # 训练开工 = HQ btimer 增加
     spend = np.zeros((2, 2), np.int64)
     for i in np.nonzero((cur["btimer"] > prev["btimer"]) & (cur["etype"] == TYPE_HQ))[0]:
@@ -86,6 +97,24 @@ for t in range(cfg.episode_len):
     # 建造开工 = node_build_timer 增加
     for k in np.nonzero(cur["node_build_timer"] > prev["node_build_timer"])[0]:
         spend[cur["node_owner"][k]] += ncost[k]
+    # 口径补丁(v1.1 复审 P2):**开工即死**——start_constructions 扣费在战斗前,
+    # 施工者同 tick 阵亡时 cleanup 当拍取消工地(timer 0→0),扣费成沉没成本
+    # (DECISIONS 明文不退款)。判据:到点环上的 BUILD 工人本帧死亡,且该点
+    # 前后帧均无主无工地(说明当拍开工又被取消)。
+    d_node = np.asarray(m.dist_fields)[
+        np.clip(prev["target_node"].astype(int), 0, cfg.n_nodes - 1),
+        prev["pos"][:, 0], prev["pos"][:, 1]]
+    from teow.state import ORDER_BUILD  # noqa: E402
+    for i in np.nonzero(died & (prev["order"] == ORDER_BUILD)
+                        & (prev["target_node"] >= 0) & (d_node == 1))[0]:
+        k = int(prev["target_node"][i])
+        if (prev["node_build_timer"][k] == 0 and cur["node_build_timer"][k] == 0
+                and prev["node_owner"][k] == -1 and cur["node_owner"][k] == -1
+                # afford 前提:付不起就不可能开过工(排除「站环上等钱」的误伤;
+                # 付得起+可认领+tick 初已在环上 ⇒ start_constructions 必然当拍
+                # 开工,死亡取消即沉没成本)
+                and bool(np.all(prev["resources"][owner[i]] >= ncost[k]))):
+            spend[owner[i]] += ncost[k]
     delta = cur["resources"].astype(np.int64) - prev["resources"]
     if not np.array_equal(delta, dep - spend):
         violations += 1

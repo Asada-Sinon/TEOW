@@ -1,0 +1,1 @@
+src/run.py play --p0 scripted --p1 scripted --seed 0 --slug p0-tooldebt-check

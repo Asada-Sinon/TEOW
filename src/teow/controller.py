@@ -84,17 +84,31 @@ def scripted_actions(state: WorldState, cfg: Config, mapdata: MapData,
     harvestable = ((st.node_owner == player) & (st.node_ent >= 0)
                    & (assigned < cfg.node_capacity))                        # [Nn]
 
+    # 付得起才派建造者(audit v1.1 P2 活锁根因:无主点+付不起 → 同一空闲工人
+    # 每 tick 被重复指派、动作被掩码、永不落入采集分支,水收入归零 1200+ tick。
+    # 加可负担门控后,付不起时该工人自然滑入采集分支,收入恢复即可再派)
+    from .actions import node_costs
+    ncost = node_costs(cfg, mapdata)                       # [Nn,2]
+    afford_node = jnp.all(st.resources[player][None, :] >= ncost, axis=-1)  # [Nn]
+    claimable = claimable & afford_node
     bd = jnp.where(claimable[:, None], node_d, BIG_DIST)
-    build_k = jnp.argmin(bd, axis=0)                       # [N] 最近无主点
+    build_k = jnp.argmin(bd, axis=0)
     has_build = jnp.any(claimable)
     hd = jnp.where(harvestable[:, None], node_d, BIG_DIST)
     harv_k = jnp.argmin(hd, axis=0)
     has_harv = jnp.any(harvestable)
 
     idle_worker = mine & (st.etype == TYPE_WORKER) & (st.order == ORDER_IDLE) & ~st.inside
-    # 「派一个建造者」:空闲工人中槽号最小的那个;全 False 时 argmax 返 0,用 has 门控
-    builder = jnp.argmax(idle_worker)
-    is_builder = (jnp.arange(n) == builder) & jnp.any(idle_worker) & has_build
+    # 「征调一个建造者」:优先空闲工人,没有就从采集线上拉一个(不拉矿内的)。
+    # 只靠闲人的老逻辑在「afford 门控 + 满员派工」后会饿死——人人有活干,
+    # 营/扩张永远没人去建(Phase 0 工具债的连带修正)。
+    can_pull = (mine & (st.etype == TYPE_WORKER) & ~st.inside
+                & ((st.order == ORDER_IDLE) | (st.order == ORDER_HARVEST)))
+    pull_score = jnp.where(can_pull,
+                           jnp.arange(n) + n * (st.order != ORDER_IDLE),
+                           jnp.iinfo(jnp.int32).max)
+    builder = jnp.argmin(pull_score)
+    is_builder = (jnp.arange(n) == builder) & jnp.any(can_pull) & has_build
 
     worker_act = jnp.where(has_harv, a_harvest(0, cfg) + harv_k, A_NOOP)
     worker_act = jnp.where(is_builder, a_build(0) + build_k, worker_act)
@@ -111,12 +125,15 @@ def scripted_actions(state: WorldState, cfg: Config, mapdata: MapData,
         line_lv[low_line] < st.level.astype(jnp.int32), a_research(0, cfg) + low_line,
         a_upgrade(cfg))                                    # [N](逐营取自身 level 比较)
 
-    # ---- 建营:基地达标且没有己方营(含在建)时,派一个空闲工人就地起营 ----
+    # ---- 建营:基地达标且没有己方营(含在建)时,征调一个工人就地起营
+    # (同一征调池;若与扩张建造者撞同一人,建营优先——它在 act 覆盖链更后)----
     has_camp = jnp.any(mine & (st.etype == TYPE_CAMP))
     base_ok = st.level[player * cfg.e_max] >= cfg.camp_unlock_level
-    camp_builder = jnp.argmax(idle_worker)
-    is_camp_builder = ((jnp.arange(n) == camp_builder) & jnp.any(idle_worker)
-                       & base_ok & ~has_camp)
+    camp_afford = jnp.all(st.resources[player]
+                          >= jnp.asarray([cfg.camp_cost_ore, cfg.camp_cost_water]))
+    camp_builder = jnp.argmin(pull_score)
+    is_camp_builder = ((jnp.arange(n) == camp_builder) & jnp.any(can_pull)
+                       & base_ok & ~has_camp & camp_afford)
 
     # ---- 矿/泵:库存 ≥ 升级成本+储备 才升(audit v1.1 P2:只查储备不查成本
     # 会把「留军费」的意图打穿,曾是 seed12 水危机的助燃剂)----

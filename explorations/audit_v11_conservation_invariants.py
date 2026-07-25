@@ -15,7 +15,7 @@ from teow.config import (BTASK_BUILD_CAMP, BTASK_RESEARCH_INF, BTASK_RESEARCH_WO
                          BTASK_UPGRADE, TYPE_CAMP, TYPE_HQ, TYPE_INFANTRY, TYPE_MINE,
                          TYPE_PUMP, TYPE_WORKER, Config)
 from teow.controller import make_joint_controller
-from teow.state import ORDER_HARVEST, PH_MINING, owner_of_slots
+from teow.state import ORDER_BUILD, ORDER_HARVEST, PH_MINING, PH_TO_HQ, owner_of_slots
 from teow.step import new_world
 
 run_dir = pathlib.Path(sys.argv[1])
@@ -36,6 +36,7 @@ inf_res = np.stack([cfg.inf_res_cost_ore, cfg.inf_res_cost_water], -1)
 wrk_res = np.stack([cfg.worker_res_cost_ore, cfg.worker_res_cost_water], -1)
 whp_t = np.asarray(cfg.worker_hp_by_level); ihp_t = np.asarray(cfg.inf_hp_by_level)
 camp_cost = np.asarray([cfg.camp_cost_ore, cfg.camp_cost_water])
+NN = cfg.n_nodes  # 口径补丁用:HQ 场下标 = NN + player
 
 traj = None; tp = run_dir / "trajectory.npz"
 if tp.exists():
@@ -63,6 +64,14 @@ for t in range(cfg.episode_len):
     drop = np.maximum(np.where(ab, prev["cargo"].astype(np.int64) - cur["cargo"], 0), 0)
     dep = np.zeros((2, 2), np.int64)
     np.add.at(dep, (owner, prev["cargo_type"].astype(int)), drop)
+    # 口径补丁(复审 P2 工具债):卸货即死——卸货先于战斗,tick 初在到家环
+    # (d_hq==1)、TO_HQ 相、HARVEST 指令、带货的工人当拍阵亡,入账真实发生。
+    died = prev["alive"] & ~cur["alive"]
+    d_hq = np.asarray(m.dist_fields)[NN + owner, prev["pos"][:, 0], prev["pos"][:, 1]]
+    dep_dead = (died & (prev["cargo"] > 0) & (d_hq == 1)
+                & (prev["phase"] == PH_TO_HQ) & (prev["order"] == ORDER_HARVEST))
+    np.add.at(dep, (owner[dep_dead], prev["cargo_type"][dep_dead].astype(int)),
+              prev["cargo"][dep_dead].astype(np.int64))
     spend = np.zeros((2, 2), np.int64)
     inc = ab & (cur["btimer"] > prev["btimer"])
     for i in np.nonzero(inc)[0]:
@@ -77,6 +86,19 @@ for t in range(cfg.episode_len):
         elif bt == BTASK_RESEARCH_WORKER: spend[p] += wrk_res[int(cur["upgrades"][p, 1])]
     for k in np.nonzero(cur["node_build_timer"] > prev["node_build_timer"])[0]:
         spend[cur["node_owner"][k]] += ncost[k]
+    # 口径补丁(复审 P2 工具债):开工即死——扣费先于战斗,施工者当拍阵亡则
+    # cleanup 当拍取消工地(timer/owner 双双 0→0),沉没成本(DECISIONS 不退款)。
+    # afford 前提排除「站环上付不起」的误伤:付得起+可认领+tick 初在环 ⇒ 必已开工。
+    d_nd = np.asarray(m.dist_fields)[
+        np.clip(prev["target_node"].astype(int), 0, NN - 1),
+        prev["pos"][:, 0], prev["pos"][:, 1]]
+    for i in np.nonzero(died & (prev["order"] == ORDER_BUILD)
+                        & (prev["target_node"] >= 0) & (d_nd == 1))[0]:
+        k = int(prev["target_node"][i])
+        if (prev["node_build_timer"][k] == 0 and cur["node_build_timer"][k] == 0
+                and prev["node_owner"][k] == -1 and cur["node_owner"][k] == -1
+                and bool(np.all(prev["resources"][owner[i]] >= ncost[k]))):
+            spend[owner[i]] += ncost[k]
     new_camp = ~prev["alive"] & cur["alive"] & (cur["etype"] == TYPE_CAMP)
     for i in np.nonzero(new_camp)[0]:
         spend[owner[i]] += camp_cost

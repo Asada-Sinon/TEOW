@@ -1,0 +1,163 @@
+diff --git a/explorations/audit_conservation_determinism.py b/explorations/audit_conservation_determinism.py
+index 2eee90d..de611a3 100644
+--- a/explorations/audit_conservation_determinism.py
++++ b/explorations/audit_conservation_determinism.py
+@@ -78,6 +78,17 @@ for t in range(cfg.episode_len):
+     drop = np.maximum(drop, 0)
+     dep = np.zeros((2, 2), np.int64)
+     np.add.at(dep, (owner, prev["cargo_type"].astype(int)), drop)
++    # 口径补丁(v1.1 复审 P2):**卸货即死**——卸货(harvest_tick)先于战斗结算,
++    # 到家环上带货的 HARVEST 工人同 tick 阵亡时入账真实发生,但 alive_both 漏记。
++    # 判据:前帧 在到家环(d_hq==1)+ TO_HQ 相 + HARVEST 指令 + 带货,本帧死亡。
++    died = prev["alive"] & ~cur["alive"]
++    from teow.state import PH_TO_HQ  # noqa: E402
++    d_hq = np.asarray(m.dist_fields)[cfg.n_nodes + owner,
++                                     prev["pos"][:, 0], prev["pos"][:, 1]]
++    dep_dead = (died & (prev["cargo"] > 0) & (d_hq == 1)
++                & (prev["phase"] == PH_TO_HQ) & (prev["order"] == ORDER_HARVEST))
++    np.add.at(dep, (owner[dep_dead], prev["cargo_type"][dep_dead].astype(int)),
++              prev["cargo"][dep_dead].astype(np.int64))
+     # 训练开工 = HQ btimer 增加
+     spend = np.zeros((2, 2), np.int64)
+     for i in np.nonzero((cur["btimer"] > prev["btimer"]) & (cur["etype"] == TYPE_HQ))[0]:
+@@ -86,6 +97,24 @@ for t in range(cfg.episode_len):
+     # 建造开工 = node_build_timer 增加
+     for k in np.nonzero(cur["node_build_timer"] > prev["node_build_timer"])[0]:
+         spend[cur["node_owner"][k]] += ncost[k]
++    # 口径补丁(v1.1 复审 P2):**开工即死**——start_constructions 扣费在战斗前,
++    # 施工者同 tick 阵亡时 cleanup 当拍取消工地(timer 0→0),扣费成沉没成本
++    # (DECISIONS 明文不退款)。判据:到点环上的 BUILD 工人本帧死亡,且该点
++    # 前后帧均无主无工地(说明当拍开工又被取消)。
++    d_node = np.asarray(m.dist_fields)[
++        np.clip(prev["target_node"].astype(int), 0, cfg.n_nodes - 1),
++        prev["pos"][:, 0], prev["pos"][:, 1]]
++    from teow.state import ORDER_BUILD  # noqa: E402
++    for i in np.nonzero(died & (prev["order"] == ORDER_BUILD)
++                        & (prev["target_node"] >= 0) & (d_node == 1))[0]:
++        k = int(prev["target_node"][i])
++        if (prev["node_build_timer"][k] == 0 and cur["node_build_timer"][k] == 0
++                and prev["node_owner"][k] == -1 and cur["node_owner"][k] == -1
++                # afford 前提:付不起就不可能开过工(排除「站环上等钱」的误伤;
++                # 付得起+可认领+tick 初已在环上 ⇒ start_constructions 必然当拍
++                # 开工,死亡取消即沉没成本)
++                and bool(np.all(prev["resources"][owner[i]] >= ncost[k]))):
++            spend[owner[i]] += ncost[k]
+     delta = cur["resources"].astype(np.int64) - prev["resources"]
+     if not np.array_equal(delta, dep - spend):
+         violations += 1
+diff --git a/explorations/audit_v11_conservation_invariants.py b/explorations/audit_v11_conservation_invariants.py
+index 10ef4e6..9644331 100644
+--- a/explorations/audit_v11_conservation_invariants.py
++++ b/explorations/audit_v11_conservation_invariants.py
+@@ -15,7 +15,7 @@ from teow.config import (BTASK_BUILD_CAMP, BTASK_RESEARCH_INF, BTASK_RESEARCH_WO
+                          BTASK_UPGRADE, TYPE_CAMP, TYPE_HQ, TYPE_INFANTRY, TYPE_MINE,
+                          TYPE_PUMP, TYPE_WORKER, Config)
+ from teow.controller import make_joint_controller
+-from teow.state import ORDER_HARVEST, PH_MINING, owner_of_slots
++from teow.state import ORDER_BUILD, ORDER_HARVEST, PH_MINING, PH_TO_HQ, owner_of_slots
+ from teow.step import new_world
+ 
+ run_dir = pathlib.Path(sys.argv[1])
+@@ -36,6 +36,7 @@ inf_res = np.stack([cfg.inf_res_cost_ore, cfg.inf_res_cost_water], -1)
+ wrk_res = np.stack([cfg.worker_res_cost_ore, cfg.worker_res_cost_water], -1)
+ whp_t = np.asarray(cfg.worker_hp_by_level); ihp_t = np.asarray(cfg.inf_hp_by_level)
+ camp_cost = np.asarray([cfg.camp_cost_ore, cfg.camp_cost_water])
++NN = cfg.n_nodes  # 口径补丁用:HQ 场下标 = NN + player
+ 
+ traj = None; tp = run_dir / "trajectory.npz"
+ if tp.exists():
+@@ -63,6 +64,14 @@ for t in range(cfg.episode_len):
+     drop = np.maximum(np.where(ab, prev["cargo"].astype(np.int64) - cur["cargo"], 0), 0)
+     dep = np.zeros((2, 2), np.int64)
+     np.add.at(dep, (owner, prev["cargo_type"].astype(int)), drop)
++    # 口径补丁(复审 P2 工具债):卸货即死——卸货先于战斗,tick 初在到家环
++    # (d_hq==1)、TO_HQ 相、HARVEST 指令、带货的工人当拍阵亡,入账真实发生。
++    died = prev["alive"] & ~cur["alive"]
++    d_hq = np.asarray(m.dist_fields)[NN + owner, prev["pos"][:, 0], prev["pos"][:, 1]]
++    dep_dead = (died & (prev["cargo"] > 0) & (d_hq == 1)
++                & (prev["phase"] == PH_TO_HQ) & (prev["order"] == ORDER_HARVEST))
++    np.add.at(dep, (owner[dep_dead], prev["cargo_type"][dep_dead].astype(int)),
++              prev["cargo"][dep_dead].astype(np.int64))
+     spend = np.zeros((2, 2), np.int64)
+     inc = ab & (cur["btimer"] > prev["btimer"])
+     for i in np.nonzero(inc)[0]:
+@@ -77,6 +86,19 @@ for t in range(cfg.episode_len):
+         elif bt == BTASK_RESEARCH_WORKER: spend[p] += wrk_res[int(cur["upgrades"][p, 1])]
+     for k in np.nonzero(cur["node_build_timer"] > prev["node_build_timer"])[0]:
+         spend[cur["node_owner"][k]] += ncost[k]
++    # 口径补丁(复审 P2 工具债):开工即死——扣费先于战斗,施工者当拍阵亡则
++    # cleanup 当拍取消工地(timer/owner 双双 0→0),沉没成本(DECISIONS 不退款)。
++    # afford 前提排除「站环上付不起」的误伤:付得起+可认领+tick 初在环 ⇒ 必已开工。
++    d_nd = np.asarray(m.dist_fields)[
++        np.clip(prev["target_node"].astype(int), 0, NN - 1),
++        prev["pos"][:, 0], prev["pos"][:, 1]]
++    for i in np.nonzero(died & (prev["order"] == ORDER_BUILD)
++                        & (prev["target_node"] >= 0) & (d_nd == 1))[0]:
++        k = int(prev["target_node"][i])
++        if (prev["node_build_timer"][k] == 0 and cur["node_build_timer"][k] == 0
++                and prev["node_owner"][k] == -1 and cur["node_owner"][k] == -1
++                and bool(np.all(prev["resources"][owner[i]] >= ncost[k]))):
++            spend[owner[i]] += ncost[k]
+     new_camp = ~prev["alive"] & cur["alive"] & (cur["etype"] == TYPE_CAMP)
+     for i in np.nonzero(new_camp)[0]:
+         spend[owner[i]] += camp_cost
+diff --git a/src/teow/controller.py b/src/teow/controller.py
+index cf43860..814817f 100644
+--- a/src/teow/controller.py
++++ b/src/teow/controller.py
+@@ -84,17 +84,31 @@ def scripted_actions(state: WorldState, cfg: Config, mapdata: MapData,
+     harvestable = ((st.node_owner == player) & (st.node_ent >= 0)
+                    & (assigned < cfg.node_capacity))                        # [Nn]
+ 
++    # 付得起才派建造者(audit v1.1 P2 活锁根因:无主点+付不起 → 同一空闲工人
++    # 每 tick 被重复指派、动作被掩码、永不落入采集分支,水收入归零 1200+ tick。
++    # 加可负担门控后,付不起时该工人自然滑入采集分支,收入恢复即可再派)
++    from .actions import node_costs
++    ncost = node_costs(cfg, mapdata)                       # [Nn,2]
++    afford_node = jnp.all(st.resources[player][None, :] >= ncost, axis=-1)  # [Nn]
++    claimable = claimable & afford_node
+     bd = jnp.where(claimable[:, None], node_d, BIG_DIST)
+-    build_k = jnp.argmin(bd, axis=0)                       # [N] 最近无主点
++    build_k = jnp.argmin(bd, axis=0)
+     has_build = jnp.any(claimable)
+     hd = jnp.where(harvestable[:, None], node_d, BIG_DIST)
+     harv_k = jnp.argmin(hd, axis=0)
+     has_harv = jnp.any(harvestable)
+ 
+     idle_worker = mine & (st.etype == TYPE_WORKER) & (st.order == ORDER_IDLE) & ~st.inside
+-    # 「派一个建造者」:空闲工人中槽号最小的那个;全 False 时 argmax 返 0,用 has 门控
+-    builder = jnp.argmax(idle_worker)
+-    is_builder = (jnp.arange(n) == builder) & jnp.any(idle_worker) & has_build
++    # 「征调一个建造者」:优先空闲工人,没有就从采集线上拉一个(不拉矿内的)。
++    # 只靠闲人的老逻辑在「afford 门控 + 满员派工」后会饿死——人人有活干,
++    # 营/扩张永远没人去建(Phase 0 工具债的连带修正)。
++    can_pull = (mine & (st.etype == TYPE_WORKER) & ~st.inside
++                & ((st.order == ORDER_IDLE) | (st.order == ORDER_HARVEST)))
++    pull_score = jnp.where(can_pull,
++                           jnp.arange(n) + n * (st.order != ORDER_IDLE),
++                           jnp.iinfo(jnp.int32).max)
++    builder = jnp.argmin(pull_score)
++    is_builder = (jnp.arange(n) == builder) & jnp.any(can_pull) & has_build
+ 
+     worker_act = jnp.where(has_harv, a_harvest(0, cfg) + harv_k, A_NOOP)
+     worker_act = jnp.where(is_builder, a_build(0) + build_k, worker_act)
+@@ -111,12 +125,15 @@ def scripted_actions(state: WorldState, cfg: Config, mapdata: MapData,
+         line_lv[low_line] < st.level.astype(jnp.int32), a_research(0, cfg) + low_line,
+         a_upgrade(cfg))                                    # [N](逐营取自身 level 比较)
+ 
+-    # ---- 建营:基地达标且没有己方营(含在建)时,派一个空闲工人就地起营 ----
++    # ---- 建营:基地达标且没有己方营(含在建)时,征调一个工人就地起营
++    # (同一征调池;若与扩张建造者撞同一人,建营优先——它在 act 覆盖链更后)----
+     has_camp = jnp.any(mine & (st.etype == TYPE_CAMP))
+     base_ok = st.level[player * cfg.e_max] >= cfg.camp_unlock_level
+-    camp_builder = jnp.argmax(idle_worker)
+-    is_camp_builder = ((jnp.arange(n) == camp_builder) & jnp.any(idle_worker)
+-                       & base_ok & ~has_camp)
++    camp_afford = jnp.all(st.resources[player]
++                          >= jnp.asarray([cfg.camp_cost_ore, cfg.camp_cost_water]))
++    camp_builder = jnp.argmin(pull_score)
++    is_camp_builder = ((jnp.arange(n) == camp_builder) & jnp.any(can_pull)
++                       & base_ok & ~has_camp & camp_afford)
+ 
+     # ---- 矿/泵:库存 ≥ 升级成本+储备 才升(audit v1.1 P2:只查储备不查成本
+     # 会把「留军费」的意图打穿,曾是 seed12 水危机的助燃剂)----
