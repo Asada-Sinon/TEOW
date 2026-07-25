@@ -39,6 +39,22 @@
 
 <!-- 真实的 session 记录从这一行下面开始写，最新的一节永远插在紧挨本行的下面。 -->
 
+## Session 2026-07-25(晚,v1.2 全程,v1 引擎收官)
+- 完成: v1.2 打 tag 收官——连续 360° 移动(浮点坐标/场梯度寻路/圆形互推)、
+  兵营+狗子、哨塔、浏览器观战(run.py serve + Canvas 矢量 + PNG 替换槽 +
+  提示词包)。终审两轮(P0-1 存量狗补血已修复复审关闭),33 测试绿,
+  守恒/决定论/连续移动专项不变量全零违例(experiments/20260725-v1.2-audit2/)。
+- PENDING: ①**用户浏览器验收前端**:`.venv/bin/python src/run.py serve
+  experiments/20260725-v1.2-frontend-demo` → http://127.0.0.1:8000/(headless
+  只验到数据契约);②用户复核 DECISIONS 的 v1.2 条目(兵营升级顺延/melee
+  1.5 vs reach 1.2/决定论口径收窄);③下一版本 v2 RL——先与用户对齐范围再
+  /plan(旧 PPO 方案存 docs/plans/20260725-v1.2-continuous/ 之前的 v1 计划里,
+  avail_actions 掩码与 controller 接口已为 RL 预留)。
+- 坑: npz 惰性解压循环里用会平方级卡死(必须一次物化);server.py 开着
+  future annotations,fastapi 类型必须模块级导入否则 WS 403;serve 前必须
+  JAX_PLATFORMS=cpu(run.py 已内置);审计重放的 key 流必须 split(key,3)
+  与 run.py 一致。
+
 ## Session 2026-07-25(下午,用户在线,v1.1 全程)
 - 完成: v1.1 升级系统全部落地并打 tag——用户改需求(升本零单位加成,改为技能
   训练营双线研发,上限链 线≤营≤基地)→ plan+plan-critic(抓到扣费透支 BLOCKER)

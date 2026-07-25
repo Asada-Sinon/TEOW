@@ -47,6 +47,21 @@
 - 对策: verify.sh 与 pytest 一律 `JAX_PLATFORMS=cpu`;v2 vmap rollout 前先 bench。
 - 来源: Session 2026-07-25
 
+### [LEARN:tooling] npz 是惰性解压,循环里反复索引 data[k] 会平方级卡死
+- 现象: 回放服务 load 1359 帧卡 148 秒、100% CPU,像死循环。
+- 原因: np.load(npz) 返回惰性对象,每次 `data["k"]` 都完整解压该数组;
+  帧循环内逐元素访问 → O(帧×实体×全量解压)。
+- 对策: 用前一次性物化 `{k: raw[k] for k in raw.files}`(148s → 0.1s)。
+- 来源: Session 2026-07-25
+
+### [LEARN:tooling] future annotations 下 FastAPI 依赖类型必须模块级导入
+- 现象: WebSocket 路由握手一律 403,HTTP 路由正常,最小复现却通过。
+- 原因: `from __future__ import annotations` 把注解变字符串,FastAPI 用
+  get_type_hints 从模块 globals 解析;`WebSocket` 在函数内局部导入 → 解析
+  失败 → 被当成不可满足的依赖直接拒 403。
+- 对策: fastapi 类型模块级导入;或该文件不要开 future annotations。
+- 来源: Session 2026-07-25
+
 ### [LEARN:engine] 网格 RTS 里「静态最短路 + 严格改善 + 不许穿人」三件套必死锁
 - 现象: 三次不同形态的经济全冻结:站桩工人堵死唯一下坡格、僵尸建造工占矿入口、
   对向工人流对头互堵(审计 P0-1,最隐蔽,要 300+ tick 才显形)。
