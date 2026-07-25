@@ -1,6 +1,9 @@
 # TEOW v1.6 防御建筑群 + 空中域 — 实施计划
 
-(Plan agent 产出,行号按 v1.5 HEAD 亲核;plan-critic 意见文末追记)
+(Plan agent 产出,行号按 v1.5 HEAD 亲核;plan-critic:无 BLOCKER,
+4 MAJOR + 3 MINOR 已吸收,见【critic】标注。critic 另确认:飞艇「己方 HQ
+附近秒上」非遗漏——issue.md 规格区原文即「敌方攻击范围内禁止,其余位置即时」,
+HQ 附近是「其余位置」子集。)
 
 ## 关键设计决策(全部记 DECISIONS [AI-DRAFT])
 
@@ -15,6 +18,9 @@ v1.5 审计轨迹全失效;且 upgrades [P,8] 形状变更连带 npz/前端/测�
 哨塔/法师塔/激光炮/龙)。目标合法唯一公式(combat 与 movement 停步共用,
 提炼 stats 单函数防漂移):
 `valid(i→j) = is_air[j] ? can_hit_air[i] : (is_unit[j] ? hit_u[i] : hit_b[i])`。
+【critic M-1】所有 AoE victim 掩码统一补 `& ~is_air`(迫击炮/投石车/地雷/
+喷火器/龙喷火五处)——单体选靶挡了空军,溅射路径不挡会打穿「不可对空」;
+test_air_domain 断言「空军站在弹落点不掉血」。
 空中移动:受静态六边形边界约束(界外死区无意义),**无视 building_cells**;
 方向不走场、直线冲目标(六边形凸集,连线不出界);互推分组 air-air/ground-
 ground,空地零碰撞;不进 occupancy_grid 与动态场软障碍。
@@ -22,11 +28,15 @@ ground,空地零碰撞;不进 occupancy_grid 与动态场软障碍。
 **D2 飞艇容器。** state 新增 `aboard: int16[N]`(载具槽,-1 无;不复用
 inside——那是采集相位机)与 `reboard_lock: int16[N]`(开火置 60,递减,
 ==0 才可上艇)。上艇=单动作 A_BOARD:reach 内最近己方有空位艇,即时;门=
-地面战斗单位(不含采集单位)+ lock==0 + **威胁禁区**(任意敌方 atk_range>0
-实体的射程圆内禁止)+ 容量 7(同 tick 超发按 rank 仲裁);登艇清 order/
+地面战斗单位(不含采集单位)+ lock==0 + **威胁禁区**(【critic M-2】谓词与 combat 攻击者门同源提炼:
+`(atk>0 & rng>0)` 的射程圆 ∪ 喷火器 radius 圆——奶妈治疗射程不算威胁,
+喷火器 rng=0 但攻击圈算)+ 容量 7(同 tick 超发按 rank 仲裁);登艇清 order/
 target/garrison。空降=艇侧单动作 A_DROP_ALL,全员落艇位(暂时叠格互推散开)。
-舱内乘员 pos 每 tick snap 到艇位;击落=乘员连锁死(cleanup gather 一层);
-不提供自动走靠。
+舱内乘员 pos 每 tick snap 到艇位;击落=乘员连锁死(cleanup gather 一层);不提供自动走靠。
+【critic M-3】aboard/reboard_lock 必须进 production 落地复位与 cleanup 停泊
+两处逐字段清单(漏掉=复用槽出「隐形在艇上」的幽灵兵),并入审计脚本
+「乘员随艇」不变量。【critic MINOR-1】同 tick DROP_ALL 先于 A_BOARD 结算
+(腾位同拍可用,与撤旗先于插旗同哲学,记 DECISIONS)。
 
 **D3 龙骑兵双攻。** 模式自动选、空中优先(射程内有敌空军→单体高物理打最近;
 否则喷吐半径内有敌地面单位→喷火);喷火=以龙为圆心平坦 AoE,只伤敌方地面
@@ -69,7 +79,10 @@ occupancy/legality actable 五处,防口径分叉);test_airship。
 **P4 龙骑兵**:双模式+停步特判;test_dragon。
 **P5 脚本 AI+前端+README+收尾**:防御建筑建造链(互斥顺延);bar_types 追加
 三兵种(caps 99/1/1);is_army 换表;登艇/空降 scripted 不用(手术验证);
-test_scripted_v16(富开局 target 7);审计脚本追加(地雷一次性守恒/乘员随艇/
+【critic M-4】覆盖局先在 explorations/ 定标(扫富开局参数取「全类型出现」的
+最小预算,记 seed+resolved config;target 7 的升本预留累计 1110/810 大概率
+挤死练兵线——若不可达,退成 target 5 覆盖局 + 龙/飞艇状态手术单测,
+勿让收尾门禁押在未定标经济上);审计脚本追加(地雷一次性守恒/乘员随艇/
 空军不入 building_cells);五件套。
 
 ## 数值草案(全部 [AI-DRAFT])
@@ -87,3 +100,7 @@ train_level:投石车6/飞艇6/龙7。
 激光炮 hit_b=0 ⑤地雷不挡路/占落位格/在建不触发/可见 ⑥登艇限战斗单位/reach
 内/无自动走靠/DROP_ALL 单动作/登艇清指令 ⑦威胁禁区=敌 atk_range>0 实体射程圆
 (不含地雷触发圈) ⑧空军直线转向/受静态边界/空地零碰撞/不占格。
+【critic MINOR-2】地雷排除出 building_cells 后插旗判定须单列雷格(否则旗可
+插雷上,违 v1.3「不可插建筑占用格」);【MINOR-3】龙停步规则明文「射程内敌
+空军 ∪ 喷吐半径内敌地面单位」绕过统一 valid(龙 hit_u=0);movement 停步的
+targetable 同时排除地雷(防近战在雷旁停步空转)。
