@@ -140,4 +140,21 @@ export function drawSprite(ctx, type, owner, x, y, s, opts = {}) {
   ctx.restore();
 }
 
+// 军旗(v1.3):非实体,不进 TYPE_NAMES/drawSprite 分发,render.js 按帧 flags 数组直调
+export function drawFlag(ctx, owner, x, y, s) {
+  const u = s / 24;
+  ctx.save();
+  ctx.translate(x, y);
+  ctx.strokeStyle = "#d1d5db";                 // 旗杆
+  ctx.lineWidth = Math.max(1, 1.6 * u);
+  ctx.beginPath(); ctx.moveTo(0, 9 * u); ctx.lineTo(0, -9 * u); ctx.stroke();
+  ctx.fillStyle = P_COLOR[owner];              // 三角旗面
+  ctx.strokeStyle = P_DARK[owner];
+  ctx.lineWidth = Math.max(1, 1.2 * u);
+  ctx.beginPath();
+  ctx.moveTo(0, -9 * u); ctx.lineTo(9 * u, -5.5 * u); ctx.lineTo(0, -2 * u);
+  ctx.closePath(); ctx.fill(); ctx.stroke();
+  ctx.restore();
+}
+
 export { P_COLOR, P_DARK, TYPE_NAMES };

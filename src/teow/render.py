@@ -48,6 +48,17 @@ def _draw_frame(ax, frame: dict, e_max: int, passable: np.ndarray,
         marker = "D" if node_type[k] == 0 else "o"
         ax.plot(c, r, marker, ms=14, mfc="none", mec=col, mew=2)
 
+    # 军旗(v1.3;active 才画:阵营色三角小旗+杆。旧 run 无 flag 字段则跳过)
+    flag_active = frame.get("flag_active")
+    if flag_active is not None:
+        for p in (0, 1):
+            for j in range(flag_active.shape[1]):
+                if flag_active[p][j]:
+                    fr, fc = frame["flag_pos"][p][j]
+                    col = P_COLOR[p]
+                    ax.plot([fc, fc], [fr + 0.35, fr - 0.45], color=col, lw=1.5)
+                    ax.plot(fc + 0.14, fr - 0.3, ">", ms=6, color=col)
+
     level = frame.get("level")
     for i in np.flatnonzero(alive):
         r, c = pos[i]

@@ -1,5 +1,5 @@
 // TEOW 观战渲染(v1.2):Canvas2D,WS 收帧,帧间线性插值平滑连续移动。
-import { drawSprite, P_COLOR } from "./sprites.js";
+import { drawFlag, drawSprite, P_COLOR } from "./sprites.js";
 
 const canvas = document.getElementById("map");
 const hud = document.getElementById("hud");
@@ -79,6 +79,12 @@ function draw() {
       ctx.arc(x, y, s * 0.4, 0, 7);
     }
     ctx.stroke();
+  });
+
+  // 军旗(v1.3;服务端只下发 active 旗:[p, r, c]。旧 run 无此字段则跳过)
+  (cur.flags || []).forEach(([p, fr, fc]) => {
+    const [x, y] = px([fr, fc]);
+    drawFlag(ctx, p, x, y, s);
   });
 
   // 实体(帧间插值)

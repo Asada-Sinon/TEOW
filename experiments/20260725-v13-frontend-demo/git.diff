@@ -1,0 +1,111 @@
+diff --git a/issue.md b/issue.md
+index dcd789b..de624e0 100644
+--- a/issue.md
++++ b/issue.md
+@@ -154,6 +154,8 @@
+   手册数值须与其同步。
+ - 收尾照常:覆盖新功能的脚本对决跑通 + 无上下文 agent 终审。
+ 
++v1.4可以修建多个哨塔，哨塔的数量和基地等级挂钩，基地等级越高可建的哨塔越多。每升两级可以多建一个哨塔，初值基地等级 1 可建 0 座，2 可建 1 座，4 可建 2 座，6 可建 3 座，你看这个数值怎么样，然后三级大本营可以修建迫击炮，无法打近处目标，但是可以对远处的地面单位造成范围伤害，有从中心到四周的伤害衰减，但是攻击间隔和攻击力要好好规划，然后步兵换成弓箭手，然后升级到兵营2级别可以爆弓箭手，最开始可以爆的换成近战步兵，升级到兵营3级可以爆轻骑兵和重盔甲战士，然后兵营4级可以爆法师和奶妈，然后我需要你用中文维护一个以建筑为标题的细则总结，就是几级可以爆什么兵，总结一下，我现在有点吃设定了，然后取消工人的升级，大本营3级的时候可以爆大力士工人，就是工人升级版干活快，携带东西多，移速和工人一样，大本营5级可以爆马车，干活快，但是比大力士慢一点，携带东西增加，移速和骑兵一样。工人，大力士工人，马车都是采集单位，不能攻击，不能驻守，不能驻守军旗
++
+ ## v2+(远期,未细化,勿实现)
+ 
+ - **RL 指挥官**(封存方案:实体共享策略网+中心化 critic 的纯 JAX 自研 PPO;
+diff --git a/src/teow/render.py b/src/teow/render.py
+index 43c3422..abbbb8f 100644
+--- a/src/teow/render.py
++++ b/src/teow/render.py
+@@ -48,6 +48,17 @@ def _draw_frame(ax, frame: dict, e_max: int, passable: np.ndarray,
+         marker = "D" if node_type[k] == 0 else "o"
+         ax.plot(c, r, marker, ms=14, mfc="none", mec=col, mew=2)
+ 
++    # 军旗(v1.3;active 才画:阵营色三角小旗+杆。旧 run 无 flag 字段则跳过)
++    flag_active = frame.get("flag_active")
++    if flag_active is not None:
++        for p in (0, 1):
++            for j in range(flag_active.shape[1]):
++                if flag_active[p][j]:
++                    fr, fc = frame["flag_pos"][p][j]
++                    col = P_COLOR[p]
++                    ax.plot([fc, fc], [fr + 0.35, fr - 0.45], color=col, lw=1.5)
++                    ax.plot(fc + 0.14, fr - 0.3, ">", ms=6, color=col)
++
+     level = frame.get("level")
+     for i in np.flatnonzero(alive):
+         r, c = pos[i]
+diff --git a/src/teow/server.py b/src/teow/server.py
+index d45bb06..c009a2f 100644
+--- a/src/teow/server.py
++++ b/src/teow/server.py
+@@ -50,6 +50,7 @@ def load_replay(run_dir: pathlib.Path) -> dict:
+         "run": run_dir.name,
+     }
+ 
++    has_flags = "flag_active" in data  # v1.3 起才录;旧 run 目录发空表
+     frames = []
+     for i in range(n_frames):
+         alive = data["alive"][i]
+@@ -62,6 +63,13 @@ def load_replay(run_dir: pathlib.Path) -> dict:
+             "upgrades": data["upgrades"][i].tolist(),
+             "node_owner": data["node_owner"][i].tolist(),
+             "winner": int(data["winner"][i]),
++            "flags": [
++                [int(p), round(float(data["flag_pos"][i][p][j][0]), 2),
++                 round(float(data["flag_pos"][i][p][j][1]), 2)]
++                for p in range(2)
++                for j in range(data["flag_active"].shape[2])
++                if data["flag_active"][i][p][j]
++            ] if has_flags else [],
+             "ents": [
+                 {
+                     "s": int(j),
+diff --git a/web/render.js b/web/render.js
+index fd00645..7998276 100644
+--- a/web/render.js
++++ b/web/render.js
+@@ -1,5 +1,5 @@
+ // TEOW 观战渲染(v1.2):Canvas2D,WS 收帧,帧间线性插值平滑连续移动。
+-import { drawSprite, P_COLOR } from "./sprites.js";
++import { drawFlag, drawSprite, P_COLOR } from "./sprites.js";
+ 
+ const canvas = document.getElementById("map");
+ const hud = document.getElementById("hud");
+@@ -81,6 +81,12 @@ function draw() {
+     ctx.stroke();
+   });
+ 
++  // 军旗(v1.3;服务端只下发 active 旗:[p, r, c]。旧 run 无此字段则跳过)
++  (cur.flags || []).forEach(([p, fr, fc]) => {
++    const [x, y] = px([fr, fc]);
++    drawFlag(ctx, p, x, y, s);
++  });
++
+   // 实体(帧间插值)
+   const t = Math.min(1, (performance.now() - curAt) / frameInterval);
+   const ents = lerpEnts(prev, cur, t);
+diff --git a/web/sprites.js b/web/sprites.js
+index 2543be5..627d30d 100644
+--- a/web/sprites.js
++++ b/web/sprites.js
+@@ -140,4 +140,21 @@ export function drawSprite(ctx, type, owner, x, y, s, opts = {}) {
+   ctx.restore();
+ }
+ 
++// 军旗(v1.3):非实体,不进 TYPE_NAMES/drawSprite 分发,render.js 按帧 flags 数组直调
++export function drawFlag(ctx, owner, x, y, s) {
++  const u = s / 24;
++  ctx.save();
++  ctx.translate(x, y);
++  ctx.strokeStyle = "#d1d5db";                 // 旗杆
++  ctx.lineWidth = Math.max(1, 1.6 * u);
++  ctx.beginPath(); ctx.moveTo(0, 9 * u); ctx.lineTo(0, -9 * u); ctx.stroke();
++  ctx.fillStyle = P_COLOR[owner];              // 三角旗面
++  ctx.strokeStyle = P_DARK[owner];
++  ctx.lineWidth = Math.max(1, 1.2 * u);
++  ctx.beginPath();
++  ctx.moveTo(0, -9 * u); ctx.lineTo(9 * u, -5.5 * u); ctx.lineTo(0, -2 * u);
++  ctx.closePath(); ctx.fill(); ctx.stroke();
++  ctx.restore();
++}
++
+ export { P_COLOR, P_DARK, TYPE_NAMES };

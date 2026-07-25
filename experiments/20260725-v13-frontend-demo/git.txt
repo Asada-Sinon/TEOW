@@ -1,0 +1,8 @@
+5c2030e99c07e0a29fc77c197e6b3ca807ee40c3
+dirty: True
+ M issue.md
+ M src/teow/render.py
+ M src/teow/server.py
+ M web/render.js
+ M web/sprites.js
+?? experiments/20260725-v13-frontend-demo/

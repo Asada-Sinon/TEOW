@@ -50,6 +50,7 @@ def load_replay(run_dir: pathlib.Path) -> dict:
         "run": run_dir.name,
     }
 
+    has_flags = "flag_active" in data  # v1.3 起才录;旧 run 目录发空表
     frames = []
     for i in range(n_frames):
         alive = data["alive"][i]
@@ -62,6 +63,13 @@ def load_replay(run_dir: pathlib.Path) -> dict:
             "upgrades": data["upgrades"][i].tolist(),
             "node_owner": data["node_owner"][i].tolist(),
             "winner": int(data["winner"][i]),
+            "flags": [
+                [int(p), round(float(data["flag_pos"][i][p][j][0]), 2),
+                 round(float(data["flag_pos"][i][p][j][1]), 2)]
+                for p in range(2)
+                for j in range(data["flag_active"].shape[2])
+                if data["flag_active"][i][p][j]
+            ] if has_flags else [],
             "ents": [
                 {
                     "s": int(j),
