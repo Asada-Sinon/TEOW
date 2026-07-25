@@ -17,12 +17,15 @@ from .actions import (
     A_ATTACK,
     A_NOOP,
     a_build,
+    a_build_camp,
     a_harvest,
+    a_research,
     a_train_infantry,
     a_train_worker,
+    a_upgrade,
     legality_mask,
 )
-from .config import TYPE_HQ, TYPE_INFANTRY, TYPE_WORKER, Config
+from .config import TYPE_CAMP, TYPE_HQ, TYPE_INFANTRY, TYPE_MINE, TYPE_PUMP, TYPE_WORKER, Config
 from .map import BIG_DIST, MapData
 from .state import ORDER_BUILD, ORDER_HARVEST, ORDER_IDLE, WorldState, owner_of_slots
 
@@ -52,10 +55,18 @@ def scripted_actions(state: WorldState, cfg: Config, mapdata: MapData,
     mine = st.alive & (owner == player)
     dist = jnp.asarray(mapdata.dist_fields)                # [G,H,W]
 
-    # ---- HQ:缺工人补工人,否则爆兵 ----
+    # ---- HQ:缺工人补工人 → 富余则升本(到 ai_base_level_target 止)→ 否则爆兵 ----
     n_workers = jnp.sum(mine & (st.etype == TYPE_WORKER))
+    hq_slot_p = player * cfg.e_max
+    base_lv = st.level[hq_slot_p].astype(jnp.int32)
+    up_cost = jnp.asarray(
+        [cfg.base_up_cost_ore, cfg.base_up_cost_water], jnp.int32)[:, base_lv]
+    rich_for_base = jnp.all(st.resources[player]
+                            >= up_cost + cfg.ai_upgrade_reserve)
     hq_act = jnp.where(n_workers < cfg.ai_worker_target,
                        a_train_worker(cfg), a_train_infantry(cfg))
+    hq_act = jnp.where(rich_for_base & (base_lv < cfg.ai_base_level_target),
+                       a_upgrade(cfg), hq_act)
 
     # ---- 工人:一个去建(最近的无主点),其余采(最近的有余位己方点)----
     node_d = dist[:cfg.n_nodes, st.pos[:, 0], st.pos[:, 1]]  # [Nn,N]
@@ -93,9 +104,32 @@ def scripted_actions(state: WorldState, cfg: Config, mapdata: MapData,
     n_inf = jnp.sum(mine & (st.etype == TYPE_INFANTRY))
     inf_act = jnp.where(n_inf >= cfg.ai_attack_threshold, A_ATTACK, A_NOOP)
 
+    # ---- 训练营(v1.1):优先研低的那条线(掩码兜底非法),双线到顶则升营 ----
+    line_lv = st.upgrades[player]                          # [2]
+    low_line = jnp.argmin(line_lv).astype(jnp.int32)       # 平级取步兵线(0)
+    camp_act = jnp.where(
+        line_lv[low_line] < st.level.astype(jnp.int32), a_research(0, cfg) + low_line,
+        a_upgrade(cfg))                                    # [N](逐营取自身 level 比较)
+
+    # ---- 建营:基地达标且没有己方营(含在建)时,派一个空闲工人就地起营 ----
+    has_camp = jnp.any(mine & (st.etype == TYPE_CAMP))
+    base_ok = st.level[player * cfg.e_max] >= cfg.camp_unlock_level
+    camp_builder = jnp.argmax(idle_worker)
+    is_camp_builder = ((jnp.arange(n) == camp_builder) & jnp.any(idle_worker)
+                       & base_ok & ~has_camp)
+
+    # ---- 矿/泵:库存富余就升(掩码兜底上限链/施工中)----
+    is_node_b = (st.etype == TYPE_MINE) | (st.etype == TYPE_PUMP)
+    rich_for_node = jnp.all(
+        st.resources[player] >= cfg.ai_upgrade_reserve)
+    node_act = jnp.where(rich_for_node, a_upgrade(cfg), A_NOOP)
+
     act = jnp.full(n, A_NOOP, jnp.int32)
     act = jnp.where(mine & (st.etype == TYPE_HQ), hq_act, act)
     act = jnp.where(idle_worker, worker_act, act)
+    act = jnp.where(is_camp_builder, a_build_camp(cfg), act)
+    act = jnp.where(mine & (st.etype == TYPE_CAMP), camp_act, act)
+    act = jnp.where(mine & is_node_b, node_act, act)
     act = jnp.where(mine & (st.etype == TYPE_INFANTRY), inf_act, act)
 
     # ---- 让路:空闲单位贴在自家 HQ 正邻格(=卸货格)上会堵死运矿工人,

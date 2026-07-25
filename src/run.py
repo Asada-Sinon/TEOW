@@ -127,6 +127,9 @@ def cmd_play(args) -> None:
                 "res_p1": state.resources[1].tolist(),
                 "alive_p0": int(jnp.sum(state.alive[:cfg.e_max])),
                 "alive_p1": int(jnp.sum(state.alive[cfg.e_max:])),
+                "base_level": [int(state.level[0]), int(state.level[cfg.e_max])],
+                "upgrades_p0": state.upgrades[0].tolist(),
+                "upgrades_p1": state.upgrades[1].tolist(),
                 "done": bool(state.done),
                 "winner": int(state.winner),
             }

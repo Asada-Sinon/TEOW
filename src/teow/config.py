@@ -130,6 +130,10 @@ class Config:
     #      resolved config 能完整复现一场对局)----
     ai_worker_target: int = 8    # 工人数低于此值时 HQ 优先补工人
     ai_attack_threshold: int = 6 # 步兵攒到此数全军压向敌方 HQ
+    ai_base_level_target: int = 3  # 脚本 AI 把基地升到几级为止(v1.1)
+    ai_upgrade_reserve: int = 40   # 库存超出升级成本多少才肯升级/研发(留军费;
+    #                                150 时实测对局在 ~730 tick 分胜负,脚本到死
+    #                                都攒不齐,升级机制全程闲置)
 
     # ---- 派生量(不是字段)----
     @property
