@@ -1,0 +1,4 @@
+{"variant": "atk4", "n_dogs": 2, "outcome": "dogs_wiped", "resolved_tick": 12, "tower_alive": true, "tower_hp": 120, "dogs_alive": 0, "workers_lost": 1, "hq_hp": 400}
+{"variant": "atk4", "n_dogs": 3, "outcome": "dogs_wiped", "resolved_tick": 16, "tower_alive": true, "tower_hp": 120, "dogs_alive": 0, "workers_lost": 2, "hq_hp": 400}
+{"variant": "atk4", "n_dogs": 4, "outcome": "dogs_wiped", "resolved_tick": 22, "tower_alive": true, "tower_hp": 120, "dogs_alive": 0, "workers_lost": 3, "hq_hp": 385}
+{"variant": "atk4", "n_dogs": 5, "outcome": "dogs_wiped", "resolved_tick": 29, "tower_alive": true, "tower_hp": 117, "dogs_alive": 0, "workers_lost": 3, "hq_hp": 352}

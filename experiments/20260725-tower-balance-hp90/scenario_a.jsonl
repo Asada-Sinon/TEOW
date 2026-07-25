@@ -1,0 +1,4 @@
+{"variant": "hp90", "n_dogs": 2, "outcome": "dogs_wiped", "resolved_tick": 10, "tower_alive": true, "tower_hp": 90, "dogs_alive": 0, "workers_lost": 1, "hq_hp": 400}
+{"variant": "hp90", "n_dogs": 3, "outcome": "dogs_wiped", "resolved_tick": 13, "tower_alive": true, "tower_hp": 90, "dogs_alive": 0, "workers_lost": 1, "hq_hp": 400}
+{"variant": "hp90", "n_dogs": 4, "outcome": "dogs_wiped", "resolved_tick": 17, "tower_alive": true, "tower_hp": 90, "dogs_alive": 0, "workers_lost": 1, "hq_hp": 400}
+{"variant": "hp90", "n_dogs": 5, "outcome": "dogs_wiped", "resolved_tick": 21, "tower_alive": true, "tower_hp": 75, "dogs_alive": 0, "workers_lost": 3, "hq_hp": 388}

@@ -1,0 +1,8 @@
+b1477d1f4c0d03a65d1cc70474573353b83676ad
+dirty: True
+ M issue.md
+?? experiments/20260725-tower-balance-atk3/
+?? experiments/20260725-tower-balance-atk4/
+?? experiments/20260725-tower-balance-base/
+?? experiments/20260725-tower-balance-cost80-50/
+?? explorations/exp_tower_balance_v13.py

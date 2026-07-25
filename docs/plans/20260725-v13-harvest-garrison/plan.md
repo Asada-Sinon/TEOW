@@ -293,6 +293,14 @@
 
 ## 发现但未做
 
+- **Phase 6 发现(未做)**:scripted vs scripted 对局对 seed 完全不敏感——场景 B
+  每变体 8 seeds 的 winner/end_tick/tower_seen 逐 seed 相同,「多 seed」退化为
+  单样本(推测:v1.2 起 movement 不吃 key,step 内两处随机仲裁在这些对局未产生
+  可见分歧;未逐位核验)。影响端到端验证的「多 seed 看分布」设想与 v2 rollout
+  多样性,后续引擎侧敏感性实验需用 random 控制器或扰动初始条件;数据见
+  experiments/20260725-tower-balance-*/scenario_b.jsonl。另:Phase 6 只出数据,
+  哨塔终值待用户定案,config.py 未动(plan 决策点本就如此,非遗漏)。
+
 - **Phase 5 发现(未做)**:seed 0 scripted vs scripted 整局不对称——p0 全场
   0 军队(兵营 775 tick 才起、狗/步兵始终 0),p1 节奏正常(兵营 760、狗x3
   @1005、总攻 1035)并于 1116 tick 获胜;双方逻辑相同,不对称疑来自槽号仲裁下

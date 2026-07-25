@@ -52,3 +52,30 @@
 - 附注(吞吐观测,单环境): CPU 831 tick/s、GPU 27 tick/s——单环境下 GPU 每 tick
   的 kernel launch 开销占优,符合预期;GPU 优势要到 v2 vmap 批量 rollout 才体现。
   [AI-DRAFT] [source: 20260725-first-full-game][source: 20260725-scripted-v-scripted]
+
+## 2026-07-25  run_id: 20260725-tower-balance-{base,atk4,atk3,cost80-50,hp90}
+- 假设: v1.2 哨塔现值(L1 攻6/血120/造价50-30)对狗 rush 的强度可由 config-only
+  杠杆(攻/血/造价)调平;若各杠杆都拉不动结果,才需要「攻击间隔」新机制
+  (plan v1.3 Phase 6)。
+- 成功判据: 汇总表覆盖 5 变体 × 场景 A(N∈{2..5} 狗 rush 手术局)+ 场景 B
+  (scripted 互打 8 seeds),每个 run 目录三件套(git hash/resolved config/seed)齐。
+- git hash: b1477d1(工作区 dirty:issue.md 草稿与本实验脚本;脚本跑完原样提交,
+  与 v1.0 首跑同一惯例)
+- 结果(数字均引各 run 目录 scenario_*.jsonl 与 …-summary/summary.md):
+  - 场景 A:全部 5 变体 × N∈{2,3,4,5} 均 dogs_wiped,塔无一被摧毁。base 下
+    N=5 @21 tick,工亡 3/3、塔血 105/120;最弱变体 atk3 下 N=5 @36 tick、
+    塔血 111——攻击 6→3 只把清场时间 21→36 tick,不翻转任何一档结果。
+  - 场景 B:每变体内 8 个 seed 的 winner/end_tick/tower_seen 完全一致
+    (所测指标意义上是同一局重复 8 次);p0 全胜(8/8,所有变体)。终局 tick:
+    base/hp90 1519、atk4 1498、atk3 1584、cost80-50 1147;cost80-50 下
+    p1 全程未出现过塔(tower_seen_p1=False,块边界抽样口径)。
+  - 方法学发现: scripted vs scripted 对局对 seed 不敏感——所测指标逐 seed
+    相同,「8 seeds」退化为单样本。推测(未逐位核验):v1.2 起 movement 不吃
+    key,step 内仅存的两处随机仲裁在这些对局中未产生可见分歧。后续引擎侧
+    敏感性实验需改用 random 控制器或扰动初始条件才能得到分布。
+- 结论: config-only 杠杆在「1 塔+3 工人+HQ 能否守住 ≤5 狗 rush」上全部拉不动
+  (各变体全胜),只影响清场速度与工人伤亡;造价 80/50 在全局对局里让 scripted
+  的 p1 建不起塔且终局提前(1519→1147)。哨塔数值终值按 plan 决策点交用户定案,
+  config.py 未动。[AI-DRAFT] [source: 20260725-tower-balance-base]
+  [source: 20260725-tower-balance-atk4] [source: 20260725-tower-balance-atk3]
+  [source: 20260725-tower-balance-cost80-50] [source: 20260725-tower-balance-hp90]
