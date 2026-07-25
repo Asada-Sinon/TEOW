@@ -158,7 +158,7 @@ class Config:
     tower_build_time: int = 90
     tower_range: float = 4.0
     tower_hp_by_level: tuple = (0, 120, 150, 180, 220, 260, 300, 350)
-    tower_atk_by_level: tuple = (0, 6, 8, 10, 13, 16, 20, 24)
+    tower_atk_by_level: tuple = (0, 3, 8, 10, 13, 16, 20, 24)
     tower_up_cost_ore: tuple = (0, 40, 60, 90, 130, 180, 240, 0)
     tower_up_cost_water: tuple = (0, 25, 40, 60, 85, 120, 160, 0)
     tower_up_time: tuple = (0, 70, 85, 100, 115, 130, 145, 0)

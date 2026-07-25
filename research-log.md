@@ -79,3 +79,6 @@
   config.py 未动。[AI-DRAFT] [source: 20260725-tower-balance-base]
   [source: 20260725-tower-balance-atk4] [source: 20260725-tower-balance-atk3]
   [source: 20260725-tower-balance-cost80-50] [source: 20260725-tower-balance-hp90]
+- 定案(2026-07-25 追记,用户授权 agent 决策): 采 atk3 变体——
+  `tower_atk_by_level` L1 6→3,其余杠杆不动;理由与不采项见 docs/DECISIONS.md
+  同日条目。[AI-DRAFT] [source: 20260725-tower-balance-atk3]
