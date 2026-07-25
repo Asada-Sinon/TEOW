@@ -207,16 +207,18 @@ def scripted_actions(state: WorldState, cfg: Config, mapdata: MapData,
                       & (st.level[player * cfg.e_max] >= unlock[TYPE_BARRACKS])
                       & has_camp & ~has_bar & bar_afford & ~is_camp_builder)
 
-    # ---- 哨塔:有兵营后建一座守家(v1.2)----
+    # ---- 哨塔:有兵营后建到数量上限为止(v1.4 多塔:上限挂基地等级)----
     from .actions import a_build_tower
     from .config import TYPE_TOWER
-    has_tower = jnp.any(mine & (st.etype == TYPE_TOWER))
+    n_towers = jnp.sum(mine & (st.etype == TYPE_TOWER))
+    twr_cap = jnp.asarray(cfg.tower_cap_by_hq_level, jnp.int32)[
+        jnp.clip(base_lv, 0, 7)]
     tower_afford = jnp.all(st.resources[player] >= jnp.asarray(
         [cfg.tower_cost_ore, cfg.tower_cost_water]))
     tw_builder = jnp.argmin(pull_score)
     is_tw_builder = ((jnp.arange(n) == tw_builder) & jnp.any(can_pull)
                      & (st.level[player * cfg.e_max] >= unlock[TYPE_TOWER])
-                     & has_bar & ~has_tower & tower_afford
+                     & has_bar & (n_towers < twr_cap) & tower_afford
                      & ~is_camp_builder & ~is_bar_builder)
 
     # ---- 驻守/军旗(v1.3):有兵营后,槽号最小的 2 只狗驻守离家最远的已建

@@ -310,8 +310,17 @@ def legality_mask(state: WorldState, cfg: Config, mapdata: MapData,
     mask = mask.at[:, a_build_barracks(cfg)].set(can_bar)
     from .config import TYPE_TOWER
     tower_cost = jnp.asarray([cfg.tower_cost_ore, cfg.tower_cost_water], jnp.int32)
+    # v1.4 多塔:数量挂基地等级(在建也 alive 计数,防重复下单;paid pass
+    # 每 tick 每玩家每种至多批一座,掩码时 <cap ⇒ 终态 ≤cap)
+    n_twr = jnp.stack([
+        jnp.sum((owner == 0) & state.alive & (state.etype == TYPE_TOWER)),
+        jnp.sum((owner == 1) & state.alive & (state.etype == TYPE_TOWER)),
+    ])[half]
+    twr_cap = jnp.asarray(cfg.tower_cap_by_hq_level, jnp.int32)[
+        jnp.clip(hq_lv, 0, 7)]
     can_tower = (actable & is_worker & (hq_lv >= unlock[TYPE_TOWER])
-                 & free_in_half & jnp.all(stock >= tower_cost, axis=-1))
+                 & (n_twr < twr_cap) & free_in_half
+                 & jnp.all(stock >= tower_cost, axis=-1))
     mask = mask.at[:, a_build_tower(cfg)].set(can_tower)
 
     # 训狗(v1.2):建成兵营空闲 + 半区有空槽 + 付得起

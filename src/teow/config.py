@@ -235,6 +235,9 @@ class Config:
     barracks_hp: int = 200
 
     # 哨塔(等级上限=基地等级,升级提升血量与攻击;只攻单位不攻建筑)
+    # v1.4 多塔:可建数量挂基地等级,每两级 +1(用户确认数值,非草案):
+    # 1级0座、2-3级1座、4-5级2座、6-7级3座。下标=基地等级,0 位废位。
+    tower_cap_by_hq_level: tuple = (0, 0, 1, 1, 2, 2, 3, 3)
     tower_cost_ore: int = 50
     tower_cost_water: int = 30
     tower_build_time: int = 90
@@ -410,6 +413,13 @@ class Config:
     def aoe_radius_by_type(self) -> tuple:
         """范围伤害半径(0=单体);仅迫击炮(v1.6 投石车等加入)。"""
         return self._t32({TYPE_MORTAR: self.mortar_aoe_radius}, default=0.0)
+
+    @property
+    def build_cap_by_type(self) -> tuple:
+        """每玩家该类型建筑数量上限;0=本表不设限(哨塔另查 tower_cap_by_hq_level,
+        兵营沿用 max_barracks)。迫击炮限 1(规格:除哨塔/地雷外每种防御建筑限 1;
+        v1.6 防御建筑与地雷=5 直接进此表)。"""
+        return self._t32({TYPE_MORTAR: 1})
 
     @property
     def line_of_type(self) -> tuple:
