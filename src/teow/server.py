@@ -38,6 +38,14 @@ def load_replay(run_dir: pathlib.Path) -> dict:
     data = {k: raw[k] for k in raw.files}
     n_frames = int(data["tick"].shape[0])
 
+    # v1.4:满血查表(stats 唯一真源)服务端算好随帧下发(mx),前端血条不再
+    # 硬编码数值(config 单真源违例顺手修掉);建筑类型集给前端决定谁画血条
+    from .stats import hp_table
+    htab = np.asarray(hp_table(cfg))                    # [32,8]
+    line_of = np.asarray(cfg.line_of_type)              # [32]
+    building_types = [t for t, s in enumerate(cfg.speed_by_type)
+                      if s == 0 and t != 0 and htab[t].max() > 0]
+
     meta = {
         "kind": "meta",
         "grid": [cfg.grid_h, cfg.grid_w],
@@ -47,6 +55,7 @@ def load_replay(run_dir: pathlib.Path) -> dict:
         "node_type": m.node_type.tolist(),
         "hq_pos": m.hq_pos.tolist(),
         "n_frames": n_frames,
+        "building_types": building_types,
         "run": run_dir.name,
     }
 
@@ -73,14 +82,21 @@ def load_replay(run_dir: pathlib.Path) -> dict:
             "ents": [
                 {
                     "s": int(j),
-                    "t": int(data["etype"][i][j]),
+                    "t": (t := int(data["etype"][i][j])),
                     "p": [round(float(data["pos"][i][j][0]), 2),
                           round(float(data["pos"][i][j][1]), 2)],
                     "hp": int(data["hp"][i][j]),
-                    "lv": int(data["level"][i][j]),
+                    "lv": (lv := int(data["level"][i][j])),
                     "in": bool(data["inside"][i][j]),
                     "cg": int(data["cargo"][i][j]),
                     "bt": int(data["btype"][i][j]),
+                    # 满血:战斗单位查线级,建筑/采集单位查自身级(等价 stats
+                    # effective_level;采集单位行内各级同值,级取什么都一样)
+                    "mx": int(htab[min(t, 31),
+                              int(data["upgrades"][i][0 if j < cfg.e_max else 1]
+                                  [line_of[min(t, 31)]])
+                              if line_of[min(t, 31)] >= 0
+                              else min(lv, 7)]),
                 }
                 for j in idx
             ],

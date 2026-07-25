@@ -12,14 +12,23 @@ import pathlib
 import numpy as np
 
 from .config import (
+    TYPE_ARCHER,
     TYPE_BARRACKS,
     TYPE_CAMP,
     TYPE_DOG,
+    TYPE_HEALER,
+    TYPE_HEAVY,
     TYPE_HQ,
     TYPE_INFANTRY,
+    TYPE_LCAV,
+    TYPE_MAGE,
     TYPE_MINE,
+    TYPE_MORTAR,
     TYPE_PUMP,
+    TYPE_RAM,
+    TYPE_STRONGMAN,
     TYPE_TOWER,
+    TYPE_WAGON,
     TYPE_WORKER,
 )
 
@@ -86,14 +95,31 @@ def _draw_frame(ax, frame: dict, e_max: int, passable: np.ndarray,
             ax.plot(c, r, "*", ms=13, color=col, alpha=0.4 if building else 0.9)
         elif t == TYPE_DOG:
             ax.plot(c, r, "v", ms=5, color=col)
-        elif t == TYPE_WORKER:
-            ms = 4 if inside[i] else 6
+        elif t in (TYPE_WORKER, TYPE_STRONGMAN, TYPE_WAGON):
+            # 采集单位:圆点,大小按类型递增(工人<大力士<马车)
+            base_ms = {TYPE_WORKER: 6, TYPE_STRONGMAN: 8, TYPE_WAGON: 10}[int(t)]
+            ms = 4 if inside[i] else base_ms
             alpha = 0.4 if inside[i] else 1.0
             ax.plot(c, r, "o", ms=ms, color=col, alpha=alpha)
             if frame["cargo"][i] > 0:
                 ax.plot(c, r - 0.3, ".", ms=3, color="#e6b800")
         elif t == TYPE_INFANTRY:
             ax.plot(c, r, "^", ms=7, color=col)
+        elif t == TYPE_ARCHER:
+            ax.plot(c, r, ">", ms=6, color=col)
+        elif t == TYPE_LCAV:
+            ax.plot(c, r, "<", ms=7, color=col)
+        elif t == TYPE_HEAVY:
+            ax.plot(c, r, "s", ms=7, color=col)
+        elif t == TYPE_MAGE:
+            ax.plot(c, r, "1", ms=9, color=col)
+        elif t == TYPE_HEALER:
+            ax.plot(c, r, "P", ms=7, color=col)
+        elif t == TYPE_RAM:
+            ax.plot(c, r, "X", ms=9, color=col)
+        elif t == TYPE_MORTAR:
+            building = frame["btype"][i] < 0
+            ax.plot(c, r, "h", ms=13, color=col, alpha=0.4 if building else 0.9)
 
     res = frame["resources"]
     # 标题用 ASCII:matplotlib 默认字体没有 CJK 字形,中文会渲染成豆腐块

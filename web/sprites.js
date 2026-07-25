@@ -4,7 +4,14 @@
 // camp/barracks/dog/tower + "_p0"/"_p1"(不带后缀则双方共用,按阵营染色失效)。
 
 const TYPE_NAMES = {1: "hq", 2: "mine", 3: "pump", 4: "worker", 5: "infantry",
-                    6: "camp", 7: "barracks", 8: "dog", 9: "tower"};
+                    6: "camp", 7: "barracks", 8: "dog", 9: "tower",
+                    // v1.4 兵种树(PNG 槽命名与 fig/ 中文贴图映射:
+                    // strongman=大力士工人 wagon=运输马车 archer=弓箭手
+                    // cavalry=骑兵 heavy=重装刀斧手 mage=法师 healer=奶妈神官
+                    // ram=攻城车(无贴图) mortar=迫击炮;infantry=普通刀斧手)
+                    10: "strongman", 11: "wagon", 12: "archer", 13: "cavalry",
+                    14: "heavy", 15: "mage", 16: "healer", 17: "ram",
+                    18: "mortar"};
 const P_COLOR = ["#3b82f6", "#ef4444"];          // 蓝 P0 / 红 P1
 const P_DARK  = ["#1d4ed8", "#b91c1c"];
 
@@ -32,7 +39,9 @@ export function drawSprite(ctx, type, owner, x, y, s, opts = {}) {
   ctx.save();
   ctx.globalAlpha = alpha;
   if (img) {                       // PNG 替换槽命中
-    const d = s * (type <= 3 || type >= 6 ? 1.0 : 0.7);
+    const isBld = opts.bld !== undefined ? opts.bld
+                                         : (type <= 3 || (type >= 6 && type <= 9));
+    const d = s * (isBld ? 1.0 : 0.7);
     ctx.drawImage(img, x - d / 2, y - d / 2, d, d);
     ctx.restore();
     return;
@@ -131,6 +140,97 @@ export function drawSprite(ctx, type, owner, x, y, s, opts = {}) {
       for (const dx of [-6, -1.5, 3]) ctx.fillRect(dx * u, -11 * u, 3 * u, 3.2 * u);
       ctx.fillStyle = "#0f172a";
       ctx.beginPath(); ctx.arc(0, -3 * u, 2.2 * u, 0, 7); ctx.fill();
+      break;
+    }
+    case "strongman": {            // 大力士:圆脸+杠铃横杆
+      ctx.beginPath(); ctx.arc(0, 1 * u, 6.5 * u, 0, 7); ctx.fill(); ctx.stroke();
+      ctx.strokeStyle = "#9ca3af"; ctx.lineWidth = 2 * u;
+      ctx.beginPath(); ctx.moveTo(-9 * u, -6 * u); ctx.lineTo(9 * u, -6 * u); ctx.stroke();
+      ctx.fillStyle = "#374151";
+      ctx.fillRect(-11 * u, -8.5 * u, 3 * u, 5 * u);
+      ctx.fillRect(8 * u, -8.5 * u, 3 * u, 5 * u);
+      break;
+    }
+    case "wagon": {                // 马车:车斗+双轮
+      ctx.fillRect(-8 * u, -6 * u, 16 * u, 8 * u);
+      ctx.strokeRect(-8 * u, -6 * u, 16 * u, 8 * u);
+      ctx.fillStyle = "#374151";
+      ctx.beginPath(); ctx.arc(-4.5 * u, 5 * u, 3.2 * u, 0, 7); ctx.fill(); ctx.stroke();
+      ctx.beginPath(); ctx.arc(4.5 * u, 5 * u, 3.2 * u, 0, 7); ctx.fill(); ctx.stroke();
+      break;
+    }
+    case "archer": {               // 弓箭手:弓弧+箭
+      ctx.lineWidth = 1.8 * u;
+      ctx.beginPath(); ctx.arc(0, 0, 7 * u, -Math.PI / 2.6, Math.PI / 2.6); ctx.stroke();
+      ctx.strokeStyle = "#d1d5db";
+      ctx.beginPath(); ctx.moveTo(-6 * u, 0); ctx.lineTo(7 * u, 0); ctx.stroke();
+      ctx.beginPath(); ctx.moveTo(7 * u, 0); ctx.lineTo(4 * u, -2 * u);
+      ctx.moveTo(7 * u, 0); ctx.lineTo(4 * u, 2 * u); ctx.stroke();
+      ctx.beginPath(); ctx.moveTo(6.3 * u, -5.5 * u); ctx.lineTo(6.3 * u, 5.5 * u);
+      ctx.strokeStyle = D; ctx.stroke();
+      break;
+    }
+    case "cavalry": {              // 轻骑兵:马体+骑手
+      ctx.beginPath(); ctx.ellipse(0, 2 * u, 8 * u, 4 * u, 0, 0, 7);
+      ctx.fill(); ctx.stroke();
+      ctx.beginPath(); ctx.arc(7.5 * u, -1 * u, 2.6 * u, 0, 7); ctx.fill(); ctx.stroke();
+      ctx.lineWidth = 1.6 * u;
+      for (const dx of [-5, -2, 2, 5])
+        { ctx.beginPath(); ctx.moveTo(dx * u, 5.5 * u); ctx.lineTo(dx * u, 9 * u); ctx.stroke(); }
+      ctx.beginPath();               // 骑手
+      ctx.moveTo(-1 * u, -3 * u); ctx.lineTo(2 * u, -8 * u); ctx.lineTo(4 * u, -3 * u);
+      ctx.closePath(); ctx.fill(); ctx.stroke();
+      break;
+    }
+    case "heavy": {                // 重盔甲战士:全身大盾+铆钉
+      ctx.beginPath();
+      ctx.moveTo(-7 * u, -8 * u); ctx.lineTo(7 * u, -8 * u);
+      ctx.lineTo(7 * u, 3 * u); ctx.lineTo(0, 9 * u); ctx.lineTo(-7 * u, 3 * u);
+      ctx.closePath(); ctx.fill(); ctx.stroke();
+      ctx.fillStyle = D;
+      for (const [dx, dy] of [[-4, -5], [4, -5], [-4, 0], [4, 0], [0, 4]])
+        { ctx.beginPath(); ctx.arc(dx * u, dy * u, 1.1 * u, 0, 7); ctx.fill(); }
+      break;
+    }
+    case "mage": {                 // 法师:尖帽+法杖+杖头珠
+      ctx.beginPath();
+      ctx.moveTo(0, -10 * u); ctx.lineTo(6 * u, 0); ctx.lineTo(-6 * u, 0);
+      ctx.closePath(); ctx.fill(); ctx.stroke();
+      ctx.fillRect(-5 * u, 0, 10 * u, 7 * u);
+      ctx.strokeStyle = "#8b5e34"; ctx.lineWidth = 1.8 * u;
+      ctx.beginPath(); ctx.moveTo(8 * u, 8 * u); ctx.lineTo(8 * u, -6 * u); ctx.stroke();
+      ctx.fillStyle = "#a78bfa";
+      ctx.beginPath(); ctx.arc(8 * u, -7.5 * u, 2 * u, 0, 7); ctx.fill();
+      break;
+    }
+    case "healer": {               // 奶妈神官:圆袍+十字
+      ctx.beginPath(); ctx.arc(0, 0, 7.5 * u, 0, 7); ctx.fill(); ctx.stroke();
+      ctx.fillStyle = "#f8fafc";
+      ctx.fillRect(-1.5 * u, -5 * u, 3 * u, 10 * u);
+      ctx.fillRect(-5 * u, -1.5 * u, 10 * u, 3 * u);
+      break;
+    }
+    case "ram": {                  // 攻城车:棚车+前伸撞木
+      ctx.fillRect(-8 * u, -5 * u, 13 * u, 8 * u);
+      ctx.strokeRect(-8 * u, -5 * u, 13 * u, 8 * u);
+      ctx.beginPath(); ctx.moveTo(-9 * u, -5 * u); ctx.lineTo(-1.5 * u, -9 * u);
+      ctx.lineTo(6 * u, -5 * u); ctx.closePath(); ctx.fill(); ctx.stroke();
+      ctx.strokeStyle = "#8b5e34"; ctx.lineWidth = 2.4 * u;
+      ctx.beginPath(); ctx.moveTo(3 * u, 0); ctx.lineTo(11 * u, 0); ctx.stroke();
+      ctx.fillStyle = "#374151";
+      ctx.beginPath(); ctx.arc(-5 * u, 4.5 * u, 2.4 * u, 0, 7); ctx.fill();
+      ctx.beginPath(); ctx.arc(1 * u, 4.5 * u, 2.4 * u, 0, 7); ctx.fill();
+      break;
+    }
+    case "mortar": {               // 迫击炮:斜炮管+底座
+      ctx.fillRect(-8 * u, 4 * u, 16 * u, 4 * u);
+      ctx.strokeRect(-8 * u, 4 * u, 16 * u, 4 * u);
+      ctx.save();
+      ctx.rotate(-0.7);
+      ctx.fillStyle = D;
+      ctx.fillRect(-2 * u, -9 * u, 4 * u, 12 * u);
+      ctx.restore();
+      ctx.beginPath(); ctx.arc(0, 3 * u, 2.6 * u, 0, 7); ctx.fill(); ctx.stroke();
       break;
     }
     default: {

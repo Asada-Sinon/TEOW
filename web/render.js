@@ -49,7 +49,8 @@ function lerpEnts(a, b, t) {
   });
 }
 
-const MAXHP = { 1: 400, 2: 100, 3: 100 };  // 静态建筑;单位血条按比例意义不大,统一画
+// v1.4:满血由服务端按 config 查表下发(e.mx),前端不再硬编码数值;
+// 血条只画建筑(meta.building_types),单位血条按比例意义不大
 
 function draw() {
   requestAnimationFrame(draw);
@@ -90,11 +91,13 @@ function draw() {
   // 实体(帧间插值)
   const t = Math.min(1, (performance.now() - curAt) / frameInterval);
   const ents = lerpEnts(prev, cur, t);
+  const bldTypes = meta.building_types || [1, 2, 3, 6, 7, 9];
   for (const e of ents) {
     const owner = e.s < meta.e_max ? 0 : 1;
     const [x, y] = px(e.p);
-    drawSprite(ctx, e.t, owner, x, y, s * (e.t <= 3 || e.t >= 6 ? 1.5 : 1.0),
-               { building: e.bt < 0, inside: e.in });
+    const isBldT = bldTypes.includes(e.t);
+    drawSprite(ctx, e.t, owner, x, y, s * (isBldT ? 1.5 : 1.0),
+               { building: e.bt < 0, inside: e.in, bld: isBldT });
     if (e.lv > 1) {               // 等级角标
       ctx.fillStyle = "#facc15";
       ctx.font = `bold ${Math.max(9, s * 0.38)}px sans-serif`;
@@ -104,8 +107,8 @@ function draw() {
       ctx.fillStyle = "#facc15";
       ctx.beginPath(); ctx.arc(x, y - s * 0.5, s * 0.1, 0, 7); ctx.fill();
     }
-    const mx = MAXHP[e.t];
-    if (mx && e.hp < mx) {        // 静态建筑血条(受损才显示)
+    const mx = isBldT ? e.mx : 0;  // 旧回放无 mx 字段 → 不画条
+    if (mx && e.hp < mx) {        // 建筑血条(受损才显示)
       ctx.fillStyle = "#1e293b";
       ctx.fillRect(x - s * 0.5, y + s * 0.55, s, s * 0.12);
       ctx.fillStyle = e.hp / mx > 0.4 ? "#22c55e" : "#ef4444";
@@ -113,14 +116,18 @@ function draw() {
     }
   }
 
-  // HUD
+  // HUD(v1.4 八线:逐线太长,显示已研线数/最高线级)
   const r = cur.res, u = cur.upgrades;
+  const lineTag = (lv) => {
+    const up = lv.filter(x => x > 1).length;
+    return `研${up}线/最高${Math.max(...lv)}`;
+  };
   const win = cur.winner >= 0 ?
     `   ⚑ ${cur.winner === 2 ? "和局" : "玩家" + cur.winner + " 获胜"}` : "";
   hud.innerHTML =
-    `<span style="color:${P_COLOR[0]}">P0 矿${r[0][0]} 水${r[0][1]} 线${u[0][0]}/${u[0][1]}</span>` +
+    `<span style="color:${P_COLOR[0]}">P0 矿${r[0][0]} 水${r[0][1]} ${lineTag(u[0])}</span>` +
     `&nbsp; tick ${cur.tick} &nbsp;` +
-    `<span style="color:${P_COLOR[1]}">P1 矿${r[1][0]} 水${r[1][1]} 线${u[1][0]}/${u[1][1]}</span>` +
+    `<span style="color:${P_COLOR[1]}">P1 矿${r[1][0]} 水${r[1][1]} ${lineTag(u[1])}</span>` +
     win + (ended ? "  (回放结束,刷新重播)" : "");
 }
 
