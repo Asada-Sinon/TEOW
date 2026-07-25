@@ -1,0 +1,4 @@
+run_dir: /home/michael/workspace/pi05/temp/TEOW/experiments/20260726-v16-audit-cover
+device: TFRT_CPU_0  players=['scripted', 'scripted', 'scripted', 'scripted'] seed=0
+结束 tick=4456 winner=0(玩家0胜)  63 tick/s
+轨迹已存 /home/michael/workspace/pi05/temp/TEOW/experiments/20260726-v16-audit-cover/trajectory.npz(replay 子命令可回放)

@@ -1,0 +1,39 @@
+diff --git a/tests/test_determinism.py b/tests/test_determinism.py
+index bbe09a6..dcc52f7 100644
+--- a/tests/test_determinism.py
++++ b/tests/test_determinism.py
+@@ -10,7 +10,7 @@ from teow.step import make_scan, new_world
+ def rollout(seed: int, n: int = 300):
+     cfg = Config(seed=seed)
+     state, key, step_fn, m = new_world(cfg)
+-    joint = make_joint_controller("scripted", "random", cfg=cfg, mapdata=m)
++    joint = make_joint_controller("scripted", "random", "scripted", "random", cfg=cfg, mapdata=m)
+     scan = make_scan(step_fn, joint)
+     final, _, dones = scan(state, key, n)
+     return final
+diff --git a/tests/test_scripted_v13.py b/tests/test_scripted_v13.py
+index 33a4d5f..8dba134 100644
+--- a/tests/test_scripted_v13.py
++++ b/tests/test_scripted_v13.py
+@@ -17,7 +17,7 @@ from teow.step import new_world
+ def test_scripted_uses_garrison_and_flag():
+     cfg = Config(seed=0)
+     state, key, step_fn, m = new_world(cfg)
+-    joint = make_joint_controller("scripted", "scripted", cfg=cfg, mapdata=m)
++    joint = make_joint_controller(*(["scripted"] * cfg.n_players), cfg=cfg, mapdata=m)
+ 
+     def body(carry, _):
+         st, k = carry
+diff --git a/tests/test_upgrade.py b/tests/test_upgrade.py
+index 1f6615c..d4f8644 100644
+--- a/tests/test_upgrade.py
++++ b/tests/test_upgrade.py
+@@ -88,7 +88,7 @@ def test_random_random_resources_nonnegative():
+     cfg = Config()
+     state, key, step_fn, m = new_world(cfg)
+     from teow.controller import make_joint_controller
+-    joint = make_joint_controller("random", "random", cfg=cfg, mapdata=m)
++    joint = make_joint_controller(*(["random"] * cfg.n_players), cfg=cfg, mapdata=m)
+     scan = make_scan(step_fn, joint)
+ 
+     # 分 30 段跑,每段检查一次(scan 内部状态不可见,分段即抽样检查)
