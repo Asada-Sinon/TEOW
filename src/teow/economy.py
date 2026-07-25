@@ -195,6 +195,12 @@ def paid_orders_pass(state: WorldState, act: jax.Array, cfg: Config,
     # ---- ② 自由格建筑(营/兵营):同玩家每种取槽号最小的申请者,
     # 落其相邻第一空闲格 ----
     occ = occupancy_grid(st, cfg)
+    # 矿内单位的入口格(pos 保留)也视为占用:占用图只算在场实体,矿内单位
+    # 隐身——建筑恰落在其入口格上时,出矿弹回即被永久活埋(困在硬障碍格内
+    # 场梯度归零,实测卡满全场 1800 tick 且吊死采集名额;v1.4 审计发现)。
+    # 单位落地(production)不用此加强版:单位间短暂叠格由互推自然散开。
+    in_cells = cell_of(st.pos)
+    occ = occ.at[in_cells[:, 0], in_cells[:, 1]].max(st.alive & st.inside)
     passable = jnp.asarray(mapdata.passable)
     h, w = cfg.grid_h, cfg.grid_w
     structs = (

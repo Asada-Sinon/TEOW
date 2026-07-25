@@ -1,0 +1,4 @@
+run_dir: /home/michael/workspace/pi05/temp/TEOW/experiments/20260726-v14-frontend-demo
+device: TFRT_CPU_0  p0=scripted p1=scripted seed=0
+结束 tick=1519 winner=0(玩家0胜)  200 tick/s
+轨迹已存 /home/michael/workspace/pi05/temp/TEOW/experiments/20260726-v14-frontend-demo/trajectory.npz(replay 子命令可回放)

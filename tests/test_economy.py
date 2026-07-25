@@ -221,3 +221,41 @@ def test_legality_basics():
     # 未建矿前不可采集;无主点可建
     assert not bool(legal[W0, a_harvest(0, cfg)])
     assert bool(legal[W0, a_build(0)])
+
+
+def test_building_never_placed_on_inside_worker_entry_cell():
+    """v1.4 审计回归:矿内工人不占格,但其入口格(pos 保留)不得被自由格建筑
+    落位——否则出矿弹回即被永久活埋(困在硬障碍格,场梯度归零,实测卡满
+    1800 tick 并吊死该点采集名额)。"""
+    import jax.numpy as jnp
+
+    from teow.actions import a_build_camp
+    from teow.config import TYPE_CAMP, TYPE_WORKER, Config
+    from teow.state import PH_MINING, cell_of, hq_slot
+    from teow.step import new_world
+
+    cfg = Config(start_ore=2000, start_water=1200)
+    state, _, step_fn, m = new_world(cfg)
+    hq = hq_slot(0, cfg)
+    # 升基地到 2(解锁营)
+    from teow.actions import a_upgrade
+    st = drive(state, step_fn, {0: [(hq, a_upgrade(cfg))]}, cfg.base_up_time[1] + 1)
+    # 手术台:把 2 号工人塞进「矿内」状态,入口格 E=(10,10);
+    # 建造者 1 号工人站 (9,9),E 是其 _SPAWN_DIRS 第一候选 (+1,+1)
+    E = jnp.asarray([10.0, 10.0], jnp.float32)
+    w_in, w_b = hq + 2, hq + 1
+    st = st._replace(
+        pos=st.pos.at[w_in].set(E).at[w_b].set(jnp.asarray([9.0, 9.0])),
+        inside=st.inside.at[w_in].set(True),
+        order=st.order.at[w_in].set(ORDER_HARVEST),
+        phase=st.phase.at[w_in].set(PH_MINING),
+        target_node=st.target_node.at[w_in].set(0),
+        mine_timer=st.mine_timer.at[w_in].set(50),
+    )
+    st = drive(st, step_fn, {0: [(w_b, a_build_camp(cfg))]}, 1)
+    camp = int(jnp.argmax((st.etype == TYPE_CAMP) & st.alive))
+    assert bool(st.alive[camp]) and int(st.etype[camp]) == TYPE_CAMP
+    ccell = cell_of(st.pos[camp])
+    assert not bool(jnp.all(ccell == jnp.asarray([10, 10]))), \
+        "营落在矿内工人的入口格上:出矿即活埋"
+    assert int(st.etype[w_in]) == TYPE_WORKER

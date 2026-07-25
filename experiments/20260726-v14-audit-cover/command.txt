@@ -1,0 +1,1 @@
+src/run.py play --p0 scripted --p1 scripted --record --slug v14-audit-cover --seed 0 --set start_ore=3500 start_water=2200 ai_base_level_target=5 ai_worker_target=6 ai_attack_threshold=14
