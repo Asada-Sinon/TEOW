@@ -293,6 +293,11 @@
 
 ## 发现但未做
 
+- **美术例外扩界补记(validate 仅记录)**:commit e967d0f 给
+  docs/sprite-prompts.md 补了军旗 flag_p0/p1 生图条目(+5 行),与
+  「不在范围内:军旗 PNG 美术与生图提示词包更新」相抵触且当时未记档。
+  纯文档、零引擎影响;Phase 7 双端已按 plan 用矢量旗,PNG 槽只是顺手留位。
+
 - **端到端验证观察(未做)**:①audit_v13_invariants 对 run.py 录制的
   trajectory.npz 760 帧逐位一致——审计链(new_world+joint+split(key,3))与
   run.py 正式链路等价,故 Phase 7 观察的分歧可归属到诊断脚本
