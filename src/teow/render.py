@@ -32,7 +32,8 @@ from .config import (
     TYPE_WORKER,
 )
 
-P_COLOR = {0: "#1f77b4", 1: "#d62728", -1: "#999999"}  # 蓝=玩家0,红=玩家1,灰=无主
+P_COLOR = {0: "#1f77b4", 1: "#d62728", 2: "#2ca02c", 3: "#ff9900",
+           -1: "#999999"}  # 蓝/红/绿/橙=玩家0-3,灰=无主(v1.5 四人)
 
 
 def _draw_frame(ax, frame: dict, e_max: int, passable: np.ndarray,
@@ -49,7 +50,8 @@ def _draw_frame(ax, frame: dict, e_max: int, passable: np.ndarray,
     etype = frame["etype"]
     pos = frame["pos"]
     inside = frame["inside"]
-    owner = np.concatenate([np.zeros(e_max, int), np.ones(e_max, int)])
+    n_p = alive.shape[0] // e_max
+    owner = np.repeat(np.arange(n_p), e_max)
 
     # 资源点底色(归属)
     for k, (r, c) in enumerate(node_pos):
@@ -60,7 +62,7 @@ def _draw_frame(ax, frame: dict, e_max: int, passable: np.ndarray,
     # 军旗(v1.3;active 才画:阵营色三角小旗+杆。旧 run 无 flag 字段则跳过)
     flag_active = frame.get("flag_active")
     if flag_active is not None:
-        for p in (0, 1):
+        for p in range(flag_active.shape[0]):
             for j in range(flag_active.shape[1]):
                 if flag_active[p][j]:
                     fr, fc = frame["flag_pos"][p][j]

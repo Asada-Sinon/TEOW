@@ -261,13 +261,18 @@ def legality_mask(state: WorldState, cfg: Config, mapdata: MapData,
     # 驻守己方 HQ(v1.3):目标恒存在(HQ 亡即终局)
     mask = mask.at[:, a_garrison_hq(cfg)].set(actable & is_inf)
 
-    # 训练:HQ 空闲 + 本半区有空槽 + 付得起
+    # 训练:HQ 空闲 + 本玩家行块有空槽 + 付得起
+    # per-player 计数统一 scatter-add(v1.5 P 泛化;旧 stack([p0,p1])[half]
+    # 模式只认两家)
     ucost = unit_costs(cfg)
     half = owner.astype(jnp.int32)
-    free_in_half = jnp.stack([
-        jnp.any(~state.alive[:cfg.e_max]),
-        jnp.any(~state.alive[cfg.e_max:]),
-    ])[half]                                              # [N]
+
+    def _pcount(cond):
+        """bool [N] → int32 [N]:各实体所属玩家的 cond 计数(广播回逐实体)。"""
+        return jnp.zeros(cfg.n_players, jnp.int32).at[half].add(
+            cond.astype(jnp.int32))[half]
+
+    free_in_half = _pcount(~state.alive) > 0              # [N]
     hq_idle = (actable & is_hq & (state.btimer == 0) & (state.btype == 0)
                & free_in_half)
     mask = mask.at[:, a_train_worker(cfg)].set(
@@ -310,10 +315,7 @@ def legality_mask(state: WorldState, cfg: Config, mapdata: MapData,
                 & free_in_half & jnp.all(stock >= camp_cost, axis=-1))
     mask = mask.at[:, a_build_camp(cfg)].set(can_camp)
     bar_cost = jnp.asarray([cfg.barracks_cost_ore, cfg.barracks_cost_water], jnp.int32)
-    n_bar = jnp.stack([
-        jnp.sum((owner == 0) & state.alive & (state.etype == TYPE_BARRACKS)),
-        jnp.sum((owner == 1) & state.alive & (state.etype == TYPE_BARRACKS)),
-    ])[half]
+    n_bar = _pcount(state.alive & (state.etype == TYPE_BARRACKS))
     can_bar = (actable & is_worker & (hq_lv >= unlock[TYPE_BARRACKS])
                & (n_bar < cfg.max_barracks) & free_in_half
                & jnp.all(stock >= bar_cost, axis=-1))
@@ -322,10 +324,7 @@ def legality_mask(state: WorldState, cfg: Config, mapdata: MapData,
     tower_cost = jnp.asarray([cfg.tower_cost_ore, cfg.tower_cost_water], jnp.int32)
     # v1.4 多塔:数量挂基地等级(在建也 alive 计数,防重复下单;paid pass
     # 每 tick 每玩家每种至多批一座,掩码时 <cap ⇒ 终态 ≤cap)
-    n_twr = jnp.stack([
-        jnp.sum((owner == 0) & state.alive & (state.etype == TYPE_TOWER)),
-        jnp.sum((owner == 1) & state.alive & (state.etype == TYPE_TOWER)),
-    ])[half]
+    n_twr = _pcount(state.alive & (state.etype == TYPE_TOWER))
     twr_cap = jnp.asarray(cfg.tower_cap_by_hq_level, jnp.int32)[
         jnp.clip(hq_lv, 0, 7)]
     can_tower = (actable & is_worker & (hq_lv >= unlock[TYPE_TOWER])
@@ -335,10 +334,7 @@ def legality_mask(state: WorldState, cfg: Config, mapdata: MapData,
     # 迫击炮(v1.4):HQ3 解锁,build_cap 限 1(在建计数,机制同塔)
     from .config import TYPE_MORTAR
     mor_cost = jnp.asarray([cfg.mortar_cost_ore, cfg.mortar_cost_water], jnp.int32)
-    n_mor = jnp.stack([
-        jnp.sum((owner == 0) & state.alive & (state.etype == TYPE_MORTAR)),
-        jnp.sum((owner == 1) & state.alive & (state.etype == TYPE_MORTAR)),
-    ])[half]
+    n_mor = _pcount(state.alive & (state.etype == TYPE_MORTAR))
     mor_cap = jnp.asarray(cfg.build_cap_by_type, jnp.int32)[TYPE_MORTAR]
     can_mor = (actable & is_worker & (hq_lv >= unlock[TYPE_MORTAR])
                & (n_mor < mor_cap) & free_in_half
@@ -376,17 +372,11 @@ def legality_mask(state: WorldState, cfg: Config, mapdata: MapData,
         rcost = jnp.stack([jnp.asarray(cfg.line_res_cost_ore)[cur],
                            jnp.asarray(cfg.line_res_cost_water)[cur]], -1)
         code = btask_research(line)
-        busy_same = jnp.stack([
-            jnp.any((owner == 0) & state.alive & (state.btype == code)),
-            jnp.any((owner == 1) & state.alive & (state.btype == code)),
-        ])[half]
+        busy_same = _pcount(state.alive & (state.btype == code)) > 0
         if t == TYPE_INFANTRY:
             unlocked = jnp.ones(n, bool)
         else:
-            unlocked = jnp.stack([
-                jnp.any((owner == 0) & (bar_built_lv >= tl[t])),
-                jnp.any((owner == 1) & (bar_built_lv >= tl[t])),
-            ])[half]
+            unlocked = _pcount(bar_built_lv >= tl[t]) > 0
         ok = (actable & is_camp & (lv >= 2) & (state.btimer == 0)
               & (cur < lv) & ~busy_same & unlocked
               & jnp.all(stock >= rcost, axis=-1))
@@ -398,10 +388,7 @@ def legality_mask(state: WorldState, cfg: Config, mapdata: MapData,
     # 的兵营(btype==TYPE_DOG)仍算「拥有」,也仍可撤旗(撤旗免费即时,
     # 不占生产位)。
     bar_built = state.alive & is_bar & (state.btype >= 0)
-    has_bar = jnp.stack([
-        jnp.any((owner == 0) & bar_built),
-        jnp.any((owner == 1) & bar_built),
-    ])[half]
+    has_bar = _pcount(bar_built) > 0
     my_flags = jnp.sum(state.flag_active.astype(jnp.int32), axis=1)[half]
     from .movement import building_cells
     bcells = building_cells(state, cfg)
@@ -500,7 +487,18 @@ def apply_orders(state: WorldState, actions: jax.Array, cfg: Config,
     target_node = jnp.where(is_build, build_k, state.target_node)
     target_node = jnp.where(is_harv, harv_k, target_node)
 
-    enemy_hq = jnp.asarray(mapdata.hq_pos, jnp.float32)[1 - owner.astype(jnp.int32)]
+    # ATTACK 的 target_cell = 最近存活敌方 HQ(欧氏;仅显示/到达兜底口径,
+    # 实际寻路目标由 movement 每 tick 按场值动态重选——v1.5 D3)
+    from .state import hq_slot as _hq_slot
+    P = cfg.n_players
+    hq_pos_all = jnp.asarray(mapdata.hq_pos, jnp.float32)          # [P,2]
+    hq_alive = jnp.stack([state.alive[_hq_slot(p, cfg)] for p in range(P)])
+    d_hq = jnp.linalg.norm(state.pos[:, None, :] - hq_pos_all[None, :, :],
+                           axis=-1)                                # [N,P]
+    own_i32a = owner.astype(jnp.int32)
+    d_hq = jnp.where((jnp.arange(P)[None, :] == own_i32a[:, None])
+                     | ~hq_alive[None, :], 1e9, d_hq)
+    enemy_hq = hq_pos_all[jnp.argmin(d_hq, axis=1)]                # [N,2]
     target_cell = jnp.where(is_att[:, None], enemy_hq, state.target_cell)
     target_cell = jnp.where(is_move[:, None],
                             state.pos + _DIRS[mdir].astype(jnp.float32), target_cell)
@@ -546,7 +544,7 @@ def apply_orders(state: WorldState, actions: jax.Array, cfg: Config,
     own_i32 = owner.astype(jnp.int32)
     flag_pos = state.flag_pos
     flag_active = state.flag_active
-    for p in (0, 1):  # 编译期展开
+    for p in range(cfg.n_players):  # 编译期展开
         for j in range(cfg.max_flags):
             rec = jnp.any((act == a_recall_flag(j, cfg)) & (own_i32 == p))
             flag_active = flag_active.at[p, j].set(
@@ -563,7 +561,7 @@ def apply_orders(state: WorldState, actions: jax.Array, cfg: Config,
     # 插旗:同 tick 多申请按槽号逐个批(每轮批槽号最小者进最小空旗位),
     # 旗位耗尽后其余申请自动 no-op(与训练落地顺延同哲学)
     slots_p = jnp.arange(cfg.n_total)
-    for p in (0, 1):  # 编译期展开
+    for p in range(cfg.n_players):  # 编译期展开
         cand = is_plant & (own_i32 == p)
         for _ in range(cfg.max_flags):
             widx = jnp.argmax(cand)                # 全 False 返 0,do 门控

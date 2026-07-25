@@ -88,7 +88,7 @@ def test_random_random_resources_nonnegative():
     cfg = Config()
     state, key, step_fn, m = new_world(cfg)
     from teow.controller import make_joint_controller
-    joint = make_joint_controller("random", "random", cfg, m)
+    joint = make_joint_controller("random", "random", cfg=cfg, mapdata=m)
     scan = make_scan(step_fn, joint)
 
     # 分 30 段跑,每段检查一次(scan 内部状态不可见,分段即抽样检查)

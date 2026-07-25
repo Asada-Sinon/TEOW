@@ -63,7 +63,7 @@ p1 = cmd[cmd.index("--p1") + 1] if "--p1" in cmd else "scripted"
 print(f"run={run_dir.name} p0={p0} p1={p1} seed={cfg.seed} backend={jax.default_backend()}")
 
 state, key, step_fn, m = new_world(cfg)
-joint = jax.jit(make_joint_controller(p0, p1, cfg, m))
+joint = jax.jit(make_joint_controller(p0, p1, cfg=cfg, mapdata=m))
 owner = np.asarray(owner_of_slots(cfg))
 ncost = np.asarray(node_costs(cfg, m))
 base_up = np.stack([cfg.base_up_cost_ore, cfg.base_up_cost_water], -1)

@@ -117,7 +117,8 @@ def cmd_play(args) -> None:
     print(f"device: {jax.devices()[0]}  p0={args.p0} p1={args.p1} seed={cfg.seed}")
 
     state, key, step_fn, m = new_world(cfg)
-    joint = make_joint_controller(args.p0, args.p1, cfg, m)
+    names = ([args.p0, args.p1] + ["scripted"] * cfg.n_players)[:cfg.n_players]
+    joint = make_joint_controller(*names, cfg=cfg, mapdata=m)
     joint = jax.jit(joint)
 
     traj: list[dict] = []
@@ -131,18 +132,15 @@ def cmd_play(args) -> None:
         if args.record and t % record_every == 0:
             traj.append(state_to_numpy(state))
         if t % 100 == 0 or bool(state.done):
-            row = {
-                "tick": int(state.tick),
-                "res_p0": state.resources[0].tolist(),
-                "res_p1": state.resources[1].tolist(),
-                "alive_p0": int(jnp.sum(state.alive[:cfg.e_max])),
-                "alive_p1": int(jnp.sum(state.alive[cfg.e_max:])),
-                "base_level": [int(state.level[0]), int(state.level[cfg.e_max])],
-                "upgrades_p0": state.upgrades[0].tolist(),
-                "upgrades_p1": state.upgrades[1].tolist(),
-                "done": bool(state.done),
-                "winner": int(state.winner),
-            }
+            row = {"tick": int(state.tick), "done": bool(state.done),
+                   "winner": int(state.winner),
+                   "base_level": [int(state.level[p * cfg.e_max])
+                                  for p in range(cfg.n_players)]}
+            for p in range(cfg.n_players):
+                blk = slice(p * cfg.e_max, (p + 1) * cfg.e_max)
+                row[f"res_p{p}"] = state.resources[p].tolist()
+                row[f"alive_p{p}"] = int(jnp.sum(state.alive[blk]))
+                row[f"upgrades_p{p}"] = state.upgrades[p].tolist()
             metrics_fh.write(json.dumps(row) + "\n")
             metrics_fh.flush()
         if bool(state.done):
@@ -150,9 +148,11 @@ def cmd_play(args) -> None:
     dt = time.time() - t0
     metrics_fh.close()
 
-    outcome = {-1: "未分胜负(到达循环上限)", 0: "玩家0胜", 1: "玩家1胜", 2: "和局"}
-    print(f"结束 tick={int(state.tick)} winner={int(state.winner)}"
-          f"({outcome[int(state.winner)]})  {int(state.tick) / max(dt, 1e-9):.0f} tick/s")
+    w = int(state.winner)
+    outcome = ("未分胜负(到达循环上限)" if w == -1
+               else "和局" if w == cfg.n_players else f"玩家{w}胜")
+    print(f"结束 tick={int(state.tick)} winner={w}"
+          f"({outcome})  {int(state.tick) / max(dt, 1e-9):.0f} tick/s")
     if args.record:
         stacked = {k: np.stack([f[k] for f in traj]) for k in traj[0]}
         np.savez_compressed(run_dir / "trajectory.npz",
@@ -168,7 +168,7 @@ def cmd_replay(args) -> None:
 def cmd_bench(args) -> None:
     cfg = dataclasses.replace(Config(), seed=args.seed, **parse_overrides(args.set))
     state, key, step_fn, m = new_world(cfg)
-    joint = make_joint_controller("scripted", "scripted", cfg, m)
+    joint = make_joint_controller(*(["scripted"] * cfg.n_players), cfg=cfg, mapdata=m)
     scan = make_scan(step_fn, joint)
     # 预热编译
     st, key, _ = scan(state, key, 10)

@@ -12,7 +12,7 @@ from teow.step import make_scan, new_world
 def test_scripted_uses_upgrade_machinery():
     cfg = Config()
     state, key, step_fn, m = new_world(cfg)
-    joint = make_joint_controller("scripted", "scripted", cfg, m)
+    joint = make_joint_controller("scripted", "scripted", cfg=cfg, mapdata=m)
     scan = make_scan(step_fn, joint)
 
     st = state

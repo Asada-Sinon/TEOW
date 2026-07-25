@@ -62,7 +62,7 @@ def test_units_never_inside_building_cells():
     cfg = Config()
     state, key, step_fn, m = new_world(cfg)
     from teow.controller import make_joint_controller
-    joint = jax.jit(make_joint_controller("scripted", "scripted", cfg, m))
+    joint = jax.jit(make_joint_controller("scripted", "scripted", cfg=cfg, mapdata=m))
     passable = jnp.asarray(m.passable)
     st = state
     for t in range(400):

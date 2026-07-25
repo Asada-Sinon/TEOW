@@ -34,8 +34,10 @@ from .map import BIG_DIST, MapData
 from .state import ORDER_BUILD, ORDER_HARVEST, ORDER_IDLE, WorldState, owner_of_slots
 
 
-def merge_actions(owner: jax.Array, a0: jax.Array, a1: jax.Array) -> jax.Array:
-    return jnp.where(owner == 0, a0, a1)
+def merge_actions(owner: jax.Array, acts: list[jax.Array]) -> jax.Array:
+    """P 家动作合并:每个槽位取其归属玩家的控制器输出(v1.5 泛化)。"""
+    stacked = jnp.stack(acts)                              # [P,N]
+    return stacked[owner.astype(jnp.int32), jnp.arange(stacked.shape[1])]
 
 
 def random_actions(state: WorldState, cfg: Config, mapdata: MapData,
@@ -388,14 +390,17 @@ def make_controller(name: str, player: int, cfg: Config, mapdata: MapData):
     raise ValueError(f"未知控制器: {name!r}(可选 random / scripted)")
 
 
-def make_joint_controller(name0: str, name1: str, cfg: Config, mapdata: MapData):
-    """两家控制器合并成 `fn(state, key) -> actions[N]`(供 make_scan 使用)。"""
+def make_joint_controller(*names: str, cfg: Config, mapdata: MapData):
+    """P 家控制器合并成 `fn(state, key) -> actions[N]`(供 make_scan 使用)。
+    names 长度必须等于 cfg.n_players(v1.5 泛化;旧双参调用改关键字传 cfg)。"""
+    if len(names) != cfg.n_players:
+        raise ValueError(f"需要 {cfg.n_players} 个控制器名,收到 {len(names)}")
     owner = owner_of_slots(cfg)
-    c0 = make_controller(name0, 0, cfg, mapdata)
-    c1 = make_controller(name1, 1, cfg, mapdata)
+    ctrls = [make_controller(nm, p, cfg, mapdata) for p, nm in enumerate(names)]
 
     def joint(state: WorldState, key: jax.Array) -> jax.Array:
-        k0, k1 = jax.random.split(key)
-        return merge_actions(owner, c0(state, key=k0), c1(state, key=k1))
+        keys = jax.random.split(key, len(ctrls))
+        return merge_actions(
+            owner, [c(state, key=k) for c, k in zip(ctrls, keys, strict=True)])
 
     return joint

@@ -143,10 +143,18 @@ def cleanup_deaths(state: WorldState, cfg: Config, owner: jax.Array) -> WorldSta
       (弹出格若被占会出现短暂叠格,占用图按「格上有人」算,后续移动自然散开)。
     - 施工工人死亡 → 工地取消、点回无主,已扣资源不退(docs/DECISIONS.md)。
     - 采集指令指向的结构没了 → 工人转 IDLE(带着的货保留,可再派)。
+    - 淘汰清场(v1.5):HQ 亡的玩家其**全部**残余单位/建筑同 tick 清除
+      (规格:HQ 被摧毁即淘汰、残余立即清场),军旗一并撤除;其矿泵经
+      dead_struct 链自动释放点位,敌方驻守其点的兵经 gar_inv 链自动转 IDLE。
     - 死槽「停泊」:计时/指令/载荷/冷却/在途弹清零,pos 保留(无害)。"""
+    from .state import hq_slot
     st = state
     alive2 = st.alive & (st.hp > 0)
+    hq_dead = jnp.stack([~alive2[hq_slot(p, cfg)]
+                         for p in range(cfg.n_players)])       # [P]
+    alive2 = alive2 & ~hq_dead[owner.astype(jnp.int32)]
     newly_dead = st.alive & ~alive2
+    flag_active = st.flag_active & ~hq_dead[:, None]
 
     # 结构死亡 → 点位重置
     dead_struct = newly_dead & ((st.etype == TYPE_MINE) | (st.etype == TYPE_PUMP))
@@ -215,6 +223,7 @@ def cleanup_deaths(state: WorldState, cfg: Config, owner: jax.Array) -> WorldSta
         node_id=jnp.where(park, -1, st.node_id).astype(jnp.int8),
         atk_cd=jnp.where(park, 0, st.atk_cd).astype(jnp.int16),
         shell_timer=jnp.where(park, 0, st.shell_timer).astype(jnp.int16),
+        flag_active=flag_active,
         node_owner=node_owner,
         node_ent=node_ent,
         node_build_timer=node_build_timer,

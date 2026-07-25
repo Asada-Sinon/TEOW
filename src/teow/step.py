@@ -48,14 +48,16 @@ from .state import WorldState, hq_slot, init_state, owner_of_slots
 
 
 def _end_tick(state: WorldState, cfg: Config) -> WorldState:
+    """胜负判定(v1.5 泛化):HQ 亡即淘汰(清场在 cleanup_deaths);存活 1 家
+    →该家胜;0 家(同 tick 齐灭)→和局 P;超时→和局 P;≥2 家存活继续打。"""
     st = state
     tick = st.tick + 1
-    hq_dead = jnp.stack([st.hp[hq_slot(0, cfg)] <= 0,
-                         st.hp[hq_slot(1, cfg)] <= 0])
-    winner = jnp.where(hq_dead[0] & hq_dead[1], 2,
-                       jnp.where(hq_dead[0], 1,
-                                 jnp.where(hq_dead[1], 0, st.winner)))
-    winner = jnp.where((winner == -1) & (tick >= cfg.episode_len), 2, winner)
+    P = cfg.n_players
+    hq_alive = jnp.stack([st.alive[hq_slot(p, cfg)] for p in range(P)])
+    n_alive = jnp.sum(hq_alive.astype(jnp.int32))
+    winner = jnp.where(n_alive == 1, jnp.argmax(hq_alive),
+                       jnp.where(n_alive == 0, P, st.winner))
+    winner = jnp.where((winner == -1) & (tick >= cfg.episode_len), P, winner)
     done = winner != -1
     return st._replace(tick=tick, done=done, winner=winner.astype(jnp.int8))
 

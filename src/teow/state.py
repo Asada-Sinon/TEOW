@@ -78,7 +78,7 @@ class WorldState(NamedTuple):
     #                                       营被拆仍保留
     tick: jax.Array         # int32 标量
     done: jax.Array         # bool 标量
-    winner: jax.Array       # int8 标量  -1 未分;0/1 胜者;2 和局
+    winner: jax.Array       # int8 标量  -1 未分;0..P-1 胜者;P 和局(v1.5 泛化)
 
 
 def cell_of(pos: jax.Array) -> jax.Array:
@@ -89,8 +89,7 @@ def cell_of(pos: jax.Array) -> jax.Array:
 
 def owner_of_slots(cfg: Config) -> jax.Array:
     """int8 [N]:每个槽位的归属(常量,调用方闭包使用,不进 state)。"""
-    return jnp.concatenate([jnp.zeros(cfg.e_max, jnp.int8),
-                            jnp.ones(cfg.e_max, jnp.int8)])
+    return jnp.repeat(jnp.arange(cfg.n_players, dtype=jnp.int8), cfg.e_max)
 
 
 def hq_slot(player: int, cfg: Config) -> int:
@@ -107,7 +106,7 @@ def init_state(cfg: Config, mapdata: MapData) -> WorldState:
     pos = np.zeros((n, 2), np.float32)
     hp = np.zeros(n, np.int32)
 
-    for p in (0, 1):
+    for p in range(cfg.n_players):
         base = hq_slot(p, cfg)
         alive[base] = True
         etype[base] = TYPE_HQ
@@ -141,15 +140,15 @@ def init_state(cfg: Config, mapdata: MapData) -> WorldState:
         atk_cd=jnp.zeros(n, jnp.int16),
         shell_timer=jnp.zeros(n, jnp.int16),
         shell_target=jnp.zeros((n, 2), jnp.float32),
-        flag_pos=jnp.full((2, cfg.max_flags, 2), -1.0, jnp.float32),
-        flag_active=jnp.zeros((2, cfg.max_flags), bool),
+        flag_pos=jnp.full((cfg.n_players, cfg.max_flags, 2), -1.0, jnp.float32),
+        flag_active=jnp.zeros((cfg.n_players, cfg.max_flags), bool),
         node_owner=jnp.full(nn, -1, jnp.int8),
         node_ent=jnp.full(nn, -1, jnp.int16),
         node_build_timer=jnp.zeros(nn, jnp.int16),
         node_builder=jnp.full(nn, -1, jnp.int16),
         resources=jnp.asarray(
-            [[cfg.start_ore, cfg.start_water]] * 2, jnp.int32),
-        upgrades=jnp.ones((2, N_LINES), jnp.int8),
+            [[cfg.start_ore, cfg.start_water]] * cfg.n_players, jnp.int32),
+        upgrades=jnp.ones((cfg.n_players, N_LINES), jnp.int8),
         tick=jnp.asarray(0, jnp.int32),
         done=jnp.asarray(False),
         winner=jnp.asarray(-1, jnp.int8),

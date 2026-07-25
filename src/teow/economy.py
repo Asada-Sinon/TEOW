@@ -144,7 +144,7 @@ def paid_orders_pass(state: WorldState, act: jax.Array, cfg: Config,
     res_line = jnp.zeros(cfg.n_total, jnp.int32)  # 该行研的线号(w_res 门控)
     for line in range(N_LINES):  # 编译期展开
         w_l = act == a_research_line(line, cfg)
-        for p in (0, 1):  # 编译期展开
+        for p in range(cfg.n_players):  # 编译期展开
             cand = w_l & (own_i == p)
             keep = cand & (slots_arr == jnp.argmax(cand))
             w_l = jnp.where(own_i == p, keep, w_l)
@@ -172,7 +172,7 @@ def paid_orders_pass(state: WorldState, act: jax.Array, cfg: Config,
 
     afford = jnp.zeros(cfg.n_total, bool)
     stock = st.resources
-    for p in (0, 1):  # 编译期展开
+    for p in range(cfg.n_players):  # 编译期展开
         cum = jnp.cumsum(cost * (own_i == p)[:, None], axis=0)  # 含本行
         ok = jnp.all(cum <= stock[p][None, :], axis=-1)
         afford = jnp.where(own_i == p, ok, afford)
@@ -218,7 +218,7 @@ def paid_orders_pass(state: WorldState, act: jax.Array, cfg: Config,
          cfg.mortar_build_time, cfg.mortar_hp // 10),
     )
     for a_id, stype, btask, camp_cost, build_t, start_hp0 in structs:
-      for p in (0, 1):  # 编译期展开
+      for p in range(cfg.n_players):  # 编译期展开
         cand = (act == a_id) & (own_i == p)
         bidx = jnp.argmax(cand)                # 全 False 返 0,has 门控
         has = jnp.any(cand) & jnp.all(st.resources[p] >= camp_cost)
@@ -318,7 +318,7 @@ def special_tasks_tick(state: WorldState, cfg: Config,
     line_of = jnp.asarray(cfg.line_of_type, jnp.int32)[et32]  # [N]
     for line in range(N_LINES):  # 编译期展开
         rdone = done & (st.btype == btask_research(line))
-        for p in (0, 1):  # 编译期展开
+        for p in range(cfg.n_players):  # 编译期展开
             hit = jnp.any(rdone & (own_i == p))
             old = upgrades[p, line].astype(jnp.int32)
             new = jnp.minimum(old + 1, 7)
@@ -356,7 +356,7 @@ def production_tick(state: WorldState, cfg: Config, mapdata: MapData) -> WorldSt
     passable = jnp.asarray(mapdata.passable)
     h, w = cfg.grid_h, cfg.grid_w
 
-    for p in (0, 1):  # 编译期展开
+    for p in range(cfg.n_players):  # 编译期展开
       # 每玩家至多 HQ + max_barracks 座兵营同 tick 完成(编译期展开;plan D8)
       for _round in range(1 + cfg.max_barracks):
         base = hq_slot(p, cfg)
@@ -426,7 +426,9 @@ def start_constructions(state: WorldState, cfg: Config, mapdata: MapData,
     arrived = (state.alive & ~state.inside & (state.order == ORDER_BUILD)
                & (state.target_node >= 0) & (my_d <= cfg.reach_radius))
 
-    first = jax.random.bernoulli(key).astype(jnp.int8)     # 本 tick 先手玩家
+    # 本 tick 先手玩家(v1.5 critic B-2:bernoulli 只出 0/1,四人下玩家 2/3
+    # 跨玩家平票永败——改均匀 randint,P 家等概率)
+    first = jax.random.randint(key, (), 0, cfg.n_players).astype(jnp.int8)
     from .actions import node_costs
     ncost = node_costs(cfg, mapdata)                       # [Nn,2]
 
@@ -471,7 +473,7 @@ def construction_tick(state: WorldState, cfg: Config, mapdata: MapData,
     for k in range(cfg.n_nodes):  # 编译期展开
         done_k = ((st.node_build_timer[k] == 0) & (st.node_owner[k] >= 0)
                   & (st.node_ent[k] == -1) & (st.node_builder[k] >= 0))
-        p = jnp.clip(st.node_owner[k].astype(jnp.int32), 0, 1)
+        p = jnp.clip(st.node_owner[k].astype(jnp.int32), 0, cfg.n_players - 1)
         base = p * cfg.e_max
         free = jax.lax.dynamic_slice(~st.alive, (base,), (cfg.e_max,))
         slot = base + jnp.argmax(free)

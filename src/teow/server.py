@@ -55,6 +55,7 @@ def load_replay(run_dir: pathlib.Path) -> dict:
         "node_type": m.node_type.tolist(),
         "hq_pos": m.hq_pos.tolist(),
         "n_frames": n_frames,
+        "n_players": cfg.n_players,
         "building_types": building_types,
         "run": run_dir.name,
     }
@@ -75,7 +76,7 @@ def load_replay(run_dir: pathlib.Path) -> dict:
             "flags": [
                 [int(p), round(float(data["flag_pos"][i][p][j][0]), 2),
                  round(float(data["flag_pos"][i][p][j][1]), 2)]
-                for p in range(2)
+                for p in range(data["flag_active"].shape[1])
                 for j in range(data["flag_active"].shape[2])
                 if data["flag_active"][i][p][j]
             ] if has_flags else [],
@@ -93,7 +94,7 @@ def load_replay(run_dir: pathlib.Path) -> dict:
                     # 满血:战斗单位查线级,建筑/采集单位查自身级(等价 stats
                     # effective_level;采集单位行内各级同值,级取什么都一样)
                     "mx": int(htab[min(t, 31),
-                              int(data["upgrades"][i][0 if j < cfg.e_max else 1]
+                              int(data["upgrades"][i][j // cfg.e_max]
                                   [line_of[min(t, 31)]])
                               if line_of[min(t, 31)] >= 0
                               else min(lv, 7)]),

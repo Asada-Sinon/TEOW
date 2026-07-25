@@ -103,7 +103,21 @@ def movement_tick(state: WorldState, cfg: Config, mapdata: MapData,
     own_i = owner.astype(jnp.int32)
 
     # ---- 目标点与目标场 ----
-    goal = jnp.where(st.order == ORDER_ATTACK, cfg.n_nodes + (1 - own_i), tn)
+    # ATTACK 目标(v1.5):最近**存活**敌方 HQ,按静态 BFS 场值逐 tick 动态重选
+    # (天然绕障;某家 HQ 亡后军队下 tick 自动流向次近;argmin 平手取最小玩家号,
+    # 记 DECISIONS 接受)。己方与已死 HQ 罚 BIG。
+    from .state import hq_slot
+    P = cfg.n_players
+    cl0 = cell_of(st.pos)
+    cl0 = jnp.clip(cl0, 0, jnp.asarray([h - 1, w - 1]))
+    hq_alive = jnp.stack([st.alive[hq_slot(p, cfg)] for p in range(P)])  # [P]
+    hq_dvals = jnp.asarray(mapdata.dist_fields, jnp.int32)[
+        cfg.n_nodes:cfg.n_nodes + P][:, cl0[:, 0], cl0[:, 1]]            # [P,N]
+    slot_p = jnp.arange(P)[:, None]
+    hq_dvals = jnp.where((slot_p == own_i[None, :]) | ~hq_alive[:, None],
+                         BIG_DIST, hq_dvals)
+    nearest_enemy = jnp.argmin(hq_dvals, axis=0)                         # [N]
+    goal = jnp.where(st.order == ORDER_ATTACK, cfg.n_nodes + nearest_enemy, tn)
     goal = jnp.where((st.order == ORDER_HARVEST) & (st.phase == PH_TO_HQ),
                      cfg.n_nodes + own_i, goal)
     # 驻守(v1.3):锚点 0=己方 HQ 场,1..Nn=点 k 场,Nn+1..Nn+F=己方旗 j 的
@@ -116,14 +130,14 @@ def movement_tick(state: WorldState, cfg: Config, mapdata: MapData,
     gar_goal = jnp.where(
         gid == 0, cfg.n_nodes + own_i,
         jnp.where(gid <= cfg.n_nodes, gid - 1,
-                  cfg.n_nodes + 2 + own_i * cfg.max_flags
+                  cfg.n_nodes + P + own_i * cfg.max_flags
                   + (gid - cfg.n_nodes - 1)))
     goal = jnp.where(is_gar, gar_goal, goal)
     use_field = ((st.order == ORDER_HARVEST) | (st.order == ORDER_BUILD)
                  | (st.order == ORDER_ATTACK) | is_gar)
     goal_center = jnp.where(
         (goal < cfg.n_nodes)[:, None], node_pos[jnp.clip(goal, 0, cfg.n_nodes - 1)],
-        hq_pos[jnp.clip(goal - cfg.n_nodes, 0, 1)])
+        hq_pos[jnp.clip(goal - cfg.n_nodes, 0, P - 1)])
 
     # ---- 到达判定(欧氏)----
     eu_goal = jnp.linalg.norm(st.pos - goal_center, axis=-1)
@@ -167,7 +181,7 @@ def movement_tick(state: WorldState, cfg: Config, mapdata: MapData,
     # 动态旗场种子(v1.3):静态 Nn+2 张后接 2 玩家 × max_flags 张,每 tick 由
     # flag_pos/flag_active scatter 生成;未激活旗 → 无种子(全 BIG 场,但没有
     # 消费方:goal 只在 order==GARRISON 且 gid 指向激活旗时才指到这里)
-    nf = 2 * cfg.max_flags
+    nf = P * cfg.max_flags
     fcell = jnp.clip(cell_of(st.flag_pos.reshape(nf, 2)), 0,
                      jnp.asarray([h - 1, w - 1]))
     flag_seeds = (jnp.zeros((nf, h, w), bool)

@@ -78,6 +78,8 @@ class Config:
     episode_len: int = 3000  # 超时判和局(winner=2)
 
     # ---- 容量(静态形状;e_max 满 = 天然人口上限,是特性不是 bug)----
+    n_players: int = 2       # 玩家数 P(v1.5 起引擎全泛化;编译期静态量。
+    #                          胜负编码:-1 未分,0..P-1 胜者,P=和局)
     e_max: int = 64          # 每玩家实体槽数(单位+建筑共用一张表)
     n_nodes: int = 8         # 资源点数:每家附近 1矿+1水,左下/右上公共各 1矿+1水
     # 采集名额(v1.3 指派即占用):按矿泵等级查「可同时指派(order==HARVEST)」
@@ -279,8 +281,8 @@ class Config:
     # ---- 派生量(不是字段)----
     @property
     def n_total(self) -> int:
-        """实体表总行数:前 e_max 行归玩家 0,后 e_max 行归玩家 1。"""
-        return 2 * self.e_max
+        """实体表总行数:玩家 p 占行块 [p*e_max, (p+1)*e_max)。"""
+        return self.n_players * self.e_max
 
     @property
     def n_cells(self) -> int:
@@ -288,9 +290,9 @@ class Config:
 
     @property
     def n_goals(self) -> int:
-        """距离场数量:每个资源点一张 + 每个 HQ 一张 + 2 玩家 × max_flags 张
+        """距离场数量:每个资源点一张 + 每个 HQ 一张 + P 玩家 × max_flags 张
         军旗动态通道(v1.3,种子每 tick 生成,见 movement)。"""
-        return self.n_nodes + 2 + 2 * self.max_flags
+        return self.n_nodes + self.n_players * (1 + self.max_flags)
 
     # ---- per-type 32-表(全部由真源标量/表组装;下标=TYPE_*)----
     def _t32(self, mapping: dict, default=0) -> tuple:

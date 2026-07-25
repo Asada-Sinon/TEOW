@@ -30,7 +30,7 @@ COVER_CFG = dict(start_ore=3500, start_water=2200, ai_base_level_target=5,
 def test_scripted_exercises_full_unit_tree():
     cfg = Config(seed=0, **COVER_CFG)
     state, key, step_fn, m = new_world(cfg)
-    joint = make_joint_controller("scripted", "scripted", cfg, m)
+    joint = make_joint_controller("scripted", "scripted", cfg=cfg, mapdata=m)
 
     watch_types = (TYPE_STRONGMAN, TYPE_WAGON, TYPE_ARCHER, TYPE_HEAVY,
                    TYPE_MAGE, TYPE_HEALER, TYPE_RAM, TYPE_MORTAR)
