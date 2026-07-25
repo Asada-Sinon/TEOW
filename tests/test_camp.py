@@ -132,3 +132,24 @@ def test_camp_destroyed_mid_research_keeps_bought_levels():
     st = drive(st, step_fn, {}, cfg.worker_res_time[1] + 2, seed=5)
     assert int(st.upgrades[0, LINE_WORKER]) == 1               # 研发没完成
     assert int(st.upgrades[0, LINE_INFANTRY]) == 2             # 已购保留
+
+
+def test_same_tick_double_research_dedup():
+    """audit v1.1 P0-1 回归:同玩家两营同 tick 研同线,只批一笔(单倍扣费+1级)。"""
+    cfg = Config(**RICH)
+    state, _, step_fn, m = new_world(cfg)
+    st, _ = build_camp(cfg, state, step_fn)
+    # 起两座营(paid pass 每 tick 每玩家只批一座,分两拍下单)
+    st = drive(st, step_fn, {0: [(W0, a_build_camp(cfg))],
+                             1: [(W0 + 1, a_build_camp(cfg))]},
+               cfg.camp_build_time + 2)
+    camps = [int(i) for i in jnp.nonzero((st.etype == TYPE_CAMP) & st.alive)[0]]
+    assert len(camps) == 2 and all(int(st.level[c]) == 2 for c in camps)
+
+    res0 = st.resources[0].tolist()
+    st = drive(st, step_fn, {0: [(camps[0], a_research(LINE_INFANTRY, cfg)),
+                                 (camps[1], a_research(LINE_INFANTRY, cfg))]},
+               cfg.inf_res_time[1] + 1)
+    # 单倍扣费、只升一级
+    assert int(st.upgrades[0, LINE_INFANTRY]) == 2
+    assert res0[0] - int(st.resources[0][0]) == cfg.inf_res_cost_ore[1]

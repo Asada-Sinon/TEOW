@@ -110,6 +110,19 @@ def paid_orders_pass(state: WorldState, act: jax.Array, cfg: Config,
     w_up = act == a_upgrade(cfg)
     w_ri = act == a_research(LINE_INFANTRY, cfg)
     w_rw = act == a_research(LINE_WORKER, cfg)
+
+    # 同玩家同 tick 对同一条线的并发研发申请去重,只批槽号最小者
+    # (audit v1.1 P0-1:掩码的 busy_same 只见已写入的 btype,看不见同 tick
+    # 并发,两营同时下单会双倍扣费只得一级;去重必须在扣费之前)
+    slots_arr = jnp.arange(cfg.n_total)
+    for p in (0, 1):  # 编译期展开
+        for w in ("ri", "rw"):
+            cand = (w_ri if w == "ri" else w_rw) & (own_i == p)
+            keep = cand & (slots_arr == jnp.argmax(cand))
+            if w == "ri":
+                w_ri = jnp.where(own_i == p, keep, w_ri)
+            else:
+                w_rw = jnp.where(own_i == p, keep, w_rw)
     cur_i = st.upgrades[own_i, LINE_INFANTRY].astype(jnp.int32)
     cur_w = st.upgrades[own_i, LINE_WORKER].astype(jnp.int32)
     cost = upgrade_cost_of(st, cfg) * w_up[:, None]

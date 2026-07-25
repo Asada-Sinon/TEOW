@@ -118,10 +118,16 @@ def scripted_actions(state: WorldState, cfg: Config, mapdata: MapData,
     is_camp_builder = ((jnp.arange(n) == camp_builder) & jnp.any(idle_worker)
                        & base_ok & ~has_camp)
 
-    # ---- 矿/泵:库存富余就升(掩码兜底上限链/施工中)----
+    # ---- 矿/泵:库存 ≥ 升级成本+储备 才升(audit v1.1 P2:只查储备不查成本
+    # 会把「留军费」的意图打穿,曾是 seed12 水危机的助燃剂)----
     is_node_b = (st.etype == TYPE_MINE) | (st.etype == TYPE_PUMP)
+    node_lv = st.level.astype(jnp.int32)
+    node_up_cost = jnp.stack(
+        [jnp.asarray(cfg.node_up_cost_ore)[node_lv],
+         jnp.asarray(cfg.node_up_cost_water)[node_lv]], -1)     # [N,2]
     rich_for_node = jnp.all(
-        st.resources[player] >= cfg.ai_upgrade_reserve)
+        st.resources[player][None, :] >= node_up_cost + cfg.ai_upgrade_reserve,
+        axis=-1)                                                # [N]
     node_act = jnp.where(rich_for_node, a_upgrade(cfg), A_NOOP)
 
     act = jnp.full(n, A_NOOP, jnp.int32)
