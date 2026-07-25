@@ -95,8 +95,13 @@ def a_train_dog(cfg: Config) -> int:
     return 14 + 2 * cfg.n_nodes
 
 
-def n_actions(cfg: Config) -> int:
+def a_build_tower(cfg: Config) -> int:
+    """工人起哨塔(v1.2;解锁表 TYPE_TOWER,机制同建营)。"""
     return 15 + 2 * cfg.n_nodes
+
+
+def n_actions(cfg: Config) -> int:
+    return 16 + 2 * cfg.n_nodes
 
 
 def unit_costs(cfg: Config) -> jax.Array:
@@ -175,9 +180,12 @@ def legality_mask(state: WorldState, cfg: Config, mapdata: MapData,
     hq_lv = state.level[half * cfg.e_max].astype(jnp.int32)   # 各实体所属玩家的基地级
     is_node_b = (state.etype == TYPE_MINE) | (state.etype == TYPE_PUMP)
     is_camp = state.etype == TYPE_CAMP
+    from .config import TYPE_TOWER as _TT
+    is_tower = state.etype == _TT
     cap_ok = jnp.where(is_hq, lv < cfg.base_max_level, lv < hq_lv)
     up_cost = upgrade_cost_of(state, cfg)                     # [N,2] 按类型/等级
-    can_up = (actable & (is_hq | is_node_b | is_camp) & (state.btimer == 0) & cap_ok
+    can_up = (actable & (is_hq | is_node_b | is_camp | is_tower)
+              & (state.btimer == 0) & cap_ok
               & jnp.all(stock >= up_cost, axis=-1))
     mask = mask.at[:, a_upgrade(cfg)].set(can_up)
 
@@ -198,6 +206,11 @@ def legality_mask(state: WorldState, cfg: Config, mapdata: MapData,
                & (n_bar < cfg.max_barracks) & free_in_half
                & jnp.all(stock >= bar_cost, axis=-1))
     mask = mask.at[:, a_build_barracks(cfg)].set(can_bar)
+    from .config import TYPE_TOWER
+    tower_cost = jnp.asarray([cfg.tower_cost_ore, cfg.tower_cost_water], jnp.int32)
+    can_tower = (actable & is_worker & (hq_lv >= unlock[TYPE_TOWER])
+                 & free_in_half & jnp.all(stock >= tower_cost, axis=-1))
+    mask = mask.at[:, a_build_tower(cfg)].set(can_tower)
 
     # 训狗(v1.2):建成兵营空闲 + 半区有空槽 + 付得起
     is_bar = state.etype == TYPE_BARRACKS

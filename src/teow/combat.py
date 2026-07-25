@@ -20,6 +20,7 @@ from .config import (
     TYPE_INFANTRY,
     TYPE_MINE,
     TYPE_PUMP,
+    TYPE_TOWER,
     TYPE_WORKER,
     Config,
 )
@@ -31,13 +32,19 @@ def combat_tick(state: WorldState, cfg: Config, owner: jax.Array) -> WorldState:
     on_board = st.alive & ~st.inside
     is_unit = ((st.etype == TYPE_WORKER) | (st.etype == TYPE_INFANTRY)
                | (st.etype == TYPE_DOG))
-    attacker = on_board & is_unit
-    targetable = on_board  # 建筑(HQ/矿/泵)都可被打;矿内工人离场不可被打
+    # 哨塔:建成且空闲(在建/升级中不开火)才参战
+    is_tower = st.etype == TYPE_TOWER
+    tower_ready = is_tower & (st.btype == 0)
+    attacker = on_board & (is_unit | tower_ready)
+    targetable = on_board  # 建筑都可被打;矿内工人离场不可被打
 
-    # v1.2:欧氏射程(melee_range≈旧 Chebyshev≤1 含对角)
+    # v1.2:欧氏射程;单位近战 melee_range,哨塔远程 tower_range
     eu = jnp.linalg.norm(st.pos[:, None, :] - st.pos[None, :, :], axis=-1)
+    my_range = jnp.where(is_tower, cfg.tower_range, cfg.melee_range)
     valid = (attacker[:, None] & targetable[None, :]
-             & (owner[:, None] != owner[None, :]) & (eu <= cfg.melee_range))
+             & (owner[:, None] != owner[None, :]) & (eu <= my_range[:, None]))
+    # 哨塔只攻单位不攻建筑(issue v1.2「攻击敌方单位」;塔对拆静态建筑无意义)
+    valid = valid & (~is_tower[:, None] | is_unit[None, :])
     is_building = ((st.etype == TYPE_HQ) | (st.etype == TYPE_MINE)
                    | (st.etype == TYPE_PUMP) | (st.etype == TYPE_CAMP)
                    | (st.etype == TYPE_BARRACKS))
@@ -50,8 +57,11 @@ def combat_tick(state: WorldState, cfg: Config, owner: jax.Array) -> WorldState:
     il = st.upgrades[owner.astype(jnp.int32), LINE_INFANTRY]
     inf_atk = jnp.asarray(cfg.inf_atk_by_level)[il]
     dog_atk = jnp.asarray(cfg.dog_atk_by_level)[il]  # 狗吃步兵线
+    tower_atk = jnp.asarray(cfg.tower_atk_by_level)[
+        jnp.clip(st.level.astype(jnp.int32), 0, 7)]
     atk = jnp.where(st.etype == TYPE_INFANTRY, inf_atk,
-                    jnp.where(st.etype == TYPE_DOG, dog_atk, cfg.worker_atk))
+                    jnp.where(st.etype == TYPE_DOG, dog_atk,
+                              jnp.where(is_tower, tower_atk, cfg.worker_atk)))
     dmg = jnp.where(has_tgt & attacker, atk, 0).astype(jnp.int32)
     incoming = jnp.zeros(cfg.n_total, jnp.int32).at[tgt].add(dmg)
     hp = jnp.maximum(st.hp - incoming, 0)

@@ -12,11 +12,14 @@ import pathlib
 import numpy as np
 
 from .config import (
+    TYPE_BARRACKS,
     TYPE_CAMP,
+    TYPE_DOG,
     TYPE_HQ,
     TYPE_INFANTRY,
     TYPE_MINE,
     TYPE_PUMP,
+    TYPE_TOWER,
     TYPE_WORKER,
 )
 
@@ -51,8 +54,9 @@ def _draw_frame(ax, frame: dict, e_max: int, passable: np.ndarray,
         col = P_COLOR[int(owner[i])]
         t = etype[i]
         # 建筑等级角标(v1.1;等级 1 不标,减少视觉噪音)
-        if (level is not None and t in (TYPE_HQ, TYPE_MINE, TYPE_PUMP, TYPE_CAMP)
-                and int(level[i]) > 1):
+        if (level is not None and int(level[i]) > 1
+                and t in (TYPE_HQ, TYPE_MINE, TYPE_PUMP, TYPE_CAMP,
+                          TYPE_BARRACKS, TYPE_TOWER)):
             ax.text(c + 0.45, r - 0.45, str(int(level[i])), fontsize=7,
                     color=col, ha="left", va="bottom", weight="bold")
         if t == TYPE_HQ:
@@ -63,6 +67,14 @@ def _draw_frame(ax, frame: dict, e_max: int, passable: np.ndarray,
             # 在建(btype<0)半透明,建成实心
             building = frame["btype"][i] < 0
             ax.plot(c, r, "p", ms=12, color=col, alpha=0.4 if building else 0.9)
+        elif t == TYPE_BARRACKS:
+            building = frame["btype"][i] < 0
+            ax.plot(c, r, "H", ms=12, color=col, alpha=0.4 if building else 0.9)
+        elif t == TYPE_TOWER:
+            building = frame["btype"][i] < 0
+            ax.plot(c, r, "*", ms=13, color=col, alpha=0.4 if building else 0.9)
+        elif t == TYPE_DOG:
+            ax.plot(c, r, "v", ms=5, color=col)
         elif t == TYPE_WORKER:
             ms = 4 if inside[i] else 6
             alpha = 0.4 if inside[i] else 1.0

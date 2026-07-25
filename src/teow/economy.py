@@ -66,15 +66,19 @@ def upgrade_cost_of(state, cfg: Config) -> jax.Array:
     """int32 [N,2]:每个实体「从当前等级升一级」的(ore,water)成本,按类型查表。
     定价唯一定义处(legality 乐观检查与 paid_orders_pass 实扣都用它)。
     非可升级类型返回 0(调用方用类型掩码门控)。"""
+    from .config import TYPE_TOWER
     lv = jnp.clip(state.level.astype(jnp.int32), 0, 7)
     is_hq = state.etype == TYPE_HQ
     is_camp = state.etype == TYPE_CAMP
+    is_tower = state.etype == TYPE_TOWER
     ore = jnp.where(is_hq, jnp.asarray(cfg.base_up_cost_ore)[lv],
                     jnp.asarray(cfg.node_up_cost_ore)[lv])
     ore = jnp.where(is_camp, jnp.asarray(cfg.camp_up_cost_ore)[lv], ore)
+    ore = jnp.where(is_tower, jnp.asarray(cfg.tower_up_cost_ore)[lv], ore)
     wat = jnp.where(is_hq, jnp.asarray(cfg.base_up_cost_water)[lv],
                     jnp.asarray(cfg.node_up_cost_water)[lv])
     wat = jnp.where(is_camp, jnp.asarray(cfg.camp_up_cost_water)[lv], wat)
+    wat = jnp.where(is_tower, jnp.asarray(cfg.tower_up_cost_water)[lv], wat)
     return jnp.stack([ore, wat], axis=-1)
 
 
@@ -82,10 +86,13 @@ def upgrade_time_of(state, cfg: Config) -> jax.Array:
     """int32 [N]:每个实体升一级的耗时,按类型查表。"""
     lv = jnp.clip(state.level.astype(jnp.int32), 0, 7)
     is_hq = state.etype == TYPE_HQ
+    from .config import TYPE_TOWER
     is_camp = state.etype == TYPE_CAMP
     t = jnp.where(is_hq, jnp.asarray(cfg.base_up_time)[lv],
                   jnp.asarray(cfg.node_up_time)[lv])
-    return jnp.where(is_camp, jnp.asarray(cfg.camp_up_time)[lv], t)
+    t = jnp.where(is_camp, jnp.asarray(cfg.camp_up_time)[lv], t)
+    return jnp.where(state.etype == TYPE_TOWER,
+                     jnp.asarray(cfg.tower_up_time)[lv], t)
 
 
 def paid_orders_pass(state: WorldState, act: jax.Array, cfg: Config,
@@ -98,6 +105,7 @@ def paid_orders_pass(state: WorldState, act: jax.Array, cfg: Config,
     from .actions import (
         a_build_barracks,
         a_build_camp,
+        a_build_tower,
         a_research,
         a_train_dog,
         a_upgrade,
@@ -105,6 +113,7 @@ def paid_orders_pass(state: WorldState, act: jax.Array, cfg: Config,
     from .config import (
         BTASK_BUILD_BARRACKS,
         BTASK_BUILD_CAMP,
+        BTASK_BUILD_TOWER,
         BTASK_RESEARCH_INF,
         BTASK_RESEARCH_WORKER,
         LINE_INFANTRY,
@@ -112,6 +121,7 @@ def paid_orders_pass(state: WorldState, act: jax.Array, cfg: Config,
         TYPE_BARRACKS,
         TYPE_CAMP,
         TYPE_DOG,
+        TYPE_TOWER,
     )
 
     own_i = owner.astype(jnp.int32)
@@ -184,6 +194,9 @@ def paid_orders_pass(state: WorldState, act: jax.Array, cfg: Config,
         (a_build_barracks(cfg), TYPE_BARRACKS, BTASK_BUILD_BARRACKS,
          jnp.asarray([cfg.barracks_cost_ore, cfg.barracks_cost_water], jnp.int32),
          cfg.barracks_build_time, cfg.barracks_hp // 10),
+        (a_build_tower(cfg), TYPE_TOWER, BTASK_BUILD_TOWER,
+         jnp.asarray([cfg.tower_cost_ore, cfg.tower_cost_water], jnp.int32),
+         cfg.tower_build_time, int(cfg.tower_hp_by_level[1]) // 10),
     )
     for a_id, stype, btask, camp_cost, build_t, start_hp0 in structs:
       for p in (0, 1):  # 编译期展开
@@ -232,8 +245,10 @@ def special_tasks_tick(state: WorldState, cfg: Config,
     from .config import (
         BTASK_BUILD_BARRACKS,
         BTASK_BUILD_CAMP,
+        BTASK_BUILD_TOWER,
         BTASK_RESEARCH_INF,
         BTASK_RESEARCH_WORKER,
+        TYPE_TOWER,
     )
     st = state
     own_i = owner.astype(jnp.int32)
@@ -253,6 +268,12 @@ def special_tasks_tick(state: WorldState, cfg: Config,
     bg = (bfull - bstart) // bt
     growing_b = st.alive & (st.btype == BTASK_BUILD_BARRACKS) & (st.btimer > 0)
     hp = hp + jnp.where(growing_b, bg, 0)
+    tfull = int(cfg.tower_hp_by_level[1])
+    tstart = tfull // 10
+    tt = cfg.tower_build_time
+    tg = (tfull - tstart) // tt
+    growing_t = st.alive & (st.btype == BTASK_BUILD_TOWER) & (st.btimer > 0)
+    hp = hp + jnp.where(growing_t, tg, 0)
 
     done = st.alive & (st.btype < 0) & (st.btimer == 0)
 
@@ -266,9 +287,16 @@ def special_tasks_tick(state: WorldState, cfg: Config,
     bar_done = done & (st.btype == BTASK_BUILD_BARRACKS)
     b_rem = (bfull - bstart) - bg * (bt - 1)
     hp = hp + jnp.where(bar_done, b_rem, 0)
+    tower_done = done & (st.btype == BTASK_BUILD_TOWER)
+    t_rem = (tfull - tstart) - tg * (tt - 1)
+    hp = hp + jnp.where(tower_done, t_rem, 0)
 
-    # 自升级完成
+    # 自升级完成;哨塔升级补血量上限差额(升级提升血量,issue v1.2)
     upg = done & (st.btype == BTASK_UPGRADE)
+    lv0 = jnp.clip(st.level.astype(jnp.int32), 0, 6)
+    thp = jnp.asarray(cfg.tower_hp_by_level)
+    tower_up = upg & (st.etype == TYPE_TOWER)
+    hp = hp + jnp.where(tower_up, thp[lv0 + 1] - thp[lv0], 0)
     level = jnp.where(upg, level + 1, level).astype(jnp.int8)
 
     # 研发完成:该玩家对应线 +1(legality 保证同线同 tick 至多一营在研),

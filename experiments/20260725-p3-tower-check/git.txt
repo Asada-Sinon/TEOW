@@ -1,0 +1,10 @@
+d59475257a9d0eb4588486f73f4ff701130adb26
+dirty: True
+ M src/teow/actions.py
+ M src/teow/combat.py
+ M src/teow/config.py
+ M src/teow/controller.py
+ M src/teow/economy.py
+ M src/teow/render.py
+?? experiments/20260725-p3-tower-check/
+?? tests/test_tower.py

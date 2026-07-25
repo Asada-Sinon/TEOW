@@ -151,6 +151,18 @@ def scripted_actions(state: WorldState, cfg: Config, mapdata: MapData,
                       & (st.level[player * cfg.e_max] >= unlock[TYPE_BARRACKS])
                       & has_camp & ~has_bar & bar_afford & ~is_camp_builder)
 
+    # ---- 哨塔:有兵营后建一座守家(v1.2)----
+    from .actions import a_build_tower
+    from .config import TYPE_TOWER
+    has_tower = jnp.any(mine & (st.etype == TYPE_TOWER))
+    tower_afford = jnp.all(st.resources[player] >= jnp.asarray(
+        [cfg.tower_cost_ore, cfg.tower_cost_water]))
+    tw_builder = jnp.argmin(pull_score)
+    is_tw_builder = ((jnp.arange(n) == tw_builder) & jnp.any(can_pull)
+                     & (st.level[player * cfg.e_max] >= unlock[TYPE_TOWER])
+                     & has_bar & ~has_tower & tower_afford
+                     & ~is_camp_builder & ~is_bar_builder)
+
     # ---- 矿/泵:库存 ≥ 升级成本+储备 才升(audit v1.1 P2:只查储备不查成本
     # 会把「留军费」的意图打穿,曾是 seed12 水危机的助燃剂)----
     is_node_b = (st.etype == TYPE_MINE) | (st.etype == TYPE_PUMP)
@@ -168,6 +180,7 @@ def scripted_actions(state: WorldState, cfg: Config, mapdata: MapData,
     act = jnp.where(idle_worker, worker_act, act)
     act = jnp.where(is_camp_builder, a_build_camp(cfg), act)
     act = jnp.where(is_bar_builder, a_build_barracks(cfg), act)
+    act = jnp.where(is_tw_builder, a_build_tower(cfg), act)
     act = jnp.where(mine & (st.etype == TYPE_BARRACKS), a_train_dog(cfg), act)
     act = jnp.where(mine & (st.etype == TYPE_CAMP), camp_act, act)
     act = jnp.where(mine & is_node_b, node_act, act)

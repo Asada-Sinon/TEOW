@@ -21,6 +21,7 @@ TYPE_INFANTRY = 5
 TYPE_CAMP = 6      # 技能训练营(v1.1;基地2级解锁,建成即2级)
 TYPE_BARRACKS = 7  # 兵营(v1.2;基地2级解锁,出狗子)
 TYPE_DOG = 8       # 狗子(v1.2;快/脆/低攻,吃步兵捆绑线)
+TYPE_TOWER = 9     # 哨塔(v1.2;基地2级解锁,自动攻击射程内敌方单位)
 
 # 资源类型编码(state.resources 的第二维;与资源点 node_type 一致)
 RES_ORE = 0
@@ -37,6 +38,7 @@ BTASK_RESEARCH_INF = -2   # 训练营:研发步兵线
 BTASK_RESEARCH_WORKER = -3  # 训练营:研发工人线
 BTASK_BUILD_CAMP = -4     # 在建训练营的专属标记(建成前 hp 线性成长)
 BTASK_BUILD_BARRACKS = -5  # 在建兵营(v1.2;同营的成长语义,建成 level=1)
+BTASK_BUILD_TOWER = -6     # 在建哨塔(v1.2)
 
 
 @dataclasses.dataclass(frozen=True)
@@ -145,6 +147,17 @@ class Config:
     dog_time: int = 30
     dog_hp_by_level: tuple = (0, 24, 29, 34, 40, 47, 55, 64)
     dog_atk_by_level: tuple = (0, 3, 4, 4, 5, 6, 7, 8)
+
+    # 哨塔(v1.2;等级上限=基地等级,升级提升血量与攻击;只攻单位不攻建筑)
+    tower_cost_ore: int = 50
+    tower_cost_water: int = 30
+    tower_build_time: int = 90
+    tower_range: float = 4.0
+    tower_hp_by_level: tuple = (0, 120, 150, 180, 220, 260, 300, 350)
+    tower_atk_by_level: tuple = (0, 6, 8, 10, 13, 16, 20, 24)
+    tower_up_cost_ore: tuple = (0, 40, 60, 90, 130, 180, 240, 0)
+    tower_up_cost_water: tuple = (0, 25, 40, 60, 85, 120, 160, 0)
+    tower_up_time: tuple = (0, 70, 85, 100, 115, 130, 145, 0)
 
     # 工人经济线(载荷/开采速度/血量,无攻击;线等级上限=营等级)
     worker_carry_by_level: tuple = (0, 10, 12, 14, 17, 20, 24, 28)

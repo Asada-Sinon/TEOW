@@ -1,0 +1,326 @@
+diff --git a/src/teow/actions.py b/src/teow/actions.py
+index 767e7b1..3e32ca5 100644
+--- a/src/teow/actions.py
++++ b/src/teow/actions.py
+@@ -95,10 +95,15 @@ def a_train_dog(cfg: Config) -> int:
+     return 14 + 2 * cfg.n_nodes
+ 
+ 
+-def n_actions(cfg: Config) -> int:
++def a_build_tower(cfg: Config) -> int:
++    """工人起哨塔(v1.2;解锁表 TYPE_TOWER,机制同建营)。"""
+     return 15 + 2 * cfg.n_nodes
+ 
+ 
++def n_actions(cfg: Config) -> int:
++    return 16 + 2 * cfg.n_nodes
++
++
+ def unit_costs(cfg: Config) -> jax.Array:
+     """int32 [2(单位:工人/步兵), 2(资源)]。"""
+     return jnp.asarray(
+@@ -175,9 +180,12 @@ def legality_mask(state: WorldState, cfg: Config, mapdata: MapData,
+     hq_lv = state.level[half * cfg.e_max].astype(jnp.int32)   # 各实体所属玩家的基地级
+     is_node_b = (state.etype == TYPE_MINE) | (state.etype == TYPE_PUMP)
+     is_camp = state.etype == TYPE_CAMP
++    from .config import TYPE_TOWER as _TT
++    is_tower = state.etype == _TT
+     cap_ok = jnp.where(is_hq, lv < cfg.base_max_level, lv < hq_lv)
+     up_cost = upgrade_cost_of(state, cfg)                     # [N,2] 按类型/等级
+-    can_up = (actable & (is_hq | is_node_b | is_camp) & (state.btimer == 0) & cap_ok
++    can_up = (actable & (is_hq | is_node_b | is_camp | is_tower)
++              & (state.btimer == 0) & cap_ok
+               & jnp.all(stock >= up_cost, axis=-1))
+     mask = mask.at[:, a_upgrade(cfg)].set(can_up)
+ 
+@@ -198,6 +206,11 @@ def legality_mask(state: WorldState, cfg: Config, mapdata: MapData,
+                & (n_bar < cfg.max_barracks) & free_in_half
+                & jnp.all(stock >= bar_cost, axis=-1))
+     mask = mask.at[:, a_build_barracks(cfg)].set(can_bar)
++    from .config import TYPE_TOWER
++    tower_cost = jnp.asarray([cfg.tower_cost_ore, cfg.tower_cost_water], jnp.int32)
++    can_tower = (actable & is_worker & (hq_lv >= unlock[TYPE_TOWER])
++                 & free_in_half & jnp.all(stock >= tower_cost, axis=-1))
++    mask = mask.at[:, a_build_tower(cfg)].set(can_tower)
+ 
+     # 训狗(v1.2):建成兵营空闲 + 半区有空槽 + 付得起
+     is_bar = state.etype == TYPE_BARRACKS
+diff --git a/src/teow/combat.py b/src/teow/combat.py
+index f82e8c9..289fa09 100644
+--- a/src/teow/combat.py
++++ b/src/teow/combat.py
+@@ -20,6 +20,7 @@ from .config import (
+     TYPE_INFANTRY,
+     TYPE_MINE,
+     TYPE_PUMP,
++    TYPE_TOWER,
+     TYPE_WORKER,
+     Config,
+ )
+@@ -31,13 +32,19 @@ def combat_tick(state: WorldState, cfg: Config, owner: jax.Array) -> WorldState:
+     on_board = st.alive & ~st.inside
+     is_unit = ((st.etype == TYPE_WORKER) | (st.etype == TYPE_INFANTRY)
+                | (st.etype == TYPE_DOG))
+-    attacker = on_board & is_unit
+-    targetable = on_board  # 建筑(HQ/矿/泵)都可被打;矿内工人离场不可被打
++    # 哨塔:建成且空闲(在建/升级中不开火)才参战
++    is_tower = st.etype == TYPE_TOWER
++    tower_ready = is_tower & (st.btype == 0)
++    attacker = on_board & (is_unit | tower_ready)
++    targetable = on_board  # 建筑都可被打;矿内工人离场不可被打
+ 
+-    # v1.2:欧氏射程(melee_range≈旧 Chebyshev≤1 含对角)
++    # v1.2:欧氏射程;单位近战 melee_range,哨塔远程 tower_range
+     eu = jnp.linalg.norm(st.pos[:, None, :] - st.pos[None, :, :], axis=-1)
++    my_range = jnp.where(is_tower, cfg.tower_range, cfg.melee_range)
+     valid = (attacker[:, None] & targetable[None, :]
+-             & (owner[:, None] != owner[None, :]) & (eu <= cfg.melee_range))
++             & (owner[:, None] != owner[None, :]) & (eu <= my_range[:, None]))
++    # 哨塔只攻单位不攻建筑(issue v1.2「攻击敌方单位」;塔对拆静态建筑无意义)
++    valid = valid & (~is_tower[:, None] | is_unit[None, :])
+     is_building = ((st.etype == TYPE_HQ) | (st.etype == TYPE_MINE)
+                    | (st.etype == TYPE_PUMP) | (st.etype == TYPE_CAMP)
+                    | (st.etype == TYPE_BARRACKS))
+@@ -50,8 +57,11 @@ def combat_tick(state: WorldState, cfg: Config, owner: jax.Array) -> WorldState:
+     il = st.upgrades[owner.astype(jnp.int32), LINE_INFANTRY]
+     inf_atk = jnp.asarray(cfg.inf_atk_by_level)[il]
+     dog_atk = jnp.asarray(cfg.dog_atk_by_level)[il]  # 狗吃步兵线
++    tower_atk = jnp.asarray(cfg.tower_atk_by_level)[
++        jnp.clip(st.level.astype(jnp.int32), 0, 7)]
+     atk = jnp.where(st.etype == TYPE_INFANTRY, inf_atk,
+-                    jnp.where(st.etype == TYPE_DOG, dog_atk, cfg.worker_atk))
++                    jnp.where(st.etype == TYPE_DOG, dog_atk,
++                              jnp.where(is_tower, tower_atk, cfg.worker_atk)))
+     dmg = jnp.where(has_tgt & attacker, atk, 0).astype(jnp.int32)
+     incoming = jnp.zeros(cfg.n_total, jnp.int32).at[tgt].add(dmg)
+     hp = jnp.maximum(st.hp - incoming, 0)
+diff --git a/src/teow/config.py b/src/teow/config.py
+index fa81155..381330d 100644
+--- a/src/teow/config.py
++++ b/src/teow/config.py
+@@ -21,6 +21,7 @@ TYPE_INFANTRY = 5
+ TYPE_CAMP = 6      # 技能训练营(v1.1;基地2级解锁,建成即2级)
+ TYPE_BARRACKS = 7  # 兵营(v1.2;基地2级解锁,出狗子)
+ TYPE_DOG = 8       # 狗子(v1.2;快/脆/低攻,吃步兵捆绑线)
++TYPE_TOWER = 9     # 哨塔(v1.2;基地2级解锁,自动攻击射程内敌方单位)
+ 
+ # 资源类型编码(state.resources 的第二维;与资源点 node_type 一致)
+ RES_ORE = 0
+@@ -37,6 +38,7 @@ BTASK_RESEARCH_INF = -2   # 训练营:研发步兵线
+ BTASK_RESEARCH_WORKER = -3  # 训练营:研发工人线
+ BTASK_BUILD_CAMP = -4     # 在建训练营的专属标记(建成前 hp 线性成长)
+ BTASK_BUILD_BARRACKS = -5  # 在建兵营(v1.2;同营的成长语义,建成 level=1)
++BTASK_BUILD_TOWER = -6     # 在建哨塔(v1.2)
+ 
+ 
+ @dataclasses.dataclass(frozen=True)
+@@ -146,6 +148,17 @@ class Config:
+     dog_hp_by_level: tuple = (0, 24, 29, 34, 40, 47, 55, 64)
+     dog_atk_by_level: tuple = (0, 3, 4, 4, 5, 6, 7, 8)
+ 
++    # 哨塔(v1.2;等级上限=基地等级,升级提升血量与攻击;只攻单位不攻建筑)
++    tower_cost_ore: int = 50
++    tower_cost_water: int = 30
++    tower_build_time: int = 90
++    tower_range: float = 4.0
++    tower_hp_by_level: tuple = (0, 120, 150, 180, 220, 260, 300, 350)
++    tower_atk_by_level: tuple = (0, 6, 8, 10, 13, 16, 20, 24)
++    tower_up_cost_ore: tuple = (0, 40, 60, 90, 130, 180, 240, 0)
++    tower_up_cost_water: tuple = (0, 25, 40, 60, 85, 120, 160, 0)
++    tower_up_time: tuple = (0, 70, 85, 100, 115, 130, 145, 0)
++
+     # 工人经济线(载荷/开采速度/血量,无攻击;线等级上限=营等级)
+     worker_carry_by_level: tuple = (0, 10, 12, 14, 17, 20, 24, 28)
+     worker_mine_time_by_level: tuple = (0, 20, 18, 16, 14, 12, 10, 9)
+diff --git a/src/teow/controller.py b/src/teow/controller.py
+index d8ee770..3a7b524 100644
+--- a/src/teow/controller.py
++++ b/src/teow/controller.py
+@@ -151,6 +151,18 @@ def scripted_actions(state: WorldState, cfg: Config, mapdata: MapData,
+                       & (st.level[player * cfg.e_max] >= unlock[TYPE_BARRACKS])
+                       & has_camp & ~has_bar & bar_afford & ~is_camp_builder)
+ 
++    # ---- 哨塔:有兵营后建一座守家(v1.2)----
++    from .actions import a_build_tower
++    from .config import TYPE_TOWER
++    has_tower = jnp.any(mine & (st.etype == TYPE_TOWER))
++    tower_afford = jnp.all(st.resources[player] >= jnp.asarray(
++        [cfg.tower_cost_ore, cfg.tower_cost_water]))
++    tw_builder = jnp.argmin(pull_score)
++    is_tw_builder = ((jnp.arange(n) == tw_builder) & jnp.any(can_pull)
++                     & (st.level[player * cfg.e_max] >= unlock[TYPE_TOWER])
++                     & has_bar & ~has_tower & tower_afford
++                     & ~is_camp_builder & ~is_bar_builder)
++
+     # ---- 矿/泵:库存 ≥ 升级成本+储备 才升(audit v1.1 P2:只查储备不查成本
+     # 会把「留军费」的意图打穿,曾是 seed12 水危机的助燃剂)----
+     is_node_b = (st.etype == TYPE_MINE) | (st.etype == TYPE_PUMP)
+@@ -168,6 +180,7 @@ def scripted_actions(state: WorldState, cfg: Config, mapdata: MapData,
+     act = jnp.where(idle_worker, worker_act, act)
+     act = jnp.where(is_camp_builder, a_build_camp(cfg), act)
+     act = jnp.where(is_bar_builder, a_build_barracks(cfg), act)
++    act = jnp.where(is_tw_builder, a_build_tower(cfg), act)
+     act = jnp.where(mine & (st.etype == TYPE_BARRACKS), a_train_dog(cfg), act)
+     act = jnp.where(mine & (st.etype == TYPE_CAMP), camp_act, act)
+     act = jnp.where(mine & is_node_b, node_act, act)
+diff --git a/src/teow/economy.py b/src/teow/economy.py
+index e78aa98..c825fe5 100644
+--- a/src/teow/economy.py
++++ b/src/teow/economy.py
+@@ -66,15 +66,19 @@ def upgrade_cost_of(state, cfg: Config) -> jax.Array:
+     """int32 [N,2]:每个实体「从当前等级升一级」的(ore,water)成本,按类型查表。
+     定价唯一定义处(legality 乐观检查与 paid_orders_pass 实扣都用它)。
+     非可升级类型返回 0(调用方用类型掩码门控)。"""
++    from .config import TYPE_TOWER
+     lv = jnp.clip(state.level.astype(jnp.int32), 0, 7)
+     is_hq = state.etype == TYPE_HQ
+     is_camp = state.etype == TYPE_CAMP
++    is_tower = state.etype == TYPE_TOWER
+     ore = jnp.where(is_hq, jnp.asarray(cfg.base_up_cost_ore)[lv],
+                     jnp.asarray(cfg.node_up_cost_ore)[lv])
+     ore = jnp.where(is_camp, jnp.asarray(cfg.camp_up_cost_ore)[lv], ore)
++    ore = jnp.where(is_tower, jnp.asarray(cfg.tower_up_cost_ore)[lv], ore)
+     wat = jnp.where(is_hq, jnp.asarray(cfg.base_up_cost_water)[lv],
+                     jnp.asarray(cfg.node_up_cost_water)[lv])
+     wat = jnp.where(is_camp, jnp.asarray(cfg.camp_up_cost_water)[lv], wat)
++    wat = jnp.where(is_tower, jnp.asarray(cfg.tower_up_cost_water)[lv], wat)
+     return jnp.stack([ore, wat], axis=-1)
+ 
+ 
+@@ -82,10 +86,13 @@ def upgrade_time_of(state, cfg: Config) -> jax.Array:
+     """int32 [N]:每个实体升一级的耗时,按类型查表。"""
+     lv = jnp.clip(state.level.astype(jnp.int32), 0, 7)
+     is_hq = state.etype == TYPE_HQ
++    from .config import TYPE_TOWER
+     is_camp = state.etype == TYPE_CAMP
+     t = jnp.where(is_hq, jnp.asarray(cfg.base_up_time)[lv],
+                   jnp.asarray(cfg.node_up_time)[lv])
+-    return jnp.where(is_camp, jnp.asarray(cfg.camp_up_time)[lv], t)
++    t = jnp.where(is_camp, jnp.asarray(cfg.camp_up_time)[lv], t)
++    return jnp.where(state.etype == TYPE_TOWER,
++                     jnp.asarray(cfg.tower_up_time)[lv], t)
+ 
+ 
+ def paid_orders_pass(state: WorldState, act: jax.Array, cfg: Config,
+@@ -98,6 +105,7 @@ def paid_orders_pass(state: WorldState, act: jax.Array, cfg: Config,
+     from .actions import (
+         a_build_barracks,
+         a_build_camp,
++        a_build_tower,
+         a_research,
+         a_train_dog,
+         a_upgrade,
+@@ -105,6 +113,7 @@ def paid_orders_pass(state: WorldState, act: jax.Array, cfg: Config,
+     from .config import (
+         BTASK_BUILD_BARRACKS,
+         BTASK_BUILD_CAMP,
++        BTASK_BUILD_TOWER,
+         BTASK_RESEARCH_INF,
+         BTASK_RESEARCH_WORKER,
+         LINE_INFANTRY,
+@@ -112,6 +121,7 @@ def paid_orders_pass(state: WorldState, act: jax.Array, cfg: Config,
+         TYPE_BARRACKS,
+         TYPE_CAMP,
+         TYPE_DOG,
++        TYPE_TOWER,
+     )
+ 
+     own_i = owner.astype(jnp.int32)
+@@ -184,6 +194,9 @@ def paid_orders_pass(state: WorldState, act: jax.Array, cfg: Config,
+         (a_build_barracks(cfg), TYPE_BARRACKS, BTASK_BUILD_BARRACKS,
+          jnp.asarray([cfg.barracks_cost_ore, cfg.barracks_cost_water], jnp.int32),
+          cfg.barracks_build_time, cfg.barracks_hp // 10),
++        (a_build_tower(cfg), TYPE_TOWER, BTASK_BUILD_TOWER,
++         jnp.asarray([cfg.tower_cost_ore, cfg.tower_cost_water], jnp.int32),
++         cfg.tower_build_time, int(cfg.tower_hp_by_level[1]) // 10),
+     )
+     for a_id, stype, btask, camp_cost, build_t, start_hp0 in structs:
+       for p in (0, 1):  # 编译期展开
+@@ -232,8 +245,10 @@ def special_tasks_tick(state: WorldState, cfg: Config,
+     from .config import (
+         BTASK_BUILD_BARRACKS,
+         BTASK_BUILD_CAMP,
++        BTASK_BUILD_TOWER,
+         BTASK_RESEARCH_INF,
+         BTASK_RESEARCH_WORKER,
++        TYPE_TOWER,
+     )
+     st = state
+     own_i = owner.astype(jnp.int32)
+@@ -253,6 +268,12 @@ def special_tasks_tick(state: WorldState, cfg: Config,
+     bg = (bfull - bstart) // bt
+     growing_b = st.alive & (st.btype == BTASK_BUILD_BARRACKS) & (st.btimer > 0)
+     hp = hp + jnp.where(growing_b, bg, 0)
++    tfull = int(cfg.tower_hp_by_level[1])
++    tstart = tfull // 10
++    tt = cfg.tower_build_time
++    tg = (tfull - tstart) // tt
++    growing_t = st.alive & (st.btype == BTASK_BUILD_TOWER) & (st.btimer > 0)
++    hp = hp + jnp.where(growing_t, tg, 0)
+ 
+     done = st.alive & (st.btype < 0) & (st.btimer == 0)
+ 
+@@ -266,9 +287,16 @@ def special_tasks_tick(state: WorldState, cfg: Config,
+     bar_done = done & (st.btype == BTASK_BUILD_BARRACKS)
+     b_rem = (bfull - bstart) - bg * (bt - 1)
+     hp = hp + jnp.where(bar_done, b_rem, 0)
++    tower_done = done & (st.btype == BTASK_BUILD_TOWER)
++    t_rem = (tfull - tstart) - tg * (tt - 1)
++    hp = hp + jnp.where(tower_done, t_rem, 0)
+ 
+-    # 自升级完成
++    # 自升级完成;哨塔升级补血量上限差额(升级提升血量,issue v1.2)
+     upg = done & (st.btype == BTASK_UPGRADE)
++    lv0 = jnp.clip(st.level.astype(jnp.int32), 0, 6)
++    thp = jnp.asarray(cfg.tower_hp_by_level)
++    tower_up = upg & (st.etype == TYPE_TOWER)
++    hp = hp + jnp.where(tower_up, thp[lv0 + 1] - thp[lv0], 0)
+     level = jnp.where(upg, level + 1, level).astype(jnp.int8)
+ 
+     # 研发完成:该玩家对应线 +1(legality 保证同线同 tick 至多一营在研),
+diff --git a/src/teow/render.py b/src/teow/render.py
+index 73fab0b..43c3422 100644
+--- a/src/teow/render.py
++++ b/src/teow/render.py
+@@ -12,11 +12,14 @@ import pathlib
+ import numpy as np
+ 
+ from .config import (
++    TYPE_BARRACKS,
+     TYPE_CAMP,
++    TYPE_DOG,
+     TYPE_HQ,
+     TYPE_INFANTRY,
+     TYPE_MINE,
+     TYPE_PUMP,
++    TYPE_TOWER,
+     TYPE_WORKER,
+ )
+ 
+@@ -51,8 +54,9 @@ def _draw_frame(ax, frame: dict, e_max: int, passable: np.ndarray,
+         col = P_COLOR[int(owner[i])]
+         t = etype[i]
+         # 建筑等级角标(v1.1;等级 1 不标,减少视觉噪音)
+-        if (level is not None and t in (TYPE_HQ, TYPE_MINE, TYPE_PUMP, TYPE_CAMP)
+-                and int(level[i]) > 1):
++        if (level is not None and int(level[i]) > 1
++                and t in (TYPE_HQ, TYPE_MINE, TYPE_PUMP, TYPE_CAMP,
++                          TYPE_BARRACKS, TYPE_TOWER)):
+             ax.text(c + 0.45, r - 0.45, str(int(level[i])), fontsize=7,
+                     color=col, ha="left", va="bottom", weight="bold")
+         if t == TYPE_HQ:
+@@ -63,6 +67,14 @@ def _draw_frame(ax, frame: dict, e_max: int, passable: np.ndarray,
+             # 在建(btype<0)半透明,建成实心
+             building = frame["btype"][i] < 0
+             ax.plot(c, r, "p", ms=12, color=col, alpha=0.4 if building else 0.9)
++        elif t == TYPE_BARRACKS:
++            building = frame["btype"][i] < 0
++            ax.plot(c, r, "H", ms=12, color=col, alpha=0.4 if building else 0.9)
++        elif t == TYPE_TOWER:
++            building = frame["btype"][i] < 0
++            ax.plot(c, r, "*", ms=13, color=col, alpha=0.4 if building else 0.9)
++        elif t == TYPE_DOG:
++            ax.plot(c, r, "v", ms=5, color=col)
+         elif t == TYPE_WORKER:
+             ms = 4 if inside[i] else 6
+             alpha = 0.4 if inside[i] else 1.0
