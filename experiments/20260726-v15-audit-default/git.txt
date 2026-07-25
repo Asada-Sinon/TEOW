@@ -1,0 +1,7 @@
+767773c7863fa3744c73d51d76b6ac6370937178
+dirty: True
+ M tests/test_determinism.py
+ M tests/test_scripted_v13.py
+ M tests/test_upgrade.py
+?? experiments/20260726-v15-audit-default/
+?? explorations/audit_v15_invariants.py
