@@ -25,6 +25,13 @@ import time
 
 sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent))
 
+# serve 是纯回放服务,不需要 GPU;必须在 import jax 之前定死,否则 jax 会去抢
+# CUDA(训练占卡时直接 OOM 起不来)
+import os
+
+if len(sys.argv) > 1 and sys.argv[1] == "serve":
+    os.environ.setdefault("JAX_PLATFORMS", "cpu")
+
 import jax
 import jax.numpy as jnp
 import numpy as np
@@ -192,6 +199,14 @@ def main() -> None:
     p.add_argument("--fps", type=int, default=20)
     p.add_argument("--save", default=None, help="存成 gif/mp4 路径(不弹窗)")
     p.set_defaults(fn=cmd_replay)
+
+    p = sub.add_parser("serve", help="浏览器观战:回放 run 目录(v1.2)")
+    p.add_argument("run_dir")
+    p.add_argument("--port", type=int, default=8000)
+    p.add_argument("--fps", type=int, default=20)
+    p.set_defaults(fn=lambda a: __import__(
+        "teow.server", fromlist=["serve"]).serve(
+            pathlib.Path(a.run_dir), port=a.port, fps=a.fps))
 
     p = sub.add_parser("bench", help="单环境吞吐基准")
     p.add_argument("--ticks", type=int, default=2000)

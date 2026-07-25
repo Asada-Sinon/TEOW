@@ -1,0 +1,9 @@
+5b915e6af219988101d5af86c3ed4a473266dd86
+dirty: True
+ M pyproject.toml
+ M src/run.py
+ M uv.lock
+?? docs/sprite-prompts.md
+?? experiments/20260725-v1.2-frontend-demo/
+?? src/teow/server.py
+?? web/

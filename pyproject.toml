@@ -10,6 +10,9 @@ dependencies = [
     "numpy>=1.26",
     "chex>=0.1.85",
     "matplotlib>=3.8",
+    "fastapi>=0.110",
+    "uvicorn[standard]>=0.29",
+    "websockets>=12.0",
 ]
 
 [dependency-groups]

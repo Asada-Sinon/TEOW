@@ -1,0 +1,19 @@
+<!DOCTYPE html>
+<html lang="zh">
+<head>
+  <meta charset="utf-8">
+  <title>TEOW 观战</title>
+  <style>
+    body { margin: 0; background: #020617; color: #e2e8f0;
+           font-family: system-ui, sans-serif; display: flex;
+           flex-direction: column; align-items: center; }
+    #hud { padding: 10px 0 6px; font-size: 15px; letter-spacing: .5px; }
+    canvas { border: 1px solid #1e293b; border-radius: 6px; }
+  </style>
+</head>
+<body>
+  <div id="hud">连接中…</div>
+  <canvas id="map" width="800" height="800"></canvas>
+  <script type="module" src="render.js"></script>
+</body>
+</html>
