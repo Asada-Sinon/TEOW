@@ -25,6 +25,7 @@ from .map import BIG_DIST, MapData
 from .state import (
     ORDER_ATTACK,
     ORDER_BUILD,
+    ORDER_GARRISON,
     ORDER_HARVEST,
     ORDER_IDLE,
     ORDER_MOVE,
@@ -105,8 +106,15 @@ def movement_tick(state: WorldState, cfg: Config, mapdata: MapData,
     goal = jnp.where(st.order == ORDER_ATTACK, cfg.n_nodes + (1 - own_i), tn)
     goal = jnp.where((st.order == ORDER_HARVEST) & (st.phase == PH_TO_HQ),
                      cfg.n_nodes + own_i, goal)
+    # 驻守(v1.3):锚点 0=己方 HQ 场,1..Nn=点 k 场(现有 Nn+2 张场直接覆盖);
+    # 场只用来取方向——到达/步长/回岗一律对 target_cell 求欧氏距离
+    # (goal_center 对越界 goal 会 clip 错场,critic B-1)
+    gid = jnp.clip(st.garrison_id.astype(jnp.int32), 0, cfg.n_nodes)
+    is_gar = st.order == ORDER_GARRISON
+    goal = jnp.where(is_gar,
+                     jnp.where(gid == 0, cfg.n_nodes + own_i, gid - 1), goal)
     use_field = ((st.order == ORDER_HARVEST) | (st.order == ORDER_BUILD)
-                 | (st.order == ORDER_ATTACK))
+                 | (st.order == ORDER_ATTACK) | is_gar)
     goal_center = jnp.where(
         (goal < cfg.n_nodes)[:, None], node_pos[jnp.clip(goal, 0, cfg.n_nodes - 1)],
         hq_pos[jnp.clip(goal - cfg.n_nodes, 0, 1)])
@@ -115,6 +123,8 @@ def movement_tick(state: WorldState, cfg: Config, mapdata: MapData,
     eu_goal = jnp.linalg.norm(st.pos - goal_center, axis=-1)
     eu_move = jnp.linalg.norm(st.pos - st.target_cell, axis=-1)
     arrived = jnp.where(use_field, eu_goal <= cfg.reach_radius, eu_move <= 0.4)
+    # 驻守:锚点圈内即「到达」;被互推挤出圈,下 tick 自动回岗
+    arrived = jnp.where(is_gar, eu_move <= cfg.garrison_hold_radius, arrived)
     # attack-move:射程内有敌就地开打
     dmat = jnp.linalg.norm(st.pos[:, None, :] - st.pos[None, :, :], axis=-1)
     enemy_near = jnp.any(
@@ -123,7 +133,7 @@ def movement_tick(state: WorldState, cfg: Config, mapdata: MapData,
     arrived = arrived | ((st.order == ORDER_ATTACK) & enemy_near)
 
     moving_order = ((st.order == ORDER_MOVE) | (st.order == ORDER_ATTACK)
-                    | (st.order == ORDER_BUILD)
+                    | (st.order == ORDER_BUILD) | is_gar
                     | ((st.order == ORDER_HARVEST) & (st.phase != PH_MINING)))
     wants = on_board & is_unit & moving_order & ~arrived
 
@@ -159,7 +169,9 @@ def movement_tick(state: WorldState, cfg: Config, mapdata: MapData,
     dir_move = jnp.where(dnorm > 1e-6, dvec / jnp.maximum(dnorm, 1e-6), 0.0)
     direction = jnp.where(use_field[:, None], dir_field, dir_move)
 
-    step_len = jnp.minimum(speed, jnp.where(use_field, eu_goal, eu_move))
+    # 步长截断:驻守对 target_cell(锚点)截,不吃 goal_center
+    step_len = jnp.minimum(
+        speed, jnp.where(use_field & ~is_gar, eu_goal, eu_move))
     delta = direction * (step_len * wants)[:, None]
     cand = st.pos + delta
 

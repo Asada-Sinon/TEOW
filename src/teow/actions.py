@@ -4,7 +4,7 @@
 乱给)。动作只是「改写常驻指令」——真正的行动(移动/开采/生产)由 step 各阶段按
 常驻指令推进,所以 no-op ≠ 发呆。
 
-动作表(n_actions = 16 + 2*Nn;Nn=8 时共 32,完整 id 布局见各 a_*() 定义):
+动作表(n_actions = 17 + 3*Nn;Nn=8 时共 41,完整 id 布局见各 a_*() 定义):
   0                 NOOP     维持现状
   1                 STOP     清除常驻指令(矿内工人不可用,先等它出来)
   2                 ATTACK   attack-move 向敌方 HQ(仅步兵)
@@ -14,6 +14,8 @@
                              且名额未满——v1.3 指派即占用,重复下达豁免)
   7+2Nn             TRAIN_W  训练工人(仅 HQ)
   8+2Nn             TRAIN_I  训练步兵(仅 HQ)
+  16+2Nn            GARR_HQ  驻守己方 HQ(仅战斗单位,v1.3)
+  17+2Nn..17+3Nn-1  GARR_k   驻守己方资源点 k 的矿泵(仅战斗单位,v1.3)
 
 合法性掩码从第一天就是引擎输出(调研报告 §5.8):v2 的 RL invalid-action-masking
 直接复用,random 控制器也靠它只在合法动作里采样。
@@ -38,6 +40,7 @@ from .map import MapData
 from .state import (
     ORDER_ATTACK,
     ORDER_BUILD,
+    ORDER_GARRISON,
     ORDER_HARVEST,
     ORDER_IDLE,
     ORDER_MOVE,
@@ -101,8 +104,18 @@ def a_build_tower(cfg: Config) -> int:
     return 15 + 2 * cfg.n_nodes
 
 
-def n_actions(cfg: Config) -> int:
+def a_garrison_hq(cfg: Config) -> int:
+    """驻守己方 HQ(v1.3;仅战斗单位)。"""
     return 16 + 2 * cfg.n_nodes
+
+
+def a_garrison_node(k: int, cfg: Config) -> int:
+    """驻守己方资源点 k 的矿泵(v1.3;仅战斗单位,点须己方已建)。"""
+    return 17 + 2 * cfg.n_nodes + k
+
+
+def n_actions(cfg: Config) -> int:
+    return 17 + 3 * cfg.n_nodes
 
 
 def unit_costs(cfg: Config) -> jax.Array:
@@ -167,6 +180,11 @@ def legality_mask(state: WorldState, cfg: Config, mapdata: MapData,
         already_k = (state.order == ORDER_HARVEST) & (state.target_node == k)
         mask = mask.at[:, a_harvest(k, cfg)].set(
             actable & is_worker & mine_up & ((acounts[k] < cap_k) | already_k))
+        # 驻守点 k(v1.3):战斗单位 + 点须己方已建
+        mask = mask.at[:, a_garrison_node(k, cfg)].set(actable & is_inf & mine_up)
+
+    # 驻守己方 HQ(v1.3):目标恒存在(HQ 亡即终局)
+    mask = mask.at[:, a_garrison_hq(cfg)].set(actable & is_inf)
 
     # 训练:HQ 空闲 + 本半区有空槽 + 付得起
     ucost = unit_costs(cfg)
@@ -300,6 +318,10 @@ def apply_orders(state: WorldState, actions: jax.Array, cfg: Config,
     is_harv = (act >= a_harvest(0, cfg)) & (act < a_harvest(cfg.n_nodes, cfg))
     is_tw = act == a_train_worker(cfg)
     is_ti = act == a_train_infantry(cfg)
+    is_ghq = act == a_garrison_hq(cfg)
+    is_gnode = ((act >= a_garrison_node(0, cfg))
+                & (act < a_garrison_node(cfg.n_nodes, cfg)))
+    gar_k = jnp.clip(act - a_garrison_node(0, cfg), 0, cfg.n_nodes - 1)
     # 训狗不在此扣费:同 tick 多座兵营可同时下单,走 paid_orders_pass 对账
 
     build_k = jnp.where(is_build, act - a_build(0), -1).astype(jnp.int8)
@@ -312,6 +334,13 @@ def apply_orders(state: WorldState, actions: jax.Array, cfg: Config,
     order = jnp.where(is_move, ORDER_MOVE, order)
     order = jnp.where(is_build, ORDER_BUILD, order)
     order = jnp.where(is_harv, ORDER_HARVEST, order)
+    order = jnp.where(is_ghq | is_gnode, ORDER_GARRISON, order)
+
+    # 驻守锚点 id(v1.3):A_STOP 顺手清残值;其余改派指令留残值无害——
+    # garrison_id 的一切消费方都门控在 order==ORDER_GARRISON 上
+    garrison_id = jnp.where(is_stop, -1, state.garrison_id)
+    garrison_id = jnp.where(is_ghq, 0, garrison_id)
+    garrison_id = jnp.where(is_gnode, gar_k + 1, garrison_id).astype(jnp.int8)
 
     target_node = jnp.where(is_build, build_k, state.target_node)
     target_node = jnp.where(is_harv, harv_k, target_node)
@@ -320,6 +349,11 @@ def apply_orders(state: WorldState, actions: jax.Array, cfg: Config,
     target_cell = jnp.where(is_att[:, None], enemy_hq, state.target_cell)
     target_cell = jnp.where(is_move[:, None],
                             state.pos + _DIRS[mdir].astype(jnp.float32), target_cell)
+    # 驻守锚点格(v1.3):HQ 位置 / node_pos[k];回岗距离一律对 target_cell 判
+    own_hq = jnp.asarray(mapdata.hq_pos, jnp.float32)[owner.astype(jnp.int32)]
+    node_pos_f = jnp.asarray(mapdata.node_pos, jnp.float32)
+    target_cell = jnp.where(is_ghq[:, None], own_hq, target_cell)
+    target_cell = jnp.where(is_gnode[:, None], node_pos_f[gar_k], target_cell)
 
     # 换指令时相位复位;带着货被改派采集 → 先回家卸货再进循环
     # (「满载」按该工人当前线级的载荷判;历史低级载荷也 >0 即回家,用 >0 更稳)
@@ -341,6 +375,7 @@ def apply_orders(state: WorldState, actions: jax.Array, cfg: Config,
         phase=phase,
         target_node=target_node,
         target_cell=target_cell,
+        garrison_id=garrison_id,
         btype=btype,
         btimer=btimer,
         resources=state.resources - pay,

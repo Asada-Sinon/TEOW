@@ -24,7 +24,14 @@ from .config import (
     TYPE_WORKER,
     Config,
 )
-from .state import ORDER_BUILD, ORDER_HARVEST, ORDER_IDLE, PH_TO_NODE, WorldState
+from .state import (
+    ORDER_BUILD,
+    ORDER_GARRISON,
+    ORDER_HARVEST,
+    ORDER_IDLE,
+    PH_TO_NODE,
+    WorldState,
+)
 
 
 def combat_tick(state: WorldState, cfg: Config, owner: jax.Array) -> WorldState:
@@ -108,6 +115,15 @@ def cleanup_deaths(state: WorldState, cfg: Config, owner: jax.Array) -> WorldSta
     inv = harv & tgt_bad & ~inside
     order = jnp.where(inv, ORDER_IDLE, order)
 
+    # 驻守目标失效(v1.3):目标 node 被拆/易主 → 转 IDLE、清 garrison_id
+    # (HQ 目标无失效分支:HQ 亡即终局;gid 门控在 order==GARRISON 上)
+    gk = jnp.clip(st.garrison_id.astype(jnp.int32) - 1, 0, cfg.n_nodes - 1)
+    gar_node = (alive2 & (order == ORDER_GARRISON) & (st.garrison_id >= 1)
+                & (st.garrison_id <= cfg.n_nodes))
+    gar_inv = gar_node & ((node_ent[gk] == -1) | (node_owner[gk] != owner))
+    order = jnp.where(gar_inv, ORDER_IDLE, order)
+    garrison_id = jnp.where(gar_inv, -1, st.garrison_id)
+
     # 建造目标失效 → 转 IDLE:目标点已被人占/在施工,且施工者不是自己。
     # 不清理会产生「僵尸建造工」:带着永不完成的 BUILD 指令永久站在矿入口
     # 当路障,堵死采集循环(实测导致矿石收入归零)。
@@ -133,6 +149,7 @@ def cleanup_deaths(state: WorldState, cfg: Config, owner: jax.Array) -> WorldSta
         # level 必须停泊回 1:槽位复用时新实体不得继承前任建筑的等级
         level=jnp.where(park, 1, st.level).astype(jnp.int8),
         target_node=jnp.where(park, -1, st.target_node).astype(jnp.int8),
+        garrison_id=jnp.where(park, -1, garrison_id).astype(jnp.int8),
         node_id=jnp.where(park, -1, st.node_id).astype(jnp.int8),
         node_owner=node_owner,
         node_ent=node_ent,

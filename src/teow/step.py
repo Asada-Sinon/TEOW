@@ -12,6 +12,10 @@ tick 结算顺序(设计依据见 docs/plans/ 下两份调研报告与 plan):
   9. _end_tick           冷却/计时/胜负判定
 终局冻结:done 之后再 step 是恒等映射(scan 安全)。
 
+GARRISON 语义(v1.3):驻守单位在 movement 阶段走向锚点(target_cell),入
+garrison_hold_radius 圈即站住,被互推挤出圈下 tick 自动回岗;永不自转 IDLE,
+只在 cleanup_deaths 里因目标 node 被拆/易主而清除(战斗照常,驻守不影响互砍)。
+
 随机性:step(state, actions, key)——key 只用于两处仲裁(抢格优先级、抢点先手),
 每 tick split,决定论 = f(init_state, 指令序列, key 序列)。
 """

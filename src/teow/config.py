@@ -68,6 +68,7 @@ class Config:
                             0.0, 0.0, 0.0, 0.0, 0.0, 0.0)
     unit_radius: float = 0.35   # 单位圆半径(<0.5,圆不出格,建筑推离用格判定)
     reach_radius: float = 1.2   # 入驻/卸货/开工的欧氏到达半径(≈旧 4 邻)
+    garrison_hold_radius: float = 1.2  # 驻守(v1.3):离锚点超此距离才回岗移动
     melee_range: float = 1.5    # 近战射程(≈旧 Chebyshev≤1,含对角)
     stationary_cost: int = 24   # 动态场里静止单位所在格的软障碍附加代价
     #                             (v1.0 的硬障碍软化:连续单位可贴身挤过)
