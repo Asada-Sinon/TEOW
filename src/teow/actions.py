@@ -172,9 +172,10 @@ def apply_orders(state: WorldState, actions: jax.Array, cfg: Config,
     target_cell = jnp.where(is_move[:, None], state.pos + _DIRS[mdir], target_cell)
 
     # 换指令时相位复位;带着货被改派采集 → 先回家卸货再进循环
+    # (「满载」按该工人当前线级的载荷判;历史低级载荷也 >0 即回家,用 >0 更稳)
     new_cmd = is_stop | is_att | is_move | is_build | is_harv
     phase = jnp.where(new_cmd, PH_TO_NODE, state.phase).astype(jnp.int8)
-    phase = jnp.where(is_harv & (state.cargo >= cfg.carry_cap), PH_TO_HQ, phase)
+    phase = jnp.where(is_harv & (state.cargo > 0), PH_TO_HQ, phase)
 
     # 训练扣费 + 开工
     ucost = unit_costs(cfg)

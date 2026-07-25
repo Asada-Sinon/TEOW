@@ -16,7 +16,7 @@ def spawn_inf(st, cfg, player, slot_off, rc, hp=None):
         alive=st.alive.at[s].set(True),
         etype=st.etype.at[s].set(TYPE_INFANTRY),
         pos=st.pos.at[s].set(jnp.asarray(rc, jnp.int32)),
-        hp=st.hp.at[s].set(cfg.infantry_hp if hp is None else hp),
+        hp=st.hp.at[s].set(cfg.inf_hp_by_level[1] if hp is None else hp),
     )
 
 
@@ -32,12 +32,12 @@ def test_adjacent_mutual_damage_and_mutual_kill():
     key = jax.random.PRNGKey(0)
     st1 = step_fn(st, jnp.full(cfg.n_total, A_NOOP, jnp.int32), key)
     # 同时结算:双方同损
-    assert int(st1.hp[sa]) == cfg.infantry_hp - cfg.infantry_atk
-    assert int(st1.hp[sb]) == cfg.infantry_hp - cfg.infantry_atk
+    assert int(st1.hp[sa]) == cfg.inf_hp_by_level[1] - cfg.inf_atk_by_level[1]
+    assert int(st1.hp[sb]) == cfg.inf_hp_by_level[1] - cfg.inf_atk_by_level[1]
 
     # 血量恰好一击互杀 → 允许同归于尽
-    st = spawn_inf(state, cfg, 0, 10, a_rc, hp=cfg.infantry_atk)
-    st = spawn_inf(st, cfg, 1, 10, b_rc, hp=cfg.infantry_atk)
+    st = spawn_inf(state, cfg, 0, 10, a_rc, hp=cfg.inf_atk_by_level[1])
+    st = spawn_inf(st, cfg, 1, 10, b_rc, hp=cfg.inf_atk_by_level[1])
     st1 = step_fn(st, jnp.full(cfg.n_total, A_NOOP, jnp.int32), key)
     assert not bool(st1.alive[sa]) and not bool(st1.alive[sb])
 

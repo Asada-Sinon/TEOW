@@ -51,6 +51,9 @@ class WorldState(NamedTuple):
     btype: jax.Array        # int8  [N]  生产建筑当前在造的单位类型;0 无
     btimer: jax.Array       # int16 [N]  生产剩余 tick
     node_id: jax.Array      # int8  [N]  矿/泵实体所在资源点 id;-1 非采集建筑
+    level: jax.Array        # int8  [N]  建筑等级(HQ 的 level 即基地等级;矿/泵/营
+    #                                     用它;单位不用——单位强度走 upgrades 线)。
+    #                                     矿被拆重建回 1 级(实体随槽重生)。
     # ---- 资源点表 [Nn] ----
     node_owner: jax.Array        # int8  [Nn] -1 无主
     node_ent: jax.Array          # int16 [Nn] 结构实体槽号;-1 未建
@@ -58,6 +61,8 @@ class WorldState(NamedTuple):
     node_builder: jax.Array      # int16 [Nn] 施工工人槽号;-1 无
     # ---- 全局 ----
     resources: jax.Array    # int32 [2,2]  [player][RES_ORE/RES_WATER]
+    upgrades: jax.Array     # int8  [2,2]  [player][LINE_INFANTRY/LINE_WORKER],初始 1;
+    #                                       全局生效(存量+未来单位),营被拆仍保留
     tick: jax.Array         # int32 标量
     done: jax.Array         # bool 标量
     winner: jax.Array       # int8 标量  -1 未分;0/1 胜者;2 和局
@@ -94,7 +99,7 @@ def init_state(cfg: Config, mapdata: MapData) -> WorldState:
             alive[s] = True
             etype[s] = TYPE_WORKER
             pos[s] = mapdata.spawn_pos[p, i]
-            hp[s] = cfg.worker_hp
+            hp[s] = cfg.worker_hp_by_level[1]
 
     return WorldState(
         alive=jnp.asarray(alive),
@@ -113,12 +118,14 @@ def init_state(cfg: Config, mapdata: MapData) -> WorldState:
         btype=jnp.zeros(n, jnp.int8),
         btimer=jnp.zeros(n, jnp.int16),
         node_id=jnp.full(n, -1, jnp.int8),
+        level=jnp.ones(n, jnp.int8),
         node_owner=jnp.full(nn, -1, jnp.int8),
         node_ent=jnp.full(nn, -1, jnp.int16),
         node_build_timer=jnp.zeros(nn, jnp.int16),
         node_builder=jnp.full(nn, -1, jnp.int16),
         resources=jnp.asarray(
             [[cfg.start_ore, cfg.start_water]] * 2, jnp.int32),
+        upgrades=jnp.ones((2, 2), jnp.int8),
         tick=jnp.asarray(0, jnp.int32),
         done=jnp.asarray(False),
         winner=jnp.asarray(-1, jnp.int8),

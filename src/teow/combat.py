@@ -12,6 +12,8 @@ import jax
 import jax.numpy as jnp
 
 from .config import (
+    LINE_INFANTRY,
+    TYPE_CAMP,
     TYPE_HQ,
     TYPE_INFANTRY,
     TYPE_MINE,
@@ -35,13 +37,16 @@ def combat_tick(state: WorldState, cfg: Config, owner: jax.Array) -> WorldState:
     valid = (attacker[:, None] & targetable[None, :]
              & (owner[:, None] != owner[None, :]) & (cheb <= 1))
     is_building = ((st.etype == TYPE_HQ) | (st.etype == TYPE_MINE)
-                   | (st.etype == TYPE_PUMP))
+                   | (st.etype == TYPE_PUMP) | (st.etype == TYPE_CAMP))
     score = cheb.astype(jnp.int32) + 10 * is_building[None, :].astype(jnp.int32)
     score = jnp.where(valid, score, _BIG)
     tgt = jnp.argmin(score, axis=1)
     has_tgt = jnp.any(valid, axis=1)               # 门控:全无效时 argmin 返 0
 
-    atk = jnp.where(st.etype == TYPE_INFANTRY, cfg.infantry_atk, cfg.worker_atk)
+    # 步兵攻击按其玩家的步兵线等级查表(v1.1 全局线);工人攻击无升级线,恒标量
+    il = st.upgrades[owner.astype(jnp.int32), LINE_INFANTRY]
+    inf_atk = jnp.asarray(cfg.inf_atk_by_level)[il]
+    atk = jnp.where(st.etype == TYPE_INFANTRY, inf_atk, cfg.worker_atk)
     dmg = jnp.where(has_tgt & attacker, atk, 0).astype(jnp.int32)
     incoming = jnp.zeros(cfg.n_total, jnp.int32).at[tgt].add(dmg)
     hp = jnp.maximum(st.hp - incoming, 0)
@@ -111,6 +116,8 @@ def cleanup_deaths(state: WorldState, cfg: Config, owner: jax.Array) -> WorldSta
         btype=jnp.where(park, 0, st.btype).astype(jnp.int8),
         btimer=jnp.where(park, 0, st.btimer).astype(jnp.int16),
         cooldown=jnp.where(park, 0, st.cooldown).astype(jnp.int8),
+        # level 必须停泊回 1:槽位复用时新实体不得继承前任建筑的等级
+        level=jnp.where(park, 1, st.level).astype(jnp.int8),
         target_node=jnp.where(park, -1, st.target_node).astype(jnp.int8),
         node_id=jnp.where(park, -1, st.node_id).astype(jnp.int8),
         node_owner=node_owner,

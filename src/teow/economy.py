@@ -15,7 +15,15 @@ from __future__ import annotations
 import jax
 import jax.numpy as jnp
 
-from .config import RES_WATER, TYPE_MINE, TYPE_PUMP, TYPE_WORKER, Config
+from .config import (
+    LINE_INFANTRY,
+    LINE_WORKER,
+    RES_WATER,
+    TYPE_MINE,
+    TYPE_PUMP,
+    TYPE_WORKER,
+    Config,
+)
 from .map import MapData
 from .state import (
     ORDER_BUILD,
@@ -48,10 +56,11 @@ def inside_counts(state: WorldState, cfg: Config) -> jax.Array:
             .at[tn].add((state.inside).astype(jnp.int32)))
 
 
-def _unit_stats(cfg: Config, ut: jax.Array) -> tuple[jax.Array, jax.Array]:
-    """(hp,) 按单位类型;v1.0 只有工人/步兵两种可训练单位。"""
-    hp = jnp.where(ut == TYPE_WORKER, cfg.worker_hp, cfg.infantry_hp)
-    return hp, ut
+def _unit_spawn_hp(cfg: Config, ut: jax.Array, upgrades_p: jax.Array) -> jax.Array:
+    """新单位出生血量:按其所属玩家的升级线等级查表(v1.1 起,全局线生效)。"""
+    whp = jnp.asarray(cfg.worker_hp_by_level)[upgrades_p[LINE_WORKER]]
+    ihp = jnp.asarray(cfg.inf_hp_by_level)[upgrades_p[LINE_INFANTRY]]
+    return jnp.where(ut == TYPE_WORKER, whp, ihp)
 
 
 def production_tick(state: WorldState, cfg: Config, mapdata: MapData) -> WorldState:
@@ -91,7 +100,7 @@ def production_tick(state: WorldState, cfg: Config, mapdata: MapData) -> WorldSt
 
         do = has_p & has_cell & has_slot
         ut = st.btype[pidx]
-        uhp, _ = _unit_stats(cfg, ut)
+        uhp = _unit_spawn_hp(cfg, ut, st.upgrades[p])
         spawn_cell = cc[ci]
 
         st = st._replace(
@@ -231,6 +240,9 @@ def harvest_tick(state: WorldState, cfg: Config, mapdata: MapData,
     want_in = (harv & ~st.inside & (st.phase == PH_TO_NODE) & (d_node == 1)
                & (st.node_owner[tn] == owner) & (st.node_ent[tn] >= 0))
     counts = inside_counts(st, cfg)                        # [Nn]
+    # 开采耗时按各工人所属玩家的工人线等级查表(v1.1)
+    wl = st.upgrades[owner.astype(jnp.int32), LINE_WORKER]           # [N]
+    my_mine_time = jnp.asarray(cfg.worker_mine_time_by_level)[wl]    # [N]
     inside = st.inside
     mine_timer = st.mine_timer
     phase = st.phase
@@ -239,7 +251,7 @@ def harvest_tick(state: WorldState, cfg: Config, mapdata: MapData,
         rank = jnp.cumsum(cand.astype(jnp.int32)) - 1      # 槽号序内的名次
         enter = cand & (counts[k] + rank < cfg.node_capacity)
         inside = inside | enter
-        mine_timer = jnp.where(enter, cfg.mine_time, mine_timer)
+        mine_timer = jnp.where(enter, my_mine_time, mine_timer)
         phase = jnp.where(enter, PH_MINING, phase)
     st = st._replace(inside=inside, mine_timer=mine_timer.astype(jnp.int16),
                      phase=phase.astype(jnp.int8))
@@ -253,9 +265,14 @@ def harvest_tick(state: WorldState, cfg: Config, mapdata: MapData,
     # 进不去)。叠格后占用图按「格上有人」算,叠格者的后续移动会自然散开
     # (与矿被拆时的弹出同一约定,见 docs/DECISIONS.md)。----
     win = st.inside & (st.mine_timer == 0) & (st.phase == PH_MINING)
+    # 一趟入账公式(plan/critic S-2 定案):carry[工人线级] + yield_bonus[矿泵级]
+    my_carry = jnp.asarray(cfg.worker_carry_by_level)[wl]            # [N]
+    ent_idx = jnp.clip(st.node_ent[tn].astype(jnp.int32), 0, cfg.n_total - 1)
+    node_lv = jnp.where(st.node_ent[tn] >= 0, st.level[ent_idx], 1)  # [N]
+    trip = my_carry + jnp.asarray(cfg.node_yield_bonus)[node_lv]
     st = st._replace(
         inside=jnp.where(win, False, st.inside),
-        cargo=jnp.where(win, cfg.carry_cap, st.cargo).astype(jnp.int16),
+        cargo=jnp.where(win, trip, st.cargo).astype(jnp.int16),
         cargo_type=jnp.where(win, node_type[tn], st.cargo_type).astype(jnp.int8),
         phase=jnp.where(win, PH_TO_HQ, st.phase).astype(jnp.int8),
     )

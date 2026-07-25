@@ -11,17 +11,29 @@ from __future__ import annotations
 
 import dataclasses
 
-# 实体类型编码(state.etype)。v1.1+ 的新类型(兵营/哨塔/狗子)往后追加,不重排。
+# 实体类型编码(state.etype)。v1.2+ 的新类型(兵营/哨塔/狗子)往后追加,不重排。
 TYPE_EMPTY = 0
 TYPE_HQ = 1
 TYPE_MINE = 2  # 建在矿点上的采集建筑
 TYPE_PUMP = 3  # 建在水点上的采集建筑
 TYPE_WORKER = 4
 TYPE_INFANTRY = 5
+TYPE_CAMP = 6  # 技能训练营(v1.1;基地2级解锁,建成即2级)
 
 # 资源类型编码(state.resources 的第二维;与资源点 node_type 一致)
 RES_ORE = 0
 RES_WATER = 1
+
+# 升级线编码(state.upgrades 的第二维)
+LINE_INFANTRY = 0  # 步兵捆绑线:每级血+攻一起升
+LINE_WORKER = 1    # 工人经济线:载荷/开采速度/血量,无攻击
+
+# btype 任务码:正数=在训单位类型(v1.0 语义);负数=特殊任务。
+# 解码必须集中在 economy 单处;完成分支必须 btype←0(否则下 tick 重复触发)。
+BTASK_UPGRADE = -1        # 建筑自升级(HQ/矿/泵/营)
+BTASK_RESEARCH_INF = -2   # 训练营:研发步兵线
+BTASK_RESEARCH_WORKER = -3  # 训练营:研发工人线
+BTASK_BUILD_CAMP = -4     # 在建训练营的专属标记(建成前 hp 由 btimer 反推成长)
 
 
 @dataclasses.dataclass(frozen=True)
@@ -39,8 +51,8 @@ class Config:
     node_capacity: int = 4   # 每个矿/泵同时进驻的工人上限
 
     # ---- 采集一体循环 ----
-    mine_time: int = 20      # 工人在矿内开采一趟所需 tick
-    carry_cap: int = 10      # 一趟载荷(卸货时全额入账)
+    # 开采耗时/载荷已并入工人经济线的 *_by_level 表(v1.1);一趟入账公式
+    # (critic S-2 定案): carry_cap[工人线级] + node_yield_bonus[矿泵级]。
     move_cooldown: int = 2   # 每移动一格的冷却 tick(所有单位同速,v1.2 狗子再分化)
     congestion_cost: int = 8 # 动态场里「穿过移动单位所在格」的附加代价:让对向
     #                          工人流互相绕道、各走一条道。0 会复现对头死锁
@@ -66,12 +78,53 @@ class Config:
     pump_time_build: int = 60
 
     # ---- 血量与攻击(伤害/tick,近战 Chebyshev<=1)----
-    worker_hp: int = 20
-    worker_atk: int = 1
-    infantry_hp: int = 40
-    infantry_atk: int = 4
+    # 单位属性走升级线查表(v1.1);建筑血量 v1.1 仍为平值(升级只提产量/解锁,
+    # 不加建筑血,记 changelog 已知取舍)
+    worker_atk: int = 1        # 工人攻击无升级线(纯经济线),保持标量
     hq_hp: int = 400
     node_struct_hp: int = 100  # 矿与泵共用
+
+    # ---- 等级体系(v1.1)----
+    # 约定:所有 *_by_level 表长 8,直接用等级 1..7 下标(0 位是废位填 0);
+    # 升级/研发的 cost/time 表按「当前等级」取(花费=从 L 升到 L+1),
+    # 有效位 1..6(营 2..6),表长同 8。数值初值均 [AI-DRAFT],依据见 DECISIONS。
+    base_max_level: int = 7
+    camp_unlock_level: int = 2   # 基地几级解锁训练营(解锁表第一项;v1.2 兵营/哨塔沿用此模式)
+
+    # 基地升级(收益=解锁+矿泵/营等级上限,零单位加成——issue v1.1 设计决策)
+    base_up_cost_ore: tuple = (0, 100, 150, 250, 400, 600, 900, 0)
+    base_up_cost_water: tuple = (0, 50, 100, 150, 250, 400, 600, 0)
+    base_up_time: tuple = (0, 150, 200, 250, 300, 350, 400, 0)
+
+    # 矿/泵升级(产量走 node_yield_bonus;等级上限=基地等级)
+    node_up_cost_ore: tuple = (0, 30, 50, 80, 120, 180, 250, 0)
+    node_up_cost_water: tuple = (0, 20, 30, 50, 80, 120, 180, 0)
+    node_up_time: tuple = (0, 80, 100, 120, 140, 160, 180, 0)
+    node_yield_bonus: tuple = (0, 0, 2, 4, 6, 9, 12, 15)  # 一趟入账的加成,按矿泵等级
+
+    # 技能训练营(建成即 2 级;等级上限=基地等级;被拆研发中断不退款、已购保留)
+    camp_cost_ore: int = 60
+    camp_cost_water: int = 40
+    camp_build_time: int = 100
+    camp_hp_by_level: tuple = (0, 0, 150, 180, 210, 240, 270, 300)
+    camp_up_cost_ore: tuple = (0, 0, 80, 120, 180, 260, 360, 0)
+    camp_up_cost_water: tuple = (0, 0, 50, 80, 120, 180, 260, 0)
+    camp_up_time: tuple = (0, 0, 100, 120, 140, 160, 180, 0)
+
+    # 步兵捆绑线(每级血+攻同升;线等级上限=营等级)
+    inf_hp_by_level: tuple = (0, 40, 48, 56, 66, 78, 92, 108)
+    inf_atk_by_level: tuple = (0, 4, 5, 6, 7, 8, 10, 12)
+    inf_res_cost_ore: tuple = (0, 60, 90, 140, 210, 300, 420, 0)
+    inf_res_cost_water: tuple = (0, 40, 60, 90, 140, 200, 280, 0)
+    inf_res_time: tuple = (0, 120, 150, 180, 210, 240, 270, 0)
+
+    # 工人经济线(载荷/开采速度/血量,无攻击;线等级上限=营等级)
+    worker_carry_by_level: tuple = (0, 10, 12, 14, 17, 20, 24, 28)
+    worker_mine_time_by_level: tuple = (0, 20, 18, 16, 14, 12, 10, 9)
+    worker_hp_by_level: tuple = (0, 20, 24, 28, 33, 38, 44, 50)
+    worker_res_cost_ore: tuple = (0, 50, 80, 120, 180, 260, 360, 0)
+    worker_res_cost_water: tuple = (0, 30, 50, 80, 120, 180, 260, 0)
+    worker_res_time: tuple = (0, 100, 130, 160, 190, 220, 250, 0)
 
     # ---- 脚本 AI(controller.scripted;不属于引擎规则,放这里是为了同一份
     #      resolved config 能完整复现一场对局)----

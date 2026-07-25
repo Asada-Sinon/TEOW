@@ -47,7 +47,7 @@ def test_train_worker_cost_and_timing():
     assert int(jnp.sum(st.alive)) == n_alive0 + 1
     new_slot = hq + 1 + cfg.start_workers
     assert int(st.etype[new_slot]) == TYPE_WORKER
-    assert int(st.hp[new_slot]) == cfg.worker_hp
+    assert int(st.hp[new_slot]) == cfg.worker_hp_by_level[1]
 
 
 def test_build_mine_then_harvest_cycle():
@@ -69,9 +69,9 @@ def test_build_mine_then_harvest_cycle():
     st2 = drive(st, step_fn, {0: [(W0, a_harvest(node, cfg))]}, 400, seed=1)
     gained = int(st2.resources[0, RES_ORE]) - ore_before
     assert gained > 0, "采集循环没有产出"
-    assert gained % cfg.carry_cap == 0, "入账必须是整载荷(卸货点入账)"
+    assert gained % cfg.worker_carry_by_level[1] == 0, "入账必须是整载荷(卸货点入账)"
     # 循环应当多次往返
-    assert gained >= 2 * cfg.carry_cap
+    assert gained >= 2 * cfg.worker_carry_by_level[1]
 
 
 def test_node_capacity_enforced():
