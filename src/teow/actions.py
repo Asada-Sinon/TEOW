@@ -4,7 +4,7 @@
 乱给)。动作只是「改写常驻指令」——真正的行动(移动/开采/生产)由 step 各阶段按
 常驻指令推进,所以 no-op ≠ 发呆。
 
-动作表(n_actions = 9 + 2*Nn;Nn=6 时共 21):
+动作表(n_actions = 16 + 2*Nn;Nn=8 时共 32,完整 id 布局见各 a_*() 定义):
   0                 NOOP     维持现状
   1                 STOP     清除常驻指令(矿内工人不可用,先等它出来)
   2                 ATTACK   attack-move 向敌方 HQ(仅步兵)
@@ -149,7 +149,7 @@ def legality_mask(state: WorldState, cfg: Config, mapdata: MapData,
         ok = ok & passable[nc[:, 0], nc[:, 1]]
         mask = mask.at[:, A_MOVE0 + d].set(actable & (is_worker | is_inf) & ok)
 
-    # 建造/采集:逐点([Nn,N] 小矩阵,Nn=6)
+    # 建造/采集:逐点([Nn,N] 小矩阵,Nn=8)
     ncost = node_costs(cfg, mapdata)                      # [Nn,2]
     stock = state.resources[owner.astype(jnp.int32)]      # [N,2] 各实体所属玩家的库存
     for k in range(nn):

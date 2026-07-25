@@ -91,7 +91,18 @@ def scripted_actions(state: WorldState, cfg: Config, mapdata: MapData,
     # 加可负担门控后,付不起时该工人自然滑入采集分支,收入恢复即可再派)
     from .actions import node_costs
     ncost = node_costs(cfg, mapdata)                       # [Nn,2]
-    afford_node = jnp.all(st.resources[player][None, :] >= ncost, axis=-1)  # [Nn]
+    # 扩张分层预算(v1.3 双角 8 点地图):每类资源的**第一个**点是生存必需,
+    # 裸成本就抢(预备金门控会掐死首座水泵→水收入归零,v1.1 活锁翻版);
+    # 该类已有点后的**额外扩张**才要求留 ai_upgrade_reserve,否则扩张支出
+    # 会把研发/升级永远挤在可负担线以下(实测全场 0 研发)
+    from .config import RES_ORE
+    ntype = jnp.asarray(mapdata.node_type)                 # [Nn]
+    owned_t = st.node_owner == player
+    have_same = jnp.where(ntype == RES_ORE,
+                          jnp.any(owned_t & (ntype == RES_ORE)),
+                          jnp.any(owned_t & (ntype != RES_ORE)))  # [Nn]
+    need = ncost + jnp.where(have_same, cfg.ai_upgrade_reserve, 0)[:, None]
+    afford_node = jnp.all(st.resources[player][None, :] >= need, axis=-1)  # [Nn]
     claimable = claimable & afford_node
     bd = jnp.where(claimable[:, None], node_d, BIG_DIST)
     build_k = jnp.argmin(bd, axis=0)
@@ -128,6 +139,28 @@ def scripted_actions(state: WorldState, cfg: Config, mapdata: MapData,
     camp_act = jnp.where(
         line_lv[low_line] < st.level.astype(jnp.int32), a_research(0, cfg) + low_line,
         a_upgrade(cfg))                                    # [N](逐营取自身 level 比较)
+
+    # ---- 科技优先预留(v1.3):研发在排队(有营且低线未及营级)时,练兵先给
+    # 研发留出该线的实际研发成本——否则练兵扣费(apply_orders)每 tick 都排在
+    # 研发对账(paid_orders_pass)之前,水永远差一口,8 点地图实测全场 0 研发 ----
+    from .config import TYPE_CAMP as _TC
+    camp_lv_max = jnp.max(jnp.where(mine & (st.etype == _TC),
+                                    st.level.astype(jnp.int32), 0))
+    research_pending = (line_lv[low_line] < camp_lv_max)
+    lc = jnp.clip(line_lv[low_line].astype(jnp.int32), 0, 7)
+    res_cost = jnp.where(
+        low_line == 0,
+        jnp.asarray([jnp.asarray(cfg.inf_res_cost_ore)[lc],
+                     jnp.asarray(cfg.inf_res_cost_water)[lc]]),
+        jnp.asarray([jnp.asarray(cfg.worker_res_cost_ore)[lc],
+                     jnp.asarray(cfg.worker_res_cost_water)[lc]]))
+    spare = st.resources[player] - jnp.where(research_pending, res_cost, 0)
+    inf_ok = jnp.all(spare >= jnp.asarray(
+        [cfg.infantry_cost_ore, cfg.infantry_cost_water]))
+    dog_ok = jnp.all(spare >= jnp.asarray(
+        [cfg.dog_cost_ore, cfg.dog_cost_water]))
+    hq_act = jnp.where((hq_act == a_train_infantry(cfg)) & ~inf_ok,
+                       A_NOOP, hq_act)
 
     # ---- 建营:基地达标且没有己方营(含在建)时,征调一个工人就地起营
     # (同一征调池;若与扩张建造者撞同一人,建营优先——它在 act 覆盖链更后)----
@@ -181,7 +214,8 @@ def scripted_actions(state: WorldState, cfg: Config, mapdata: MapData,
     act = jnp.where(is_camp_builder, a_build_camp(cfg), act)
     act = jnp.where(is_bar_builder, a_build_barracks(cfg), act)
     act = jnp.where(is_tw_builder, a_build_tower(cfg), act)
-    act = jnp.where(mine & (st.etype == TYPE_BARRACKS), a_train_dog(cfg), act)
+    act = jnp.where(mine & (st.etype == TYPE_BARRACKS) & dog_ok,
+                    a_train_dog(cfg), act)
     act = jnp.where(mine & (st.etype == TYPE_CAMP), camp_act, act)
     act = jnp.where(mine & is_node_b, node_act, act)
     act = jnp.where(mine & is_army, inf_act, act)

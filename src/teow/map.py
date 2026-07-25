@@ -8,9 +8,9 @@
 单位每 tick 对 4 邻 + 原地做 masked argmin 下降,即经典 flow-field 寻路,
 对静态障碍是精确最短路,被挡时自动绕行。裸贪心会在凹障碍卡死工人,不用。
 
-对称性:地图在 180° 旋转(r,c)->(H-1-r,W-1-c) 下「位置对称、资源类型互换」
-(公共矿点旋转后落在公共水点上)。两种资源需求量同阶,视为公平;若日后要严格
-镜像,把公共点改成同类型对点即可(记录于 issue.md v1.0 已知取舍)。
+对称性:地图在 180° 旋转(r,c)->(H-1-r,W-1-c) 下 (位置,类型) 集合自映射——
+近家点与双角公共点的旋转像类型均保持不变,严格镜像公平(v1.3 起公共点为
+左下 1矿1水 + 右上其旋转像;v1.0-v1.2「中央公共点旋转换类型」的取舍已退役)。
 """
 
 from __future__ import annotations
@@ -70,7 +70,7 @@ def build_map(cfg: Config) -> MapData:
 
     - HQ0 (3,3),HQ1 = 旋转像 (H-4,W-4)。
     - 每家附近 1 矿 1 水(距 HQ 约 5-6 格,「靠近但不贴脸」,留出防守纵深);
-    - 公共点 1 矿 1 水在中央,互为旋转像,构成抢点博弈。
+    - 公共点左下 1 矿 1 水,右上为其旋转像(类型不变),构成抢点/扩张博弈(v1.3)。
     布局按 24×24 标定;其他尺寸按比例缩放并 clip 到界内。
     """
     h, w = cfg.grid_h, cfg.grid_w
@@ -85,16 +85,19 @@ def build_map(cfg: Config) -> MapData:
     hq0 = scale((3, 3))
     hq1 = _rot(hq0, h, w)
 
-    # 玩家 0 的近家点 + 公共点;玩家 1 侧全部取旋转像(类型不变——近家点保证
-    # 两家各有 1矿1水;公共点旋转像刻意换类型,见文件头「对称性」说明)
+    # 玩家 0 的近家点 + 左下公共对;玩家 1 侧/右上取旋转像(类型一律不变,
+    # (位置,类型) 集合在 180° 旋转下自映射,严格公平——见文件头「对称性」)
     ore0 = scale((2, 8))
     water0 = scale((8, 2))
-    pub_ore = scale((11, 12))
+    publ_ore = scale((17, 4))    # 左下公共矿(v1.3 双角布局,初值可调)
+    publ_water = scale((20, 7))  # 左下公共水
     node_pos_list = [ore0, water0, _rot(ore0, h, w), _rot(water0, h, w),
-                     pub_ore, _rot(pub_ore, h, w)]
-    node_type_list = [RES_ORE, RES_WATER, RES_ORE, RES_WATER, RES_ORE, RES_WATER]
+                     publ_ore, publ_water,
+                     _rot(publ_ore, h, w), _rot(publ_water, h, w)]
+    node_type_list = [RES_ORE, RES_WATER, RES_ORE, RES_WATER,
+                      RES_ORE, RES_WATER, RES_ORE, RES_WATER]
     if cfg.n_nodes != len(node_pos_list):
-        raise ValueError(f"v1.0 布局固定 6 个资源点,cfg.n_nodes={cfg.n_nodes} 不支持")
+        raise ValueError(f"v1.3 布局固定 8 个资源点,cfg.n_nodes={cfg.n_nodes} 不支持")
 
     node_pos = np.asarray(node_pos_list, dtype=np.int32)
     node_type = np.asarray(node_type_list, dtype=np.int32)

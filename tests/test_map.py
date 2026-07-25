@@ -16,9 +16,9 @@ def test_shapes_and_types():
     assert m.passable.shape == (cfg.grid_h, cfg.grid_w)
     assert m.node_pos.shape == (cfg.n_nodes, 2)
     assert m.dist_fields.shape == (cfg.n_goals, cfg.grid_h, cfg.grid_w)
-    # 每家附近 1矿1水 + 公共 1矿1水
+    # 每家附近 1矿1水 + 左下/右上公共各 1矿1水(v1.3 双角布局)
     assert list(m.node_type) == [RES_ORE, RES_WATER, RES_ORE, RES_WATER,
-                                 RES_ORE, RES_WATER]
+                                 RES_ORE, RES_WATER, RES_ORE, RES_WATER]
 
 
 def test_rotational_symmetry():
@@ -29,8 +29,11 @@ def test_rotational_symmetry():
     # 玩家 1 的近家点是玩家 0 近家点的旋转像(类型一致)
     assert tuple(m.node_pos[2]) == rot(tuple(m.node_pos[0]), h, w)
     assert tuple(m.node_pos[3]) == rot(tuple(m.node_pos[1]), h, w)
-    # 公共点互为旋转像
-    assert tuple(m.node_pos[5]) == rot(tuple(m.node_pos[4]), h, w)
+    # 公共点:右上(6,7)是左下(4,5)的旋转像,类型不变(严格镜像)
+    assert tuple(m.node_pos[6]) == rot(tuple(m.node_pos[4]), h, w)
+    assert tuple(m.node_pos[7]) == rot(tuple(m.node_pos[5]), h, w)
+    assert m.node_type[6] == m.node_type[4]
+    assert m.node_type[7] == m.node_type[5]
     # 出生位旋转对称
     for a, b in zip(m.spawn_pos[0], m.spawn_pos[1], strict=True):
         assert tuple(b) == rot(tuple(a), h, w)

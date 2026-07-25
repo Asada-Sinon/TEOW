@@ -293,4 +293,11 @@
 
 ## 发现但未做
 
-(实现阶段往这里追加,本阶段留空)
+- **Phase 1 例外扩界(已做,非未做,记档供 validate 对账)**:8 点地图让
+  `test_scripted_upgrades` 行为回归挂掉(全场 0 研发),依 /impl 例外条款
+  (不改无法完成本 phase)动了 `src/teow/controller.py` 三处 scripted 决策:
+  ①扩张分层预算(每类资源首点裸成本、额外扩张须留 ai_upgrade_reserve);
+  ②科技优先预留(研发排队时练兵先扣除低线研发成本再判可负担);
+  ③训狗同吃该预留门控。Phase 5 改 controller 时须复核这三处与新分支的相容性。
+- `controller.py:87` 的 harvestable 软门控仍引用 `cfg.node_capacity`,
+  Phase 2 删该字段时必改(plan Phase 2 已列,这里再钉一次防漏)。
