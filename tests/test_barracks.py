@@ -74,11 +74,11 @@ def test_hq_and_barracks_complete_same_tick_no_overwrite():
     assert int(st.btype[hq]) == 0 and int(st.btype[bar]) == 0
 
 
-def test_infantry_line_research_bumps_existing_dogs():
-    """audit v1.2 P0-1 回归:步兵线研发完成,存量狗子血量补表差额
-    (攻击是即时查表,血量不补会永久分裂)。"""
-    from teow.actions import a_research
-    from teow.config import LINE_INFANTRY
+def test_dog_line_research_bumps_existing_dogs_only():
+    """v1.4 八线制:狗子独立成线——狗线研发完成,存量狗补表差额;
+    步兵线研发不再惠及狗(v1.2「狗吃步兵线」DECISIONS 已被规格推翻)。"""
+    from teow.actions import a_research_line
+    from teow.config import LINE_DOG, LINE_INFANTRY
     cfg = Config(**RICH)
     state, _, step_fn, m = new_world(cfg)
     st, bar = setup_barracks(cfg, state, step_fn)
@@ -87,8 +87,13 @@ def test_infantry_line_research_bumps_existing_dogs():
     st = drive(st, step_fn, {0: [(bar, a_train_dog(cfg))]}, cfg.dog_time + 1)
     dog = int(jnp.argmax((st.etype == TYPE_DOG) & st.alive))
     assert int(st.hp[dog]) == cfg.dog_hp_by_level[1]
-    # 研步兵线:存量狗血量应补上 2 级-1 级差额
-    st = drive(st, step_fn, {0: [(camp, a_research(LINE_INFANTRY, cfg))]},
-               cfg.inf_res_time[1] + 1)
+    # 研步兵线:狗不受影响
+    st = drive(st, step_fn, {0: [(camp, a_research_line(LINE_INFANTRY, cfg))]},
+               cfg.line_res_time[1] + 1)
     assert int(st.upgrades[0, LINE_INFANTRY]) == 2
+    assert int(st.hp[dog]) == cfg.dog_hp_by_level[1], "步兵线不该惠及狗"
+    # 研狗线:存量狗补 2 级-1 级差额
+    st = drive(st, step_fn, {0: [(camp, a_research_line(LINE_DOG, cfg))]},
+               cfg.line_res_time[1] + 1)
+    assert int(st.upgrades[0, LINE_DOG]) == 2
     assert int(st.hp[dog]) == cfg.dog_hp_by_level[2], "存量狗未补血"

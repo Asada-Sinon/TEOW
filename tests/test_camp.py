@@ -1,13 +1,21 @@
-"""v1.1 技能训练营:建造/成长/研发/上限链/被拆语义。"""
+"""技能训练营:建造/成长/研发(v1.4 八线制)/解锁门/上限链/被拆语义。"""
 
 import jax
 import jax.numpy as jnp
 from test_economy import W0, drive
 
-from teow.actions import A_NOOP, a_build_camp, a_research, a_upgrade, legality_mask
+from teow.actions import (
+    A_NOOP,
+    a_build_barracks,
+    a_build_camp,
+    a_research_line,
+    a_upgrade,
+    legality_mask,
+)
 from teow.config import (
+    LINE_ARCHER,
+    LINE_DOG,
     LINE_INFANTRY,
-    LINE_WORKER,
     TYPE_CAMP,
     TYPE_INFANTRY,
     Config,
@@ -60,34 +68,62 @@ def test_research_applies_globally_and_to_existing_units():
     camp = int(jnp.argmax(st.etype == TYPE_CAMP))
     assert int(st.level[camp]) == 2
 
-    # 研步兵线:完成后线级 2;研发中同线动作非法
-    owner = owner_of_slots(cfg)
-    st1 = drive(st, step_fn, {0: [(camp, a_research(LINE_INFANTRY, cfg))]}, 1)
-    assert int(st1.btype[camp]) < 0
-    legal = legality_mask(st1, cfg, m, owner)
-    assert not bool(legal[camp, a_research(LINE_INFANTRY, cfg)])
-
-    t = cfg.inf_res_time[1]
-    st2 = drive(st, step_fn, {0: [(camp, a_research(LINE_INFANTRY, cfg))]}, t + 1)
-    assert int(st2.upgrades[0, LINE_INFANTRY]) == 2
-    assert int(st2.upgrades[1, LINE_INFANTRY]) == 1  # 对手不受影响
-
-    # 存量工人不受步兵线影响;研工人线后存量工人 hp 补差额
-    whp_before = int(st2.hp[W0])
-    assert whp_before == cfg.worker_hp_by_level[1]
-    t = cfg.worker_res_time[1]
-    st3 = drive(st2, step_fn, {0: [(camp, a_research(LINE_WORKER, cfg))]}, t + 1)
-    assert int(st3.upgrades[0, LINE_WORKER]) == 2
-    assert (int(st3.hp[W0]) - whp_before
-            == cfg.worker_hp_by_level[2] - cfg.worker_hp_by_level[1])
-
-    # 新训步兵吃到新表血量;攻击查表在 combat(此处只验生成血量)
+    # 先训一个步兵(1 级表血量),再研步兵线:研发中同线动作非法
     from teow.actions import a_train_infantry
     hq = hq_slot(0, cfg)
+    st = drive(st, step_fn, {0: [(hq, a_train_infantry(cfg))]},
+               cfg.infantry_time + 1)
+    inf = int(jnp.argmax((st.etype == TYPE_INFANTRY) & st.alive))
+    assert int(st.hp[inf]) == cfg.inf_hp_by_level[1]
+
+    owner = owner_of_slots(cfg)
+    st1 = drive(st, step_fn, {0: [(camp, a_research_line(LINE_INFANTRY, cfg))]}, 1)
+    assert int(st1.btype[camp]) < 0
+    legal = legality_mask(st1, cfg, m, owner)
+    assert not bool(legal[camp, a_research_line(LINE_INFANTRY, cfg)])
+
+    t = cfg.line_res_time[1]
+    st2 = drive(st, step_fn, {0: [(camp, a_research_line(LINE_INFANTRY, cfg))]},
+                t + 1)
+    assert int(st2.upgrades[0, LINE_INFANTRY]) == 2
+    assert int(st2.upgrades[1, LINE_INFANTRY]) == 1  # 对手不受影响
+    # 存量步兵补血差额;存量工人(无线)不受影响
+    assert (int(st2.hp[inf])
+            == cfg.inf_hp_by_level[1]
+            + cfg.inf_hp_by_level[2] - cfg.inf_hp_by_level[1])
+    assert int(st2.hp[W0]) == cfg.worker_hp
+
+    # 新训步兵吃到新表血量
     st4 = drive(st2, step_fn, {0: [(hq, a_train_infantry(cfg))]},
                 cfg.infantry_time + 1)
-    inf = int(jnp.argmax((st4.etype == TYPE_INFANTRY) & st4.alive))
-    assert int(st4.hp[inf]) == cfg.inf_hp_by_level[2]
+    n_inf = jnp.sum((st4.etype == TYPE_INFANTRY) & st4.alive)
+    assert int(n_inf) == 2
+    slots = jnp.nonzero((st4.etype == TYPE_INFANTRY) & st4.alive)[0]
+    new_inf = int(slots[-1])
+    assert int(st4.hp[new_inf]) == cfg.inf_hp_by_level[2]
+
+
+def test_research_unlock_gate_by_producer():
+    """v1.4:线解锁门=兵种可训练。狗线要有建成兵营;弓箭手线要兵营 2 级。"""
+    cfg = Config(**RICH)
+    state, _, step_fn, m = new_world(cfg)
+    owner = owner_of_slots(cfg)
+    st, _ = build_camp(cfg, state, step_fn)
+    st = drive(st, step_fn, {0: [(W0, a_build_camp(cfg))]}, cfg.camp_build_time + 1)
+    camp = int(jnp.argmax(st.etype == TYPE_CAMP))
+
+    # 无兵营:狗线/弓箭手线非法,步兵线合法
+    legal = legality_mask(st, cfg, m, owner)
+    assert bool(legal[camp, a_research_line(LINE_INFANTRY, cfg)])
+    assert not bool(legal[camp, a_research_line(LINE_DOG, cfg)])
+    assert not bool(legal[camp, a_research_line(LINE_ARCHER, cfg)])
+
+    # 建成兵营(1 级):狗线解锁,弓箭手线(需兵营 2)仍非法
+    st = drive(st, step_fn, {0: [(W0, a_build_barracks(cfg))]},
+               cfg.barracks_build_time + 1)
+    legal = legality_mask(st, cfg, m, owner)
+    assert bool(legal[camp, a_research_line(LINE_DOG, cfg)])
+    assert not bool(legal[camp, a_research_line(LINE_ARCHER, cfg)])
 
 
 def test_line_capped_by_camp_level():
@@ -99,11 +135,11 @@ def test_line_capped_by_camp_level():
     camp = int(jnp.argmax(st.etype == TYPE_CAMP))
 
     # 线升到 2(=营级)后,再研非法,直到营升 3(需基地 3)
-    st = drive(st, step_fn, {0: [(camp, a_research(LINE_INFANTRY, cfg))]},
-               cfg.inf_res_time[1] + 1)
+    st = drive(st, step_fn, {0: [(camp, a_research_line(LINE_INFANTRY, cfg))]},
+               cfg.line_res_time[1] + 1)
     assert int(st.upgrades[0, LINE_INFANTRY]) == 2
     legal = legality_mask(st, cfg, m, owner)
-    assert not bool(legal[camp, a_research(LINE_INFANTRY, cfg)])
+    assert not bool(legal[camp, a_research_line(LINE_INFANTRY, cfg)])
     # 营也不能升(基地才 2 级):上限链第二环
     assert not bool(legal[camp, a_upgrade(cfg)])
 
@@ -114,23 +150,24 @@ def test_camp_destroyed_mid_research_keeps_bought_levels():
     st, _ = build_camp(cfg, state, step_fn)
     st = drive(st, step_fn, {0: [(W0, a_build_camp(cfg))]}, cfg.camp_build_time + 1)
     camp = int(jnp.argmax(st.etype == TYPE_CAMP))
-    st = drive(st, step_fn, {0: [(camp, a_research(LINE_INFANTRY, cfg))]},
-               cfg.inf_res_time[1] + 1)
+    st = drive(st, step_fn, {0: [(camp, a_research_line(LINE_INFANTRY, cfg))]},
+               cfg.line_res_time[1] + 1)
     assert int(st.upgrades[0, LINE_INFANTRY]) == 2
 
-    # 二次研发中把营拆了:研发中断不退款,已购等级保留
-    st = drive(st, step_fn, {0: [(camp, a_upgrade(cfg))]}, 0)  # no-op 占位
+    # 建成兵营解锁狗线;狗线研发中把营拆了:中断不退款,已购(步兵线 2)保留
+    st = drive(st, step_fn, {0: [(W0, a_build_barracks(cfg))]},
+               cfg.barracks_build_time + 1)
     res_before = st.resources[0].tolist()
-    st = drive(st, step_fn, {0: [(camp, a_research(LINE_WORKER, cfg))]}, 1)
+    st = drive(st, step_fn, {0: [(camp, a_research_line(LINE_DOG, cfg))]}, 1)
     paid = st.resources[0].tolist()
-    assert paid[0] == res_before[0] - cfg.worker_res_cost_ore[1]
+    assert paid[0] == res_before[0] - cfg.line_res_cost_ore[1]
     st = st._replace(hp=st.hp.at[camp].set(0))
     key = jax.random.PRNGKey(11)
     st = step_fn(st, jnp.full(cfg.n_total, A_NOOP, jnp.int32), key)
     assert not bool(st.alive[camp])
     assert st.resources[0].tolist() == paid                    # 不退款
-    st = drive(st, step_fn, {}, cfg.worker_res_time[1] + 2, seed=5)
-    assert int(st.upgrades[0, LINE_WORKER]) == 1               # 研发没完成
+    st = drive(st, step_fn, {}, cfg.line_res_time[1] + 2, seed=5)
+    assert int(st.upgrades[0, LINE_DOG]) == 1                  # 研发没完成
     assert int(st.upgrades[0, LINE_INFANTRY]) == 2             # 已购保留
 
 
@@ -147,9 +184,9 @@ def test_same_tick_double_research_dedup():
     assert len(camps) == 2 and all(int(st.level[c]) == 2 for c in camps)
 
     res0 = st.resources[0].tolist()
-    st = drive(st, step_fn, {0: [(camps[0], a_research(LINE_INFANTRY, cfg)),
-                                 (camps[1], a_research(LINE_INFANTRY, cfg))]},
-               cfg.inf_res_time[1] + 1)
+    st = drive(st, step_fn, {0: [(camps[0], a_research_line(LINE_INFANTRY, cfg)),
+                                 (camps[1], a_research_line(LINE_INFANTRY, cfg))]},
+               cfg.line_res_time[1] + 1)
     # 单倍扣费、只升一级
     assert int(st.upgrades[0, LINE_INFANTRY]) == 2
-    assert res0[0] - int(st.resources[0][0]) == cfg.inf_res_cost_ore[1]
+    assert res0[0] - int(st.resources[0][0]) == cfg.line_res_cost_ore[1]

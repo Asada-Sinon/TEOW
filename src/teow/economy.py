@@ -18,16 +18,15 @@ import jax.numpy as jnp
 
 from .config import (
     BTASK_UPGRADE,
-    LINE_INFANTRY,
-    LINE_WORKER,
+    N_LINES,
+    N_TYPES,
     RES_WATER,
     TYPE_CAMP,
     TYPE_HQ,
-    TYPE_INFANTRY,
     TYPE_MINE,
     TYPE_PUMP,
-    TYPE_WORKER,
     Config,
+    btask_research,
 )
 from .map import MapData
 from .state import (
@@ -110,7 +109,7 @@ def paid_orders_pass(state: WorldState, act: jax.Array, cfg: Config,
         a_build_barracks,
         a_build_camp,
         a_build_tower,
-        a_research,
+        a_research_line,
         a_train_dog,
         a_upgrade,
     )
@@ -118,10 +117,6 @@ def paid_orders_pass(state: WorldState, act: jax.Array, cfg: Config,
         BTASK_BUILD_BARRACKS,
         BTASK_BUILD_CAMP,
         BTASK_BUILD_TOWER,
-        BTASK_RESEARCH_INF,
-        BTASK_RESEARCH_WORKER,
-        LINE_INFANTRY,
-        LINE_WORKER,
         TYPE_BARRACKS,
         TYPE_CAMP,
         TYPE_DOG,
@@ -131,37 +126,32 @@ def paid_orders_pass(state: WorldState, act: jax.Array, cfg: Config,
     own_i = owner.astype(jnp.int32)
     st = state
 
-    # ---- ① 升级 + 研发:统一 cumsum 对账 ----
+    # ---- ① 升级 + 研发 + 训狗:统一 cumsum 对账 ----
     w_up = act == a_upgrade(cfg)
-    w_ri = act == a_research(LINE_INFANTRY, cfg)
-    w_rw = act == a_research(LINE_WORKER, cfg)
-
-    # 同玩家同 tick 对同一条线的并发研发申请去重,只批槽号最小者
+    # 八线研发(v1.4):同玩家同 tick 对同一条线的并发申请去重,只批槽号最小者
     # (audit v1.1 P0-1:掩码的 busy_same 只见已写入的 btype,看不见同 tick
     # 并发,两营同时下单会双倍扣费只得一级;去重必须在扣费之前)
     slots_arr = jnp.arange(cfg.n_total)
-    for p in (0, 1):  # 编译期展开
-        for w in ("ri", "rw"):
-            cand = (w_ri if w == "ri" else w_rw) & (own_i == p)
+    w_res = jnp.zeros(cfg.n_total, bool)     # 任一线研发(去重后)
+    res_line = jnp.zeros(cfg.n_total, jnp.int32)  # 该行研的线号(w_res 门控)
+    for line in range(N_LINES):  # 编译期展开
+        w_l = act == a_research_line(line, cfg)
+        for p in (0, 1):  # 编译期展开
+            cand = w_l & (own_i == p)
             keep = cand & (slots_arr == jnp.argmax(cand))
-            if w == "ri":
-                w_ri = jnp.where(own_i == p, keep, w_ri)
-            else:
-                w_rw = jnp.where(own_i == p, keep, w_rw)
-    cur_i = st.upgrades[own_i, LINE_INFANTRY].astype(jnp.int32)
-    cur_w = st.upgrades[own_i, LINE_WORKER].astype(jnp.int32)
+            w_l = jnp.where(own_i == p, keep, w_l)
+        w_res = w_res | w_l
+        res_line = jnp.where(w_l, line, res_line)
+    cur_l = st.upgrades[own_i, jnp.clip(res_line, 0, N_LINES - 1)].astype(jnp.int32)
+    res_cost = jnp.stack([jnp.asarray(cfg.line_res_cost_ore)[cur_l],
+                          jnp.asarray(cfg.line_res_cost_water)[cur_l]], -1)
     cost = upgrade_cost_of(st, cfg) * w_up[:, None]
-    cost += (jnp.stack([jnp.asarray(cfg.inf_res_cost_ore)[cur_i],
-                        jnp.asarray(cfg.inf_res_cost_water)[cur_i]], -1)
-             * w_ri[:, None])
-    cost += (jnp.stack([jnp.asarray(cfg.worker_res_cost_ore)[cur_w],
-                        jnp.asarray(cfg.worker_res_cost_water)[cur_w]], -1)
-             * w_rw[:, None])
+    cost += res_cost * w_res[:, None]
     # 训狗(v1.2):同 tick 多座兵营可同时下单,与升级/研发同一 cumsum 对账
     w_dog = act == a_train_dog(cfg)
     cost += (jnp.asarray([cfg.dog_cost_ore, cfg.dog_cost_water], jnp.int32)[None, :]
              * w_dog[:, None])
-    want = w_up | w_ri | w_rw | w_dog
+    want = w_up | w_res | w_dog
 
     afford = jnp.zeros(cfg.n_total, bool)
     stock = st.resources
@@ -173,13 +163,11 @@ def paid_orders_pass(state: WorldState, act: jax.Array, cfg: Config,
 
     pay = jnp.zeros_like(stock).at[own_i].add(jnp.where(do[:, None], cost, 0))
     stock = stock - pay
-    task = jnp.where(w_ri, BTASK_RESEARCH_INF,
-                     jnp.where(w_rw, BTASK_RESEARCH_WORKER,
-                               jnp.where(w_dog, TYPE_DOG, BTASK_UPGRADE)))
-    t = jnp.where(w_ri, jnp.asarray(cfg.inf_res_time)[cur_i],
-                  jnp.where(w_rw, jnp.asarray(cfg.worker_res_time)[cur_w],
-                            jnp.where(w_dog, cfg.dog_time,
-                                      upgrade_time_of(st, cfg))))
+    task = jnp.where(w_res, btask_research(0) - res_line,
+                     jnp.where(w_dog, TYPE_DOG, BTASK_UPGRADE))
+    t = jnp.where(w_res, jnp.asarray(cfg.line_res_time)[cur_l],
+                  jnp.where(w_dog, cfg.dog_time,
+                            upgrade_time_of(st, cfg)))
     st = st._replace(
         resources=stock,
         btype=jnp.where(do, task, st.btype).astype(jnp.int8),
@@ -250,8 +238,6 @@ def special_tasks_tick(state: WorldState, cfg: Config,
         BTASK_BUILD_BARRACKS,
         BTASK_BUILD_CAMP,
         BTASK_BUILD_TOWER,
-        BTASK_RESEARCH_INF,
-        BTASK_RESEARCH_WORKER,
         TYPE_TOWER,
     )
     st = state
@@ -303,30 +289,25 @@ def special_tasks_tick(state: WorldState, cfg: Config,
     hp = hp + jnp.where(tower_up, thp[lv0 + 1] - thp[lv0], 0)
     level = jnp.where(upg, level + 1, level).astype(jnp.int8)
 
-    # 研发完成:该玩家对应线 +1(legality 保证同线同 tick 至多一营在研),
-    # 存量单位 hp 补上限差额(plan:不缩放,保伤痕)
+    # 研发完成:该玩家对应线 +1(legality+paid 去重保证同线同 tick 至多一营在研),
+    # 存量该线单位 hp 补上限差额(不缩放,保伤痕)。v1.4 八线,每线恰惠及一个
+    # 兵种(line_of_type 反查),补血按 stats hp_table 向量化 gather。
+    from .stats import hp_table as _hp_table
     upgrades = st.upgrades
-    # 每条线可惠及多个单位类型(步兵线同时管步兵与狗——audit v1.2 P0-1:
-    # 只补步兵会让存量狗血量永久分裂,而攻击又是即时查表,血攻不对称)。
-    # 线级递增与补血分开算,防多受益类型导致重复加级。
-    from .config import TYPE_DOG
-    for line, code, benef in (
-        (LINE_INFANTRY, BTASK_RESEARCH_INF,
-         ((cfg.inf_hp_by_level, TYPE_INFANTRY), (cfg.dog_hp_by_level, TYPE_DOG))),
-        (LINE_WORKER, BTASK_RESEARCH_WORKER,
-         ((cfg.worker_hp_by_level, TYPE_WORKER),)),
-    ):
-        rdone = done & (st.btype == code)
+    htab = _hp_table(cfg)                                   # [N_TYPES, 8]
+    et32 = jnp.clip(st.etype.astype(jnp.int32), 0, N_TYPES - 1)
+    line_of = jnp.asarray(cfg.line_of_type, jnp.int32)[et32]  # [N]
+    for line in range(N_LINES):  # 编译期展开
+        rdone = done & (st.btype == btask_research(line))
         for p in (0, 1):  # 编译期展开
             hit = jnp.any(rdone & (own_i == p))
             old = upgrades[p, line].astype(jnp.int32)
             new = jnp.minimum(old + 1, 7)
             upgrades = upgrades.at[p, line].set(
                 jnp.where(hit, new, old).astype(jnp.int8))
-            for hp_table, ut in benef:
-                delta = jnp.asarray(hp_table)[new] - jnp.asarray(hp_table)[old]
-                bump = st.alive & (own_i == p) & (st.etype == ut)
-                hp = hp + jnp.where(hit & bump, delta, 0)
+            delta = htab[et32, new] - htab[et32, old]       # [N] 各实体差额
+            bump = st.alive & (own_i == p) & (line_of == line)
+            hp = hp + jnp.where(hit & bump, delta, 0)
 
     btype = jnp.where(done, 0, st.btype).astype(jnp.int8)
     return st._replace(hp=hp.astype(jnp.int32), level=level,
@@ -334,14 +315,13 @@ def special_tasks_tick(state: WorldState, cfg: Config,
 
 
 def _unit_spawn_hp(cfg: Config, ut: jax.Array, upgrades_p: jax.Array) -> jax.Array:
-    """新单位出生血量:按其所属玩家的升级线等级查表(v1.1 起,全局线生效)。
-    狗子吃步兵捆绑线(DECISIONS)。"""
-    from .config import TYPE_DOG
-    whp = jnp.asarray(cfg.worker_hp_by_level)[upgrades_p[LINE_WORKER]]
-    ihp = jnp.asarray(cfg.inf_hp_by_level)[upgrades_p[LINE_INFANTRY]]
-    dhp = jnp.asarray(cfg.dog_hp_by_level)[upgrades_p[LINE_INFANTRY]]
-    return jnp.where(ut == TYPE_WORKER, whp,
-                     jnp.where(ut == TYPE_DOG, dhp, ihp))
+    """新单位出生血量:类型 × 线级查 stats 表(v1.4;采集单位无线,恒 1 级行)。"""
+    from .stats import hp_table as _hp_table
+    ut32 = jnp.clip(ut.astype(jnp.int32), 0, N_TYPES - 1)
+    line = jnp.asarray(cfg.line_of_type, jnp.int32)[ut32]
+    lv = jnp.where(line >= 0,
+                   upgrades_p[jnp.clip(line, 0, N_LINES - 1)].astype(jnp.int32), 1)
+    return _hp_table(cfg)[ut32, jnp.clip(lv, 0, 7)]
 
 
 def production_tick(state: WorldState, cfg: Config, mapdata: MapData) -> WorldState:
@@ -526,9 +506,9 @@ def harvest_tick(state: WorldState, cfg: Config, mapdata: MapData,
     enter = (harv & ~st.inside & (st.phase == PH_TO_NODE)
              & (d_node <= cfg.reach_radius)
              & (st.node_owner[tn] == owner) & (st.node_ent[tn] >= 0))
-    # 开采耗时按各工人所属玩家的工人线等级查表(v1.1)
-    wl = st.upgrades[owner.astype(jnp.int32), LINE_WORKER]           # [N]
-    my_mine_time = jnp.asarray(cfg.worker_mine_time_by_level)[wl]    # [N]
+    # 开采耗时按采集单位类型查表(v1.4:工人经济线取消,大力士/马车各有参数)
+    et32 = jnp.clip(st.etype.astype(jnp.int32), 0, N_TYPES - 1)
+    my_mine_time = jnp.asarray(cfg.mine_time_by_type, jnp.int32)[et32]  # [N]
     st = st._replace(
         inside=st.inside | enter,
         mine_timer=jnp.where(enter, my_mine_time, st.mine_timer).astype(jnp.int16),
@@ -543,8 +523,8 @@ def harvest_tick(state: WorldState, cfg: Config, mapdata: MapData,
     # 进不去)。叠格后占用图按「格上有人」算,叠格者的后续移动会自然散开
     # (与矿被拆时的弹出同一约定,见 docs/DECISIONS.md)。----
     win = st.inside & (st.mine_timer == 0) & (st.phase == PH_MINING)
-    # 一趟入账公式(plan/critic S-2 定案):carry[工人线级] + yield_bonus[矿泵级]
-    my_carry = jnp.asarray(cfg.worker_carry_by_level)[wl]            # [N]
+    # 一趟入账公式:carry[采集单位类型] + yield_bonus[矿泵级](v1.4 per-type)
+    my_carry = jnp.asarray(cfg.carry_by_type, jnp.int32)[et32]       # [N]
     ent_idx = jnp.clip(st.node_ent[tn].astype(jnp.int32), 0, cfg.n_total - 1)
     node_lv = jnp.where(st.node_ent[tn] >= 0, st.level[ent_idx], 1)  # [N]
     trip = my_carry + jnp.asarray(cfg.node_yield_bonus)[node_lv]

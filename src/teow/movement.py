@@ -79,7 +79,7 @@ def building_cells(state: WorldState, cfg: Config) -> jax.Array:
     """bool [H,W]:在场建筑占用格(建筑=硬障碍)。
     统一判据:speed_by_type>0 即单位,=0 即建筑(新类型进表自动生效)。"""
     spd = jnp.asarray(cfg.speed_by_type, jnp.float32)[
-        jnp.clip(state.etype.astype(jnp.int32), 0, 15)]
+        jnp.clip(state.etype.astype(jnp.int32), 0, 31)]
     b = state.alive & (spd == 0)
     cell = cell_of(state.pos)
     return (jnp.zeros((cfg.grid_h, cfg.grid_w), bool)
@@ -96,7 +96,7 @@ def movement_tick(state: WorldState, cfg: Config, mapdata: MapData,
     hq_pos = jnp.asarray(mapdata.hq_pos, jnp.float32)
 
     speed = jnp.asarray(cfg.speed_by_type, jnp.float32)[
-        jnp.clip(st.etype.astype(jnp.int32), 0, 15)]
+        jnp.clip(st.etype.astype(jnp.int32), 0, 31)]
     is_unit = speed > 0
     on_board = st.alive & ~st.inside
     tn = jnp.clip(st.target_node.astype(jnp.int32), 0, cfg.n_nodes - 1)
@@ -131,11 +131,20 @@ def movement_tick(state: WorldState, cfg: Config, mapdata: MapData,
     arrived = jnp.where(use_field, eu_goal <= cfg.reach_radius, eu_move <= 0.4)
     # 驻守:锚点圈内即「到达」;被互推挤出圈,下 tick 自动回岗
     arrived = jnp.where(is_gar, eu_move <= cfg.garrison_hold_radius, arrived)
-    # attack-move:射程内有敌就地开打
+    # attack-move:**我的射程内有我能打的目标**才就地停步(v1.4 plan D14:
+    # 弓手/法师在自身射程停,攻城车对打不动的单位视而不见继续压向建筑,
+    # 否则攻城车在敌兵旁永久卡死)
+    from .stats import etype_idx, type_tables
+    tt = type_tables(cfg)
+    et = etype_idx(st)
+    tgt_is_unit = tt["speed"] [et] > 0
+    my_rng = jnp.where(tt["rng"][et] > 0, tt["rng"][et], cfg.melee_range)
     dmat = jnp.linalg.norm(st.pos[:, None, :] - st.pos[None, :, :], axis=-1)
+    can_hit = ((tgt_is_unit[None, :] & tt["hit_u"][et][:, None])
+               | (~tgt_is_unit[None, :] & tt["hit_b"][et][:, None]))
     enemy_near = jnp.any(
-        (dmat <= cfg.melee_range) & (owner[None, :] != owner[:, None])
-        & (st.alive & ~st.inside)[None, :], axis=-1)
+        (dmat <= my_rng[:, None]) & (owner[None, :] != owner[:, None])
+        & (st.alive & ~st.inside)[None, :] & can_hit, axis=-1)
     arrived = arrived | ((st.order == ORDER_ATTACK) & enemy_near)
 
     moving_order = ((st.order == ORDER_MOVE) | (st.order == ORDER_ATTACK)

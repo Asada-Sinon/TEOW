@@ -4,22 +4,33 @@
 乱给)。动作只是「改写常驻指令」——真正的行动(移动/开采/生产)由 step 各阶段按
 常驻指令推进,所以 no-op ≠ 发呆。
 
-动作表(n_actions = 18 + 3*Nn + 2*F,F=max_flags;Nn=8、F=3 时共 48,
+动作表(v1.4:n_actions = 18 + 3*Nn + 2*F + 17;Nn=8、F=3 时共 65,
 完整 id 布局见各 a_*() 定义):
   0                 NOOP     维持现状
   1                 STOP     清除常驻指令(矿内工人不可用,先等它出来)
-  2                 ATTACK   attack-move 向敌方 HQ(仅步兵)
+  2                 ATTACK   attack-move 向敌方 HQ(战斗单位)
   3..6              MOVE     N/E/S/W 走一格(到达即转 IDLE)
-  7..7+Nn-1         BUILD_k  去资源点 k 建矿/泵(类型由点决定;仅工人)
-  7+Nn..7+2Nn-1     HARV_k   指派到资源点 k 的采集循环(仅工人,点须己方已建
+  7..7+Nn-1         BUILD_k  去资源点 k 建矿/泵(类型由点决定;采集单位)
+  7+Nn..7+2Nn-1     HARV_k   指派到资源点 k 的采集循环(采集单位,点须己方已建
                              且名额未满——v1.3 指派即占用,重复下达豁免)
   7+2Nn             TRAIN_W  训练工人(仅 HQ)
-  8+2Nn             TRAIN_I  训练步兵(仅 HQ)
+  8+2Nn             TRAIN_I  训练近战步兵(仅 HQ)
+  9+2Nn             UPGRADE  建筑自升级
+  10+2Nn            BUILD_CAMP
+  11+2Nn..12+2Nn    (退役 v1.3 双线研发 id,永久非法保号——旧轨迹可解)
+  13+2Nn            BUILD_BARRACKS
+  14+2Nn            TRAIN_DOG
+  15+2Nn            BUILD_TOWER
   16+2Nn            GARR_HQ  驻守己方 HQ(仅战斗单位,v1.3)
   17+2Nn..17+3Nn-1  GARR_k   驻守己方资源点 k 的矿泵(仅战斗单位,v1.3)
   17+3Nn..17+3Nn+F-1  GARR_FLAG_j  驻守己方 j 号旗(仅战斗单位,v1.3)
   17+3Nn+F          PLANT    在脚下插旗(仅战斗单位;免费即时,须拥有建成兵营)
   18+3Nn+F..17+3Nn+2F  RECALL_j  撤 j 号旗(挂在建成兵营上,远程即时)
+  ---- v1.4 追加块(B = 18+3Nn+2F 起)----
+  B+0..B+7          TRAIN_t  训练新兵种(大力士/马车=HQ;弓箭手/轻骑/重甲/法师/
+                             奶妈/攻城车=兵营,门槛 train_level_by_type)
+  B+8               BUILD_MORTAR  工人起迫击炮(HQ3 解锁,每玩家限 1)
+  B+9..B+16         RESEARCH_l    训练营研发第 l 条兵种线(l=0..7)
 
 合法性掩码从第一天就是引擎输出(调研报告 §5.8):v2 的 RL invalid-action-masking
 直接复用,random 控制器也靠它只在合法动作里采样。
@@ -31,14 +42,25 @@ import jax
 import jax.numpy as jnp
 
 from .config import (
+    N_LINES,
     RES_WATER,
+    TYPE_ARCHER,
     TYPE_CAMP,
+    TYPE_HEALER,
+    TYPE_HEAVY,
     TYPE_HQ,
     TYPE_INFANTRY,
+    TYPE_LCAV,
+    TYPE_MAGE,
     TYPE_MINE,
+    TYPE_OF_LINE,
     TYPE_PUMP,
+    TYPE_RAM,
+    TYPE_STRONGMAN,
+    TYPE_WAGON,
     TYPE_WORKER,
     Config,
+    btask_research,
 )
 from .map import MapData
 from .state import (
@@ -88,8 +110,9 @@ def a_build_camp(cfg: Config) -> int:
     return 10 + 2 * cfg.n_nodes
 
 
-def a_research(line: int, cfg: Config) -> int:
-    """训练营研发:line 0=步兵捆绑线,1=工人经济线。"""
+def a_research_legacy(line: int, cfg: Config) -> int:
+    """v1.3 双线研发 id(11/12+2Nn)。已退役:永久非法、保号不复用,
+    使旧轨迹语义可解。新研发走 a_research_line。"""
     return 11 + line + 2 * cfg.n_nodes
 
 
@@ -134,8 +157,34 @@ def a_recall_flag(j: int, cfg: Config) -> int:
     return 18 + 3 * cfg.n_nodes + cfg.max_flags + j
 
 
-def n_actions(cfg: Config) -> int:
+# ---- v1.4 追加块(只追加不插入,旧 id 全部保号)----
+
+# 新训练动作的兵种顺序(B+0..B+7;HQ 系在前,兵营系在后)
+TRAIN_ORDER = (TYPE_STRONGMAN, TYPE_WAGON, TYPE_ARCHER, TYPE_LCAV,
+               TYPE_HEAVY, TYPE_MAGE, TYPE_HEALER, TYPE_RAM)
+
+
+def _v14_base(cfg: Config) -> int:
     return 18 + 3 * cfg.n_nodes + 2 * cfg.max_flags
+
+
+def a_train_unit(t: int, cfg: Config) -> int:
+    """训练 v1.4 新兵种 t(TRAIN_ORDER 内);工人/步兵/狗沿用旧 id。"""
+    return _v14_base(cfg) + TRAIN_ORDER.index(t)
+
+
+def a_build_mortar(cfg: Config) -> int:
+    """工人起迫击炮(v1.4;HQ3 解锁,build_cap 限 1,机制同塔)。"""
+    return _v14_base(cfg) + 8
+
+
+def a_research_line(line: int, cfg: Config) -> int:
+    """训练营研发第 line 条兵种线(v1.4;line=0..7,兵种见 TYPE_OF_LINE)。"""
+    return _v14_base(cfg) + 9 + line
+
+
+def n_actions(cfg: Config) -> int:
+    return _v14_base(cfg) + 9 + N_LINES
 
 
 def unit_costs(cfg: Config) -> jax.Array:
@@ -162,9 +211,15 @@ def legality_mask(state: WorldState, cfg: Config, mapdata: MapData,
     h, w = cfg.grid_h, cfg.grid_w
     passable = jnp.asarray(mapdata.passable)
 
-    from .config import TYPE_DOG
-    is_worker = state.etype == TYPE_WORKER
-    is_inf = (state.etype == TYPE_INFANTRY) | (state.etype == TYPE_DOG)  # 战斗单位
+    from .stats import etype_idx
+    et = etype_idx(state)
+    # 采集单位(工人/大力士/马车):建造+采集;战斗单位(line_of_type≥0):
+    # ATTACK/驻守/插旗。v1.4 规格:采集单位不能攻击、不能驻守、不能驻旗。
+    is_harvester = ((state.etype == TYPE_WORKER)
+                    | (state.etype == TYPE_STRONGMAN)
+                    | (state.etype == TYPE_WAGON))
+    is_worker = is_harvester
+    is_inf = jnp.asarray(cfg.line_of_type, jnp.int32)[et] >= 0  # 战斗单位
     is_hq = state.etype == TYPE_HQ
     actable = state.alive & ~state.inside  # 矿内工人只许 NOOP
 
@@ -267,30 +322,37 @@ def legality_mask(state: WorldState, cfg: Config, mapdata: MapData,
     mask = mask.at[:, a_train_dog(cfg)].set(
         bar_idle & jnp.all(stock >= dog_cost, axis=-1))
 
-    # 研发(v1.1):建成的营(level>=2)空闲 + 线级<营级 + 付得起
+    # 研发(v1.4 八线):建成的营(level>=2)空闲 + 线级<营级 + 付得起
     # + 本玩家没有别的营在研同一条线(防同线并研双倍跳级)
-    from .config import (
-        BTASK_RESEARCH_INF,
-        BTASK_RESEARCH_WORKER,
-        LINE_INFANTRY,
-        LINE_WORKER,
-    )
-    line_lv = state.upgrades[half]                            # [N,2]
-    for line, code, cost_o, cost_w in (
-        (LINE_INFANTRY, BTASK_RESEARCH_INF,
-         cfg.inf_res_cost_ore, cfg.inf_res_cost_water),
-        (LINE_WORKER, BTASK_RESEARCH_WORKER,
-         cfg.worker_res_cost_ore, cfg.worker_res_cost_water),
-    ):
+    # + **兵种已解锁**:该线兵种可被训练(步兵线恒解锁——HQ 恒在;
+    #   兵营系兵种须拥有 level ≥ train_level_by_type 的建成兵营)
+    from .config import TYPE_BARRACKS as _TB
+    line_lv = state.upgrades[half]                            # [N,N_LINES]
+    tl = cfg.train_level_by_type
+    bar_built_lv = jnp.where(
+        state.alive & (state.etype == _TB) & (state.btype >= 0),
+        state.level.astype(jnp.int32), 0)                     # [N] 建成兵营等级
+    for line in range(N_LINES):
+        t = TYPE_OF_LINE[line]
         cur = line_lv[:, line].astype(jnp.int32)
-        rcost = jnp.stack([jnp.asarray(cost_o)[cur], jnp.asarray(cost_w)[cur]], -1)
+        rcost = jnp.stack([jnp.asarray(cfg.line_res_cost_ore)[cur],
+                           jnp.asarray(cfg.line_res_cost_water)[cur]], -1)
+        code = btask_research(line)
         busy_same = jnp.stack([
             jnp.any((owner == 0) & state.alive & (state.btype == code)),
             jnp.any((owner == 1) & state.alive & (state.btype == code)),
         ])[half]
+        if t == TYPE_INFANTRY:
+            unlocked = jnp.ones(n, bool)
+        else:
+            unlocked = jnp.stack([
+                jnp.any((owner == 0) & (bar_built_lv >= tl[t])),
+                jnp.any((owner == 1) & (bar_built_lv >= tl[t])),
+            ])[half]
         ok = (actable & is_camp & (lv >= 2) & (state.btimer == 0)
-              & (cur < lv) & ~busy_same & jnp.all(stock >= rcost, axis=-1))
-        mask = mask.at[:, a_research(line, cfg)].set(ok)
+              & (cur < lv) & ~busy_same & unlocked
+              & jnp.all(stock >= rcost, axis=-1))
+        mask = mask.at[:, a_research_line(line, cfg)].set(ok)
 
     # ---- 军旗(v1.3):插旗/驻守旗/撤旗 ----
     # 「拥有兵营」= 建成(btype>=0 排除在建负值任务;critic m-2:自由格建筑

@@ -16,7 +16,7 @@ import jax
 import jax.numpy as jnp
 import numpy as np
 
-from .config import TYPE_HQ, TYPE_WORKER, Config
+from .config import N_LINES, TYPE_HQ, TYPE_WORKER, Config
 from .map import MapData
 
 # 常驻指令(state.order):控制器不下新指令(no-op)时按它继续行动
@@ -59,6 +59,10 @@ class WorldState(NamedTuple):
     garrison_id: jax.Array  # int8  [N]  驻守锚点 id;-1 无。0=己方 HQ,
     #                                     1..Nn=资源点 k=id-1(Nn+1..Nn+3=旗 j,v1.3
     #                                     Phase 4)。消费方必须门控 order==GARRISON。
+    atk_cd: jax.Array       # int16 [N]  攻击冷却(v1.4;atk_period>1 的类型开火后
+    #                                     置 period-1,每 tick 递减;普通攻击者恒 0)
+    shell_timer: jax.Array  # int16 [N]  在途炮弹剩余飞行 tick(v1.4 迫击炮;0=无弹)
+    shell_target: jax.Array  # f32  [N,2] 炮弹锁定落点(开火拍的目标位置)
     # ---- 军旗表 [2, max_flags](v1.3;旗不是实体:无血量、不可拆)----
     flag_pos: jax.Array     # f32  [2,F,2] 旗所在格心;未激活 -1
     flag_active: jax.Array  # bool [2,F]
@@ -69,8 +73,9 @@ class WorldState(NamedTuple):
     node_builder: jax.Array      # int16 [Nn] 施工工人槽号;-1 无
     # ---- 全局 ----
     resources: jax.Array    # int32 [2,2]  [player][RES_ORE/RES_WATER]
-    upgrades: jax.Array     # int8  [2,2]  [player][LINE_INFANTRY/LINE_WORKER],初始 1;
-    #                                       全局生效(存量+未来单位),营被拆仍保留
+    upgrades: jax.Array     # int8  [2,N_LINES]  [player][线],初始 1(v1.4 八线,
+    #                                       按兵种);全局生效(存量+未来单位),
+    #                                       营被拆仍保留
     tick: jax.Array         # int32 标量
     done: jax.Array         # bool 标量
     winner: jax.Array       # int8 标量  -1 未分;0/1 胜者;2 和局
@@ -113,7 +118,7 @@ def init_state(cfg: Config, mapdata: MapData) -> WorldState:
             alive[s] = True
             etype[s] = TYPE_WORKER
             pos[s] = mapdata.spawn_pos[p, i]
-            hp[s] = cfg.worker_hp_by_level[1]
+            hp[s] = cfg.worker_hp
 
     return WorldState(
         alive=jnp.asarray(alive),
@@ -133,6 +138,9 @@ def init_state(cfg: Config, mapdata: MapData) -> WorldState:
         node_id=jnp.full(n, -1, jnp.int8),
         level=jnp.ones(n, jnp.int8),
         garrison_id=jnp.full(n, -1, jnp.int8),
+        atk_cd=jnp.zeros(n, jnp.int16),
+        shell_timer=jnp.zeros(n, jnp.int16),
+        shell_target=jnp.zeros((n, 2), jnp.float32),
         flag_pos=jnp.full((2, cfg.max_flags, 2), -1.0, jnp.float32),
         flag_active=jnp.zeros((2, cfg.max_flags), bool),
         node_owner=jnp.full(nn, -1, jnp.int8),
@@ -141,7 +149,7 @@ def init_state(cfg: Config, mapdata: MapData) -> WorldState:
         node_builder=jnp.full(nn, -1, jnp.int16),
         resources=jnp.asarray(
             [[cfg.start_ore, cfg.start_water]] * 2, jnp.int32),
-        upgrades=jnp.ones((2, 2), jnp.int8),
+        upgrades=jnp.ones((2, N_LINES), jnp.int8),
         tick=jnp.asarray(0, jnp.int32),
         done=jnp.asarray(False),
         winner=jnp.asarray(-1, jnp.int8),

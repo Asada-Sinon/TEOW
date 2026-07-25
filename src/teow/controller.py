@@ -23,7 +23,7 @@ from .actions import (
     a_harvest,
     a_plant_flag,
     a_recall_flag,
-    a_research,
+    a_research_line,
     a_train_infantry,
     a_train_worker,
     a_upgrade,
@@ -141,11 +141,23 @@ def scripted_actions(state: WorldState, cfg: Config, mapdata: MapData,
     attack_on = n_army >= cfg.ai_attack_threshold
     inf_act = jnp.where(attack_on, A_ATTACK, A_NOOP)
 
-    # ---- 训练营(v1.1):优先研低的那条线(掩码兜底非法),双线到顶则升营 ----
-    line_lv = st.upgrades[player]                          # [2]
-    low_line = jnp.argmin(line_lv).astype(jnp.int32)       # 平级取步兵线(0)
+    # ---- 训练营(v1.4 八线):在**已解锁**的线里研最低的(掩码兜底非法),
+    # 全部到顶则升营 ----
+    from .config import TYPE_BARRACKS as _TB2
+    from .config import TYPE_INFANTRY as _TI
+    from .config import TYPE_OF_LINE
+    line_lv = st.upgrades[player].astype(jnp.int32)        # [N_LINES]
+    tl = jnp.asarray(cfg.train_level_by_type, jnp.int32)
+    tol = jnp.asarray(TYPE_OF_LINE, jnp.int32)
+    bar_lv_max = jnp.max(jnp.where(
+        mine & (st.etype == _TB2) & (st.btype >= 0),
+        st.level.astype(jnp.int32), 0))
+    line_unlocked = (tol == _TI) | (bar_lv_max >= tl[tol])   # [N_LINES]
+    line_score = jnp.where(line_unlocked, line_lv, 99)
+    low_line = jnp.argmin(line_score).astype(jnp.int32)
     camp_act = jnp.where(
-        line_lv[low_line] < st.level.astype(jnp.int32), a_research(0, cfg) + low_line,
+        line_score[low_line] < st.level.astype(jnp.int32),
+        a_research_line(0, cfg) + low_line,
         a_upgrade(cfg))                                    # [N](逐营取自身 level 比较)
 
     # ---- 科技优先预留(v1.3):研发在排队(有营且低线未及营级)时,练兵先给
@@ -154,14 +166,11 @@ def scripted_actions(state: WorldState, cfg: Config, mapdata: MapData,
     from .config import TYPE_CAMP as _TC
     camp_lv_max = jnp.max(jnp.where(mine & (st.etype == _TC),
                                     st.level.astype(jnp.int32), 0))
-    research_pending = (line_lv[low_line] < camp_lv_max)
-    lc = jnp.clip(line_lv[low_line].astype(jnp.int32), 0, 7)
-    res_cost = jnp.where(
-        low_line == 0,
-        jnp.asarray([jnp.asarray(cfg.inf_res_cost_ore)[lc],
-                     jnp.asarray(cfg.inf_res_cost_water)[lc]]),
-        jnp.asarray([jnp.asarray(cfg.worker_res_cost_ore)[lc],
-                     jnp.asarray(cfg.worker_res_cost_water)[lc]]))
+    research_pending = ((line_score[low_line] < camp_lv_max)
+                        & line_unlocked[low_line])
+    lc = jnp.clip(line_lv[low_line], 0, 7)
+    res_cost = jnp.asarray([jnp.asarray(cfg.line_res_cost_ore)[lc],
+                            jnp.asarray(cfg.line_res_cost_water)[lc]])
     # 升本预留(v1.3 名额制配套):单点采集压到 3 人后练兵不再有余粮自然溢出,
     # 基地未到 ai_base_level_target 时练兵先留出升本成本+预备金,否则矿石永远
     # 在练兵线以下打转,3000 tick 全程升不了本(与研发预留同根同款)
@@ -253,9 +262,14 @@ def scripted_actions(state: WorldState, cfg: Config, mapdata: MapData,
     act = jnp.where(mine & (st.etype == TYPE_CAMP), camp_act, act)
     act = jnp.where(mine & is_node_b, node_act, act)
     act = jnp.where(mine & is_army, inf_act, act)
-    # 驻守/插旗只在非总攻期下达(总攻 tick 起 ATTACK 覆盖全军);撤旗挂兵营,
-    # 覆盖训狗一拍(免费即时,下 tick 旗已灭、掩码自动放行训狗)
-    act = jnp.where(~attack_on & (dog_act != A_NOOP), dog_act, act)
+    # 驻守只在非总攻期下达(总攻 tick 起 ATTACK 覆盖全军);**插旗例外**:
+    # 免费即时、只损失一拍行军,总攻期也照插——否则「第 3 只狗凑齐时恰逢
+    # 全军总攻」的时间线永远不插旗,涌现测试对浮点微差(jit 融合)过敏
+    # (v1.4 保绿修正,scripted 行为微调不属引擎规则)。撤旗挂兵营,
+    # 覆盖训狗一拍(下 tick 旗已灭、掩码自动放行训狗)
+    is_plant_a = dog_act == a_plant_flag(cfg)
+    act = jnp.where((dog_act != A_NOOP) & (~attack_on | is_plant_a),
+                    dog_act, act)
     act = jnp.where(mine & (st.etype == TYPE_BARRACKS) & attack_on
                     & st.flag_active[player, 0], a_recall_flag(0, cfg), act)
 

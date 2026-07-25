@@ -79,7 +79,7 @@ def test_node_upgrade_cap_chain_and_yield():
     ore0 = int(st.resources[0, RES_ORE])
     st = drive(st, step_fn, {0: [(W0, a_harvest(node, cfg))]}, 260, seed=3)
     gained = int(st.resources[0, RES_ORE]) - ore0
-    trip = cfg.worker_carry_by_level[1] + cfg.node_yield_bonus[2]
+    trip = cfg.worker_carry + cfg.node_yield_bonus[2]
     assert gained > 0 and gained % trip == 0, f"gained={gained} 应为 {trip} 的整数倍"
 
 

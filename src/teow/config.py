@@ -5,40 +5,67 @@ frozen dataclass,被 build_step 闭包进 jit——改任何字段都会触发�
 派生量一律 @property,不做字段(与 alicization/underworld/config.py 同一纪律)。
 
 平衡初值的依据与不确定度见 docs/DECISIONS.md 与 docs/changelog/(平衡区)。
+v1.4 起 per-type 表长 32(16 已用尽);类型标量字段是真源,32-表一律 @property 组装。
 """
 
 from __future__ import annotations
 
 import dataclasses
 
-# 实体类型编码(state.etype)。v1.2+ 的新类型(兵营/哨塔/狗子)往后追加,不重排。
+# 实体类型编码(state.etype)。新类型往后追加,不重排。
 TYPE_EMPTY = 0
 TYPE_HQ = 1
 TYPE_MINE = 2  # 建在矿点上的采集建筑
 TYPE_PUMP = 3  # 建在水点上的采集建筑
 TYPE_WORKER = 4
-TYPE_INFANTRY = 5
+TYPE_INFANTRY = 5  # 近战步兵(v1.4 起正式定位;id 保号不重排)
 TYPE_CAMP = 6      # 技能训练营(v1.1;基地2级解锁,建成即2级)
-TYPE_BARRACKS = 7  # 兵营(v1.2;基地2级解锁,出狗子)
-TYPE_DOG = 8       # 狗子(v1.2;快/脆/低攻,吃步兵捆绑线)
-TYPE_TOWER = 9     # 哨塔(v1.2;基地2级解锁,自动攻击射程内敌方单位)
+TYPE_BARRACKS = 7  # 兵营(v1.2;基地2级解锁;v1.4 起可升级,1-5 级爆兵)
+TYPE_DOG = 8       # 狗子(v1.2;骑兵速度,战力低于近战步兵,骚扰位)
+TYPE_TOWER = 9     # 哨塔(v1.2;基地2级解锁;v1.4 数量挂基地等级)
+TYPE_STRONGMAN = 10  # 大力士工人(v1.4;HQ3,采集快载荷多,移速=工人)
+TYPE_WAGON = 11      # 马车(v1.4;HQ5,载荷最大,采速介于工人与大力士,移速=轻骑)
+TYPE_ARCHER = 12     # 弓箭手(v1.4;兵营2,远程物理即时命中)
+TYPE_LCAV = 13       # 轻骑兵(v1.4;兵营3,快速近战)
+TYPE_HEAVY = 14      # 重盔甲战士(v1.4;兵营3,中血高甲近战,魔法克制)
+TYPE_MAGE = 15       # 法师(v1.4;兵营4,远程单体魔法,无视护甲)
+TYPE_HEALER = 16     # 奶妈神官(v1.4;兵营4,不攻击,自动奶血量比例最低友军单位)
+TYPE_RAM = 17        # 攻城车(v1.4;兵营5,近战,只能打建筑)
+TYPE_MORTAR = 18     # 迫击炮(v1.4;防御建筑,HQ3 解锁,限1,弹道+盲区+范围衰减)
+N_TYPES = 32  # per-type 表长(19..31 留给 v1.5 栅栏 / v1.6 防御建筑与空军)
 
 # 资源类型编码(state.resources 的第二维;与资源点 node_type 一致)
 RES_ORE = 0
 RES_WATER = 1
 
-# 升级线编码(state.upgrades 的第二维)
-LINE_INFANTRY = 0  # 步兵捆绑线:每级血+攻一起升
-LINE_WORKER = 1    # 工人经济线:载荷/开采速度/血量,无攻击
+# 升级线编码(state.upgrades 的第二维;v1.4 起按兵种一条线,工人经济线取消)
+LINE_INFANTRY = 0
+LINE_DOG = 1
+LINE_ARCHER = 2
+LINE_LCAV = 3
+LINE_HEAVY = 4
+LINE_MAGE = 5
+LINE_HEALER = 6
+LINE_RAM = 7
+N_LINES = 8
+# 线 → 兵种(研发解锁门用:该兵种可训练则线可研)
+TYPE_OF_LINE = (TYPE_INFANTRY, TYPE_DOG, TYPE_ARCHER, TYPE_LCAV,
+                TYPE_HEAVY, TYPE_MAGE, TYPE_HEALER, TYPE_RAM)
 
-# btype 任务码:正数=在训单位类型(v1.0 语义);负数=特殊任务。
+# btype 任务码:正数=在训单位类型;负数=特殊任务。
 # 解码必须集中在 economy 单处;完成分支必须 btype←0(否则下 tick 重复触发)。
-BTASK_UPGRADE = -1        # 建筑自升级(HQ/矿/泵/营)
-BTASK_RESEARCH_INF = -2   # 训练营:研发步兵线
-BTASK_RESEARCH_WORKER = -3  # 训练营:研发工人线
+BTASK_UPGRADE = -1        # 建筑自升级(HQ/矿/泵/营/兵营/塔)
+# −2/−3 已退役(v1.3 的双线研发码;v1.4 研发码统一走 −(16+line))
 BTASK_BUILD_CAMP = -4     # 在建训练营的专属标记(建成前 hp 线性成长)
-BTASK_BUILD_BARRACKS = -5  # 在建兵营(v1.2;同营的成长语义,建成 level=1)
-BTASK_BUILD_TOWER = -6     # 在建哨塔(v1.2)
+BTASK_BUILD_BARRACKS = -5  # 在建兵营
+BTASK_BUILD_TOWER = -6     # 在建哨塔
+BTASK_BUILD_MORTAR = -7    # 在建迫击炮(v1.4 Phase 3)
+# −8..−15 留给 v1.5/v1.6 在建建筑
+BTASK_RESEARCH_BASE = -16  # 研发线 l 的任务码 = -(16+l),l∈[0,8) → −16..−23
+
+
+def btask_research(line: int) -> int:
+    return BTASK_RESEARCH_BASE - line
 
 
 @dataclasses.dataclass(frozen=True)
@@ -58,36 +85,67 @@ class Config:
     harvest_slots_by_level: tuple = (0, 3, 3, 4, 4, 5, 5, 6)
     max_flags: int = 3       # 军旗(v1.3):每玩家上限,不随任何等级增加
 
-    # ---- 采集一体循环 ----
-    # 开采耗时/载荷已并入工人经济线的 *_by_level 表(v1.1);一趟入账公式:
-    # carry_cap[工人线级] + node_yield_bonus[矿泵级]。
-
     # ---- 连续移动(v1.2:单位 360°,建筑/资源点仍格子锚定)----
-    # speed 按实体类型查表(格/tick;工/兵 0.5 与 v1.1 的 move_cooldown=2 等效,
-    # 行为近似保持);建筑 0。表长 16 给 v1.2+ 新类型留位。
-    speed_by_type: tuple = (0.0, 0.0, 0.0, 0.0, 0.5, 0.5, 0.0, 0.0, 0.9, 0.0,
-                            0.0, 0.0, 0.0, 0.0, 0.0, 0.0)
     unit_radius: float = 0.35   # 单位圆半径(<0.5,圆不出格,建筑推离用格判定)
     reach_radius: float = 1.2   # 入驻/卸货/开工的欧氏到达半径(≈旧 4 邻)
     garrison_hold_radius: float = 1.2  # 驻守(v1.3):离锚点超此距离才回岗移动
     melee_range: float = 1.5    # 近战射程(≈旧 Chebyshev≤1,含对角)
     stationary_cost: int = 24   # 动态场里静止单位所在格的软障碍附加代价
-    #                             (v1.0 的硬障碍软化:连续单位可贴身挤过)
-    # (v1.1 的 congestion_cost 已退役:连续模式下移动单位不计场代价——
-    #  自己的罚分落在自己脚下会让梯度采样退化成游走;对向流由圆形互推解决)
+
+    # ---- 单位移速(格/tick;建筑 0。真源在此,speed_by_type 表由 property 组装)----
+    worker_speed: float = 0.5
+    infantry_speed: float = 0.5
+    dog_speed: float = 0.9
+    strongman_speed: float = 0.5   # =工人(规格)
+    wagon_speed: float = 0.9       # =轻骑兵(规格)
+    archer_speed: float = 0.5
+    lcav_speed: float = 0.9
+    heavy_speed: float = 0.4
+    mage_speed: float = 0.45
+    healer_speed: float = 0.45
+    ram_speed: float = 0.3
 
     # ---- 起始条件 ----
     start_ore: int = 100
     start_water: int = 50
     start_workers: int = 4
 
-    # ---- 成本与耗时(ore, water, tick)----
+    # ---- 单位成本与耗时(ore, water, tick;32-表由 property 组装)----
     worker_cost_ore: int = 20
     worker_cost_water: int = 0
     worker_time: int = 40
     infantry_cost_ore: int = 30
     infantry_cost_water: int = 10
     infantry_time: int = 60
+    dog_cost_ore: int = 20
+    dog_cost_water: int = 5
+    dog_time: int = 30
+    strongman_cost_ore: int = 40
+    strongman_cost_water: int = 10
+    strongman_time: int = 60
+    wagon_cost_ore: int = 60
+    wagon_cost_water: int = 30
+    wagon_time: int = 80
+    archer_cost_ore: int = 30
+    archer_cost_water: int = 15
+    archer_time: int = 50
+    lcav_cost_ore: int = 45
+    lcav_cost_water: int = 20
+    lcav_time: int = 70
+    heavy_cost_ore: int = 50
+    heavy_cost_water: int = 25
+    heavy_time: int = 80
+    mage_cost_ore: int = 40
+    mage_cost_water: int = 40
+    mage_time: int = 90
+    healer_cost_ore: int = 30
+    healer_cost_water: int = 40
+    healer_time: int = 90
+    ram_cost_ore: int = 80
+    ram_cost_water: int = 40
+    ram_time: int = 120
+
+    # ---- 建筑成本与耗时 ----
     mine_cost_ore: int = 40
     mine_cost_water: int = 0
     mine_time_build: int = 60
@@ -95,23 +153,53 @@ class Config:
     pump_cost_water: int = 30
     pump_time_build: int = 60
 
-    # ---- 血量与攻击(伤害/tick,近战 Chebyshev<=1)----
-    # 单位属性走升级线查表(v1.1);建筑血量 v1.1 仍为平值(升级只提产量/解锁,
-    # 不加建筑血,记 changelog 已知取舍)
-    worker_atk: int = 1        # 工人攻击无升级线(纯经济线),保持标量
+    # ---- 血量(建筑平值/表值;单位血量走线表,采集单位固定基线)----
     hq_hp: int = 400
     node_struct_hp: int = 100  # 矿与泵共用
+    worker_hp: int = 20        # v1.4:工人经济线取消,回固定基线
+    strongman_hp: int = 30
+    wagon_hp: int = 40
 
-    # ---- 等级体系(v1.1)----
+    # ---- 采集参数(载荷/开采 tick;per-type,真源标量)----
+    worker_carry: int = 10
+    worker_mine_time: int = 20
+    strongman_carry: int = 16      # 大力士:采集快、载荷多
+    strongman_mine_time: int = 14
+    wagon_carry: int = 24          # 马车:载荷最大,采速介于工人与大力士
+    wagon_mine_time: int = 17
+
+    # ---- 护甲与伤害类型(v1.4;护甲=物理减伤百分比,魔法完全无视护甲)----
+    hq_armor: int = 10
+    infantry_armor: int = 10
+    tower_armor: int = 20
+    wagon_armor: int = 10
+    lcav_armor: int = 20
+    heavy_armor: int = 60   # 重盔甲战士:高甲,由魔法克制(规格设计意图)
+    ram_armor: int = 40
+    mortar_armor: int = 20
+
+    # ---- 射程(欧氏;近战单位用 melee_range,远程/防御建筑在此)----
+    tower_range: float = 4.0
+    archer_range: float = 3.5
+    mage_range: float = 3.0
+    healer_range: float = 3.0     # 治疗射程(奶妈无攻击)
+    mortar_range: float = 7.0
+    mortar_min_range: float = 2.5  # 盲区:近处打不了(规格)
+    mortar_aoe_radius: float = 1.5
+    mortar_atk: int = 30
+    mortar_atk_period: int = 40    # 攻击间隔(tick;开火后冷却)
+    mortar_flight_time: int = 8    # 弹道飞行 tick(< atk_period,单弹槽恒够)
+    mortar_cost_ore: int = 80
+    mortar_cost_water: int = 60
+    mortar_build_time: int = 110
+    mortar_hp: int = 150
+
+    # ---- 等级体系 ----
     # 约定:所有 *_by_level 表长 8,直接用等级 1..7 下标(0 位是废位填 0);
-    # 升级/研发的 cost/time 表按「当前等级」取(花费=从 L 升到 L+1),
-    # 有效位 1..6(营 2..6),表长同 8。数值初值均 [AI-DRAFT],依据见 DECISIONS。
+    # 升级/研发的 cost/time 表按「当前等级」取(花费=从 L 升到 L+1)。
     base_max_level: int = 7
-    # 解锁表(v1.2 扩成表结构,按 TYPE_* 下标):基地几级解锁该类型的建造。
-    # 0 = 不受基地等级限制;表长 16 与 speed_by_type 对齐。
-    # camp=2(TYPE_CAMP=6)、兵营=2(TYPE_BARRACKS=7)、哨塔=2(v1.2 Phase3)
-    unlock_level_by_type: tuple = (0, 0, 0, 0, 0, 0, 2, 2, 0, 2,
-                                   0, 0, 0, 0, 0, 0)
+    # 解锁表(按 TYPE_* 下标):基地几级解锁该类型的**建造**;0=不受限。
+    # 单位的训练等级门槛走 train_level_by_type(生产建筑自身等级)。
 
     # 基地升级(收益=解锁+矿泵/营等级上限,零单位加成——issue v1.1 设计决策)
     base_up_cost_ore: tuple = (0, 100, 150, 250, 400, 600, 900, 0)
@@ -133,52 +221,53 @@ class Config:
     camp_up_cost_water: tuple = (0, 0, 50, 80, 120, 180, 260, 0)
     camp_up_time: tuple = (0, 0, 100, 120, 140, 160, 180, 0)
 
-    # 步兵捆绑线(每级血+攻同升;线等级上限=营等级)
-    inf_hp_by_level: tuple = (0, 40, 48, 56, 66, 78, 92, 108)
-    inf_atk_by_level: tuple = (0, 4, 5, 6, 7, 8, 10, 12)
-    inf_res_cost_ore: tuple = (0, 60, 90, 140, 210, 300, 420, 0)
-    inf_res_cost_water: tuple = (0, 40, 60, 90, 140, 200, 280, 0)
-    inf_res_time: tuple = (0, 120, 150, 180, 210, 240, 270, 0)
+    # 研发(v1.4:八线共用一套成本/耗时表,按当前线级取;per-line 差异化留 v1.7。
+    # DECISIONS [AI-DRAFT])
+    line_res_cost_ore: tuple = (0, 60, 90, 140, 210, 300, 420, 0)
+    line_res_cost_water: tuple = (0, 40, 60, 90, 140, 200, 280, 0)
+    line_res_time: tuple = (0, 120, 150, 180, 210, 240, 270, 0)
 
-    # 兵营与狗子(v1.2;狗子吃步兵捆绑线,不单开线——DECISIONS)
+    # 兵营(v1.2;v1.4 起可升级,上限=基地等级)
     max_barracks: int = 2   # 每玩家兵营数量上限
     barracks_cost_ore: int = 80
     barracks_cost_water: int = 40
     barracks_build_time: int = 120
     barracks_hp: int = 200
-    dog_cost_ore: int = 20
-    dog_cost_water: int = 5
-    dog_time: int = 30
-    dog_hp_by_level: tuple = (0, 24, 29, 34, 40, 47, 55, 64)
-    dog_atk_by_level: tuple = (0, 3, 4, 4, 5, 6, 7, 8)
 
-    # 哨塔(v1.2;等级上限=基地等级,升级提升血量与攻击;只攻单位不攻建筑)
+    # 哨塔(等级上限=基地等级,升级提升血量与攻击;只攻单位不攻建筑)
     tower_cost_ore: int = 50
     tower_cost_water: int = 30
     tower_build_time: int = 90
-    tower_range: float = 4.0
     tower_hp_by_level: tuple = (0, 120, 150, 180, 220, 260, 300, 350)
     tower_atk_by_level: tuple = (0, 3, 8, 10, 13, 16, 20, 24)
     tower_up_cost_ore: tuple = (0, 40, 60, 90, 130, 180, 240, 0)
     tower_up_cost_water: tuple = (0, 25, 40, 60, 85, 120, 160, 0)
     tower_up_time: tuple = (0, 70, 85, 100, 115, 130, 145, 0)
 
-    # 工人经济线(载荷/开采速度/血量,无攻击;线等级上限=营等级)
-    worker_carry_by_level: tuple = (0, 10, 12, 14, 17, 20, 24, 28)
-    worker_mine_time_by_level: tuple = (0, 20, 18, 16, 14, 12, 10, 9)
-    worker_hp_by_level: tuple = (0, 20, 24, 28, 33, 38, 44, 50)
-    worker_res_cost_ore: tuple = (0, 50, 80, 120, 180, 260, 360, 0)
-    worker_res_cost_water: tuple = (0, 30, 50, 80, 120, 180, 260, 0)
-    worker_res_time: tuple = (0, 100, 130, 160, 190, 220, 250, 0)
+    # ---- 战斗单位线表(每级血/攻;线等级上限=训练营等级)。数值 [AI-DRAFT] ----
+    inf_hp_by_level: tuple = (0, 40, 48, 56, 66, 78, 92, 108)
+    inf_atk_by_level: tuple = (0, 4, 5, 6, 7, 8, 10, 12)
+    dog_hp_by_level: tuple = (0, 24, 29, 34, 40, 47, 55, 64)
+    dog_atk_by_level: tuple = (0, 3, 4, 4, 5, 6, 7, 8)
+    archer_hp_by_level: tuple = (0, 30, 36, 42, 50, 59, 69, 81)
+    archer_atk_by_level: tuple = (0, 5, 6, 7, 8, 10, 12, 14)
+    lcav_hp_by_level: tuple = (0, 45, 54, 63, 74, 87, 102, 120)
+    lcav_atk_by_level: tuple = (0, 6, 7, 8, 10, 12, 14, 17)
+    heavy_hp_by_level: tuple = (0, 60, 72, 84, 99, 116, 136, 160)
+    heavy_atk_by_level: tuple = (0, 5, 6, 7, 8, 10, 12, 14)
+    mage_hp_by_level: tuple = (0, 25, 30, 35, 41, 48, 56, 66)
+    mage_atk_by_level: tuple = (0, 7, 8, 10, 12, 14, 17, 20)
+    healer_hp_by_level: tuple = (0, 25, 30, 35, 41, 48, 56, 66)
+    healer_heal_by_level: tuple = (0, 3, 4, 5, 6, 7, 8, 10)
+    ram_hp_by_level: tuple = (0, 120, 140, 165, 195, 230, 270, 320)
+    ram_atk_by_level: tuple = (0, 25, 30, 36, 43, 51, 60, 72)
 
     # ---- 脚本 AI(controller.scripted;不属于引擎规则,放这里是为了同一份
     #      resolved config 能完整复现一场对局)----
     ai_worker_target: int = 8    # 工人数低于此值时 HQ 优先补工人
-    ai_attack_threshold: int = 6 # 步兵攒到此数全军压向敌方 HQ
-    ai_base_level_target: int = 3  # 脚本 AI 把基地升到几级为止(v1.1)
-    ai_upgrade_reserve: int = 40   # 库存超出升级成本多少才肯升级/研发(留军费;
-    #                                150 时实测对局在 ~730 tick 分胜负,脚本到死
-    #                                都攒不齐,升级机制全程闲置)
+    ai_attack_threshold: int = 6 # 战斗单位攒到此数全军压向敌方 HQ
+    ai_base_level_target: int = 3  # 脚本 AI 把基地升到几级为止
+    ai_upgrade_reserve: int = 40   # 库存超出升级成本多少才肯升级/研发(留军费)
 
     # ---- 派生量(不是字段)----
     @property
@@ -192,7 +281,138 @@ class Config:
 
     @property
     def n_goals(self) -> int:
-        """距离场数量:每个资源点一张 + 每个 HQ 一张(静态,MapData.goal_seeds
-        只含这 n_nodes+2 张)+ 2 玩家 × max_flags 张军旗动态通道(v1.3,
-        种子每 tick 由 state.flag_pos/flag_active 生成,见 movement)。"""
+        """距离场数量:每个资源点一张 + 每个 HQ 一张 + 2 玩家 × max_flags 张
+        军旗动态通道(v1.3,种子每 tick 生成,见 movement)。"""
         return self.n_nodes + 2 + 2 * self.max_flags
+
+    # ---- per-type 32-表(全部由真源标量/表组装;下标=TYPE_*)----
+    def _t32(self, mapping: dict, default=0) -> tuple:
+        return tuple(mapping.get(t, default) for t in range(N_TYPES))
+
+    @property
+    def speed_by_type(self) -> tuple:
+        """格/tick;=0 即建筑(movement/combat 的唯一单位/建筑判据)。"""
+        return self._t32({
+            TYPE_WORKER: self.worker_speed, TYPE_INFANTRY: self.infantry_speed,
+            TYPE_DOG: self.dog_speed, TYPE_STRONGMAN: self.strongman_speed,
+            TYPE_WAGON: self.wagon_speed, TYPE_ARCHER: self.archer_speed,
+            TYPE_LCAV: self.lcav_speed, TYPE_HEAVY: self.heavy_speed,
+            TYPE_MAGE: self.mage_speed, TYPE_HEALER: self.healer_speed,
+            TYPE_RAM: self.ram_speed}, default=0.0)
+
+    @property
+    def unlock_level_by_type(self) -> tuple:
+        """基地几级解锁该**建筑**的建造;0=不受限(单位走 train_level_by_type)。"""
+        return self._t32({TYPE_CAMP: 2, TYPE_BARRACKS: 2, TYPE_TOWER: 2,
+                          TYPE_MORTAR: 3})
+
+    @property
+    def train_level_by_type(self) -> tuple:
+        """训练该单位要求其生产建筑达到的等级(HQ 系看基地级,兵营系看兵营级);
+        0=不可训练。"""
+        return self._t32({
+            TYPE_WORKER: 1, TYPE_INFANTRY: 1, TYPE_STRONGMAN: 3, TYPE_WAGON: 5,
+            TYPE_DOG: 1, TYPE_ARCHER: 2, TYPE_LCAV: 3, TYPE_HEAVY: 3,
+            TYPE_MAGE: 4, TYPE_HEALER: 4, TYPE_RAM: 5})
+
+    @property
+    def train_cost_ore_by_type(self) -> tuple:
+        return self._t32({
+            TYPE_WORKER: self.worker_cost_ore, TYPE_INFANTRY: self.infantry_cost_ore,
+            TYPE_DOG: self.dog_cost_ore, TYPE_STRONGMAN: self.strongman_cost_ore,
+            TYPE_WAGON: self.wagon_cost_ore, TYPE_ARCHER: self.archer_cost_ore,
+            TYPE_LCAV: self.lcav_cost_ore, TYPE_HEAVY: self.heavy_cost_ore,
+            TYPE_MAGE: self.mage_cost_ore, TYPE_HEALER: self.healer_cost_ore,
+            TYPE_RAM: self.ram_cost_ore})
+
+    @property
+    def train_cost_water_by_type(self) -> tuple:
+        return self._t32({
+            TYPE_WORKER: self.worker_cost_water,
+            TYPE_INFANTRY: self.infantry_cost_water,
+            TYPE_DOG: self.dog_cost_water, TYPE_STRONGMAN: self.strongman_cost_water,
+            TYPE_WAGON: self.wagon_cost_water, TYPE_ARCHER: self.archer_cost_water,
+            TYPE_LCAV: self.lcav_cost_water, TYPE_HEAVY: self.heavy_cost_water,
+            TYPE_MAGE: self.mage_cost_water, TYPE_HEALER: self.healer_cost_water,
+            TYPE_RAM: self.ram_cost_water})
+
+    @property
+    def train_time_by_type(self) -> tuple:
+        return self._t32({
+            TYPE_WORKER: self.worker_time, TYPE_INFANTRY: self.infantry_time,
+            TYPE_DOG: self.dog_time, TYPE_STRONGMAN: self.strongman_time,
+            TYPE_WAGON: self.wagon_time, TYPE_ARCHER: self.archer_time,
+            TYPE_LCAV: self.lcav_time, TYPE_HEAVY: self.heavy_time,
+            TYPE_MAGE: self.mage_time, TYPE_HEALER: self.healer_time,
+            TYPE_RAM: self.ram_time})
+
+    @property
+    def carry_by_type(self) -> tuple:
+        return self._t32({TYPE_WORKER: self.worker_carry,
+                          TYPE_STRONGMAN: self.strongman_carry,
+                          TYPE_WAGON: self.wagon_carry})
+
+    @property
+    def mine_time_by_type(self) -> tuple:
+        return self._t32({TYPE_WORKER: self.worker_mine_time,
+                          TYPE_STRONGMAN: self.strongman_mine_time,
+                          TYPE_WAGON: self.wagon_mine_time})
+
+    @property
+    def armor_by_type(self) -> tuple:
+        """物理减伤百分比(0-100);魔法伤害无视本表。"""
+        return self._t32({
+            TYPE_HQ: self.hq_armor, TYPE_INFANTRY: self.infantry_armor,
+            TYPE_TOWER: self.tower_armor, TYPE_WAGON: self.wagon_armor,
+            TYPE_LCAV: self.lcav_armor, TYPE_HEAVY: self.heavy_armor,
+            TYPE_RAM: self.ram_armor, TYPE_MORTAR: self.mortar_armor})
+
+    @property
+    def dmg_magic_by_type(self) -> tuple:
+        """该类型攻击是否魔法(1=魔法,无视护甲)。v1.6 法师塔/激光炮加入。"""
+        return self._t32({TYPE_MAGE: 1})
+
+    @property
+    def atk_range_by_type(self) -> tuple:
+        """攻击(奶妈=治疗)射程;0=无攻击能力。近战一律 melee_range。"""
+        m = self.melee_range
+        return self._t32({
+            TYPE_INFANTRY: m, TYPE_DOG: m, TYPE_LCAV: m, TYPE_HEAVY: m,
+            TYPE_RAM: m, TYPE_TOWER: self.tower_range,
+            TYPE_ARCHER: self.archer_range, TYPE_MAGE: self.mage_range,
+            TYPE_HEALER: self.healer_range, TYPE_MORTAR: self.mortar_range},
+            default=0.0)
+
+    @property
+    def atk_min_range_by_type(self) -> tuple:
+        """最小射程(盲区,严格小于此距离打不了);仅迫击炮非零。"""
+        return self._t32({TYPE_MORTAR: self.mortar_min_range}, default=0.0)
+
+    @property
+    def can_hit_units_by_type(self) -> tuple:
+        return self._t32({TYPE_INFANTRY: 1, TYPE_DOG: 1, TYPE_ARCHER: 1,
+                          TYPE_LCAV: 1, TYPE_HEAVY: 1, TYPE_MAGE: 1,
+                          TYPE_TOWER: 1, TYPE_MORTAR: 1})
+
+    @property
+    def can_hit_buildings_by_type(self) -> tuple:
+        """攻城车只打建筑;塔/迫击炮只打单位(v1.2 规格沿袭)。"""
+        return self._t32({TYPE_INFANTRY: 1, TYPE_DOG: 1, TYPE_ARCHER: 1,
+                          TYPE_LCAV: 1, TYPE_HEAVY: 1, TYPE_MAGE: 1,
+                          TYPE_RAM: 1})
+
+    @property
+    def atk_period_by_type(self) -> tuple:
+        """攻击间隔 tick(1=每 tick);迫击炮为长间隔炮击。"""
+        return self._t32({TYPE_MORTAR: self.mortar_atk_period}, default=1)
+
+    @property
+    def aoe_radius_by_type(self) -> tuple:
+        """范围伤害半径(0=单体);仅迫击炮(v1.6 投石车等加入)。"""
+        return self._t32({TYPE_MORTAR: self.mortar_aoe_radius}, default=0.0)
+
+    @property
+    def line_of_type(self) -> tuple:
+        """TYPE → 升级线;-1=无线(采集单位/建筑)。同时充当 is_combat 判据。"""
+        m = {t: line for line, t in enumerate(TYPE_OF_LINE)}
+        return self._t32(m, default=-1)
