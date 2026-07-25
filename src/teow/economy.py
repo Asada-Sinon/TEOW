@@ -108,6 +108,7 @@ def paid_orders_pass(state: WorldState, act: jax.Array, cfg: Config,
     from .actions import (
         a_build_barracks,
         a_build_camp,
+        a_build_mortar,
         a_build_tower,
         a_research_line,
         a_train_dog,
@@ -116,10 +117,12 @@ def paid_orders_pass(state: WorldState, act: jax.Array, cfg: Config,
     from .config import (
         BTASK_BUILD_BARRACKS,
         BTASK_BUILD_CAMP,
+        BTASK_BUILD_MORTAR,
         BTASK_BUILD_TOWER,
         TYPE_BARRACKS,
         TYPE_CAMP,
         TYPE_DOG,
+        TYPE_MORTAR,
         TYPE_TOWER,
     )
 
@@ -189,6 +192,9 @@ def paid_orders_pass(state: WorldState, act: jax.Array, cfg: Config,
         (a_build_tower(cfg), TYPE_TOWER, BTASK_BUILD_TOWER,
          jnp.asarray([cfg.tower_cost_ore, cfg.tower_cost_water], jnp.int32),
          cfg.tower_build_time, int(cfg.tower_hp_by_level[1]) // 10),
+        (a_build_mortar(cfg), TYPE_MORTAR, BTASK_BUILD_MORTAR,
+         jnp.asarray([cfg.mortar_cost_ore, cfg.mortar_cost_water], jnp.int32),
+         cfg.mortar_build_time, cfg.mortar_hp // 10),
     )
     for a_id, stype, btask, camp_cost, build_t, start_hp0 in structs:
       for p in (0, 1):  # 编译期展开
@@ -237,49 +243,36 @@ def special_tasks_tick(state: WorldState, cfg: Config,
     from .config import (
         BTASK_BUILD_BARRACKS,
         BTASK_BUILD_CAMP,
+        BTASK_BUILD_MORTAR,
         BTASK_BUILD_TOWER,
         TYPE_TOWER,
     )
     st = state
     own_i = owner.astype(jnp.int32)
 
-    # ---- 在建营的 hp 线性成长(增量式,伤害得以保留;完成拍补齐整数余数,
-    # 使「未挨打的建成营 = 满血」恒成立)----
-    full = int(cfg.camp_hp_by_level[2])
-    start = full // 10
-    t_build = cfg.camp_build_time
-    g = (full - start) // t_build  # 每 tick 增量(可为 0,余数在完成拍补)
-    growing = st.alive & (st.btype == BTASK_BUILD_CAMP) & (st.btimer > 0)
-    hp = st.hp + jnp.where(growing, g, 0)
-    # 在建兵营:同款线性成长(建成 level 保持 1)
-    bfull = int(cfg.barracks_hp)
-    bstart = bfull // 10
-    bt = cfg.barracks_build_time
-    bg = (bfull - bstart) // bt
-    growing_b = st.alive & (st.btype == BTASK_BUILD_BARRACKS) & (st.btimer > 0)
-    hp = hp + jnp.where(growing_b, bg, 0)
-    tfull = int(cfg.tower_hp_by_level[1])
-    tstart = tfull // 10
-    tt = cfg.tower_build_time
-    tg = (tfull - tstart) // tt
-    growing_t = st.alive & (st.btype == BTASK_BUILD_TOWER) & (st.btimer > 0)
-    hp = hp + jnp.where(growing_t, tg, 0)
-
+    # ---- 在建自由格建筑的 hp 线性成长(增量式,伤害得以保留;完成拍补齐整数
+    # 余数,使「未挨打的建成建筑 = 满血」恒成立。成长只发生在 btimer>0 的 T-1
+    # 个 tick——完成拍 btimer 已归 0,余数按 T-1 算)。v1.4 起统一描述符循环,
+    # 新建筑照抄一行(plan Phase 3)。----
     done = st.alive & (st.btype < 0) & (st.btimer == 0)
-
-    # 建营完成:level=2(建成即 2 级,issue v1.1)+ 补 hp 余数。
-    # 成长只发生在 btimer>0 的 T-1 个 tick(完成拍 btimer 已归 0),余数按 T-1 算,
-    # 保证「未挨打的建成营 = 满血」恒成立。
+    hp = st.hp
+    grow_specs = (
+        (BTASK_BUILD_CAMP, int(cfg.camp_hp_by_level[2]), cfg.camp_build_time),
+        (BTASK_BUILD_BARRACKS, int(cfg.barracks_hp), cfg.barracks_build_time),
+        (BTASK_BUILD_TOWER, int(cfg.tower_hp_by_level[1]), cfg.tower_build_time),
+        (BTASK_BUILD_MORTAR, int(cfg.mortar_hp), cfg.mortar_build_time),
+    )
+    for btask, full, t_build in grow_specs:  # 编译期展开
+        start = full // 10
+        g = (full - start) // t_build  # 每 tick 增量(可为 0,余数在完成拍补)
+        growing = st.alive & (st.btype == btask) & (st.btimer > 0)
+        hp = hp + jnp.where(growing, g, 0)
+        b_done = done & (st.btype == btask)
+        rem = (full - start) - g * (t_build - 1)
+        hp = hp + jnp.where(b_done, rem, 0)
+    # 建营完成:level=2(建成即 2 级,issue v1.1;其余建筑建成保持 1 级)
     camp_done = done & (st.btype == BTASK_BUILD_CAMP)
-    remainder = (full - start) - g * (t_build - 1)
-    hp = hp + jnp.where(camp_done, remainder, 0)
     level = jnp.where(camp_done, 2, st.level)
-    bar_done = done & (st.btype == BTASK_BUILD_BARRACKS)
-    b_rem = (bfull - bstart) - bg * (bt - 1)
-    hp = hp + jnp.where(bar_done, b_rem, 0)
-    tower_done = done & (st.btype == BTASK_BUILD_TOWER)
-    t_rem = (tfull - tstart) - tg * (tt - 1)
-    hp = hp + jnp.where(tower_done, t_rem, 0)
 
     # 自升级完成;哨塔升级补血量上限差额(升级提升血量,issue v1.2)
     upg = done & (st.btype == BTASK_UPGRADE)

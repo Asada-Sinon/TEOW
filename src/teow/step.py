@@ -16,6 +16,10 @@ GARRISON 语义(v1.3):驻守单位在 movement 阶段走向锚点(target_cell),�
 garrison_hold_radius 圈即站住,被互推挤出圈下 tick 自动回岗;永不自转 IDLE,
 只在 cleanup_deaths 里因目标 node 被拆/易主而清除(战斗照常,驻守不影响互砍)。
 
+迫击炮子顺序(v1.4,均在阶段 7 combat 内):先递减在途弹并结算落地爆炸,
+再判定开火放新弹——弹恰飞 mortar_flight_time 拍,落地伤害与同 tick 近战
+同帧并入 incoming(同时结算语义不破);炮死弹消(cleanup 停泊 shell_timer)。
+
 随机性:step(state, actions, key)——key 只用于两处仲裁(抢格优先级、抢点先手),
 每 tick split,决定论 = f(init_state, 指令序列, key 序列)。
 """

@@ -322,6 +322,18 @@ def legality_mask(state: WorldState, cfg: Config, mapdata: MapData,
                  & (n_twr < twr_cap) & free_in_half
                  & jnp.all(stock >= tower_cost, axis=-1))
     mask = mask.at[:, a_build_tower(cfg)].set(can_tower)
+    # 迫击炮(v1.4):HQ3 解锁,build_cap 限 1(在建计数,机制同塔)
+    from .config import TYPE_MORTAR
+    mor_cost = jnp.asarray([cfg.mortar_cost_ore, cfg.mortar_cost_water], jnp.int32)
+    n_mor = jnp.stack([
+        jnp.sum((owner == 0) & state.alive & (state.etype == TYPE_MORTAR)),
+        jnp.sum((owner == 1) & state.alive & (state.etype == TYPE_MORTAR)),
+    ])[half]
+    mor_cap = jnp.asarray(cfg.build_cap_by_type, jnp.int32)[TYPE_MORTAR]
+    can_mor = (actable & is_worker & (hq_lv >= unlock[TYPE_MORTAR])
+               & (n_mor < mor_cap) & free_in_half
+               & jnp.all(stock >= mor_cost, axis=-1))
+    mask = mask.at[:, a_build_mortar(cfg)].set(can_mor)
 
     # 训狗(v1.2):建成兵营空闲 + 半区有空槽 + 付得起
     is_bar = state.etype == TYPE_BARRACKS
