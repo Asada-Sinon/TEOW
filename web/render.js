@@ -11,7 +11,8 @@ let curAt = 0;                    // cur 到达的墙钟毫秒
 let frameInterval = 50;           // 由服务端 fps 推断(相邻帧到达间隔的滑动均值)
 let ended = false;
 
-const NODE_COLOR = { "-1": "#94a3b8", 0: P_COLOR[0], 1: P_COLOR[1] };
+const NODE_COLOR = { "-1": "#94a3b8", 0: P_COLOR[0], 1: P_COLOR[1],
+                     2: P_COLOR[2], 3: P_COLOR[3] };   // v1.5 四人
 
 function connect() {
   const ws = new WebSocket(`ws://${location.host}/ws`);
@@ -93,7 +94,7 @@ function draw() {
   const ents = lerpEnts(prev, cur, t);
   const bldTypes = meta.building_types || [1, 2, 3, 6, 7, 9];
   for (const e of ents) {
-    const owner = e.s < meta.e_max ? 0 : 1;
+    const owner = Math.floor(e.s / meta.e_max);   // v1.5 P 家行块
     const [x, y] = px(e.p);
     const isBldT = bldTypes.includes(e.t);
     drawSprite(ctx, e.t, owner, x, y, s * (isBldT ? 1.5 : 1.0),
@@ -116,18 +117,20 @@ function draw() {
     }
   }
 
-  // HUD(v1.4 八线:逐线太长,显示已研线数/最高线级)
+  // HUD(v1.5 四人一行一家;八线显示已研线数/最高线级)
   const r = cur.res, u = cur.upgrades;
+  const nP = meta.n_players || r.length;
   const lineTag = (lv) => {
     const up = lv.filter(x => x > 1).length;
     return `研${up}线/最高${Math.max(...lv)}`;
   };
   const win = cur.winner >= 0 ?
-    `   ⚑ ${cur.winner === 2 ? "和局" : "玩家" + cur.winner + " 获胜"}` : "";
-  hud.innerHTML =
-    `<span style="color:${P_COLOR[0]}">P0 矿${r[0][0]} 水${r[0][1]} ${lineTag(u[0])}</span>` +
-    `&nbsp; tick ${cur.tick} &nbsp;` +
-    `<span style="color:${P_COLOR[1]}">P1 矿${r[1][0]} 水${r[1][1]} ${lineTag(u[1])}</span>` +
+    `   ⚑ ${cur.winner === nP ? "和局" : "玩家" + cur.winner + " 获胜"}` : "";
+  const rows = [];
+  for (let p = 0; p < nP; p++)
+    rows.push(`<span style="color:${P_COLOR[p]}">P${p} 矿${r[p][0]} ` +
+              `水${r[p][1]} ${lineTag(u[p])}</span>`);
+  hud.innerHTML = rows.join("&nbsp; ") + `&nbsp; tick ${cur.tick}` +
     win + (ended ? "  (回放结束,刷新重播)" : "");
 }
 

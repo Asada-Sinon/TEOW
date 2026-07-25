@@ -16,6 +16,9 @@ from .config import (
     TYPE_BARRACKS,
     TYPE_CAMP,
     TYPE_DOG,
+    TYPE_FENCE_IRON,
+    TYPE_FENCE_STONE,
+    TYPE_FENCE_WOOD,
     TYPE_HEALER,
     TYPE_HEAVY,
     TYPE_HQ,
@@ -122,6 +125,10 @@ def _draw_frame(ax, frame: dict, e_max: int, passable: np.ndarray,
         elif t == TYPE_MORTAR:
             building = frame["btype"][i] < 0
             ax.plot(c, r, "h", ms=13, color=col, alpha=0.4 if building else 0.9)
+        elif t in (TYPE_FENCE_WOOD, TYPE_FENCE_STONE, TYPE_FENCE_IRON):
+            fence_ms = {TYPE_FENCE_WOOD: 7, TYPE_FENCE_STONE: 9,
+                        TYPE_FENCE_IRON: 11}[int(t)]
+            ax.plot(c, r, "s", ms=fence_ms, mfc="none", mec=col, mew=2)
 
     res = frame["resources"]
     # 标题用 ASCII:matplotlib 默认字体没有 CJK 字形,中文会渲染成豆腐块

@@ -11,9 +11,11 @@ const TYPE_NAMES = {1: "hq", 2: "mine", 3: "pump", 4: "worker", 5: "infantry",
                     // ram=攻城车(无贴图) mortar=迫击炮;infantry=普通刀斧手)
                     10: "strongman", 11: "wagon", 12: "archer", 13: "cavalry",
                     14: "heavy", 15: "mage", 16: "healer", 17: "ram",
-                    18: "mortar"};
-const P_COLOR = ["#3b82f6", "#ef4444"];          // 蓝 P0 / 红 P1
-const P_DARK  = ["#1d4ed8", "#b91c1c"];
+                    18: "mortar",
+                    // v1.5 栅栏三档(无贴图,矢量)
+                    19: "fence_wood", 20: "fence_stone", 21: "fence_iron"};
+const P_COLOR = ["#3b82f6", "#ef4444", "#22c55e", "#f59e0b"];  // 蓝/红/绿/琥珀
+const P_DARK  = ["#1d4ed8", "#b91c1c", "#15803d", "#b45309"];  // (v1.5 四人)
 
 const _png = {};   // name -> Image|null(null=已探测不存在)
 function pngFor(name, owner) {
@@ -233,6 +235,39 @@ export function drawSprite(ctx, type, owner, x, y, s, opts = {}) {
       ctx.beginPath(); ctx.arc(0, 3 * u, 2.6 * u, 0, 7); ctx.fill(); ctx.stroke();
       break;
     }
+    case "fence_wood": {           // 木栅栏:三根竖桩+横梁
+      ctx.strokeStyle = "#8b5e34"; ctx.lineWidth = 2.2 * u;
+      for (const dx of [-6, 0, 6])
+        { ctx.beginPath(); ctx.moveTo(dx * u, -8 * u); ctx.lineTo(dx * u, 8 * u); ctx.stroke(); }
+      ctx.lineWidth = 1.8 * u;
+      ctx.beginPath(); ctx.moveTo(-9 * u, -3 * u); ctx.lineTo(9 * u, -3 * u); ctx.stroke();
+      ctx.beginPath(); ctx.moveTo(-9 * u, 3 * u); ctx.lineTo(9 * u, 3 * u); ctx.stroke();
+      break;
+    }
+    case "fence_stone": {          // 石栅栏:砌石墙
+      ctx.fillStyle = "#94a3b8"; ctx.strokeStyle = "#475569";
+      ctx.fillRect(-9 * u, -6 * u, 18 * u, 12 * u);
+      ctx.strokeRect(-9 * u, -6 * u, 18 * u, 12 * u);
+      ctx.lineWidth = 1 * u;
+      ctx.beginPath(); ctx.moveTo(-9 * u, 0); ctx.lineTo(9 * u, 0); ctx.stroke();
+      for (const dx of [-3, 3])
+        { ctx.beginPath(); ctx.moveTo(dx * u, -6 * u); ctx.lineTo(dx * u, 0); ctx.stroke(); }
+      ctx.beginPath(); ctx.moveTo(0, 0); ctx.lineTo(0, 6 * u); ctx.stroke();
+      break;
+    }
+    case "fence_iron": {           // 铁栅栏:栏杆+尖头
+      ctx.strokeStyle = "#64748b"; ctx.lineWidth = 1.8 * u;
+      ctx.beginPath(); ctx.moveTo(-9 * u, 5 * u); ctx.lineTo(9 * u, 5 * u); ctx.stroke();
+      ctx.beginPath(); ctx.moveTo(-9 * u, -2 * u); ctx.lineTo(9 * u, -2 * u); ctx.stroke();
+      for (const dx of [-7, -2.5, 2.5, 7]) {
+        ctx.beginPath(); ctx.moveTo(dx * u, 8 * u); ctx.lineTo(dx * u, -6 * u); ctx.stroke();
+        ctx.beginPath();
+        ctx.moveTo((dx - 1) * u, -5 * u); ctx.lineTo(dx * u, -9 * u);
+        ctx.lineTo((dx + 1) * u, -5 * u); ctx.closePath();
+        ctx.fillStyle = "#64748b"; ctx.fill();
+      }
+      break;
+    }
     default: {
       ctx.beginPath(); ctx.arc(0, 0, 6 * u, 0, 7); ctx.fill(); ctx.stroke();
     }
@@ -241,7 +276,15 @@ export function drawSprite(ctx, type, owner, x, y, s, opts = {}) {
 }
 
 // 军旗(v1.3):非实体,不进 TYPE_NAMES/drawSprite 分发,render.js 按帧 flags 数组直调
+// v1.5:同样吃 PNG 替换槽(assets/flag_p<owner>.png,fig/军旗 贴图接线)
 export function drawFlag(ctx, owner, x, y, s) {
+  const img = pngFor("flag", owner);
+  if (img) {
+    ctx.save();
+    ctx.drawImage(img, x - s * 0.5, y - s * 0.6, s, s);
+    ctx.restore();
+    return;
+  }
   const u = s / 24;
   ctx.save();
   ctx.translate(x, y);

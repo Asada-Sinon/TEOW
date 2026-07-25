@@ -113,11 +113,12 @@ def cmd_play(args) -> None:
     sys.stdout = Tee(sys.__stdout__, run_dir / "stdout.log")
     sys.stderr = Tee(sys.__stderr__, run_dir / "stderr.log")
 
+    names = ([args.p0, args.p1, args.p2, args.p3]
+             + ["scripted"] * cfg.n_players)[:cfg.n_players]
     print(f"run_dir: {run_dir}")
-    print(f"device: {jax.devices()[0]}  p0={args.p0} p1={args.p1} seed={cfg.seed}")
+    print(f"device: {jax.devices()[0]}  players={names} seed={cfg.seed}")
 
     state, key, step_fn, m = new_world(cfg)
-    names = ([args.p0, args.p1] + ["scripted"] * cfg.n_players)[:cfg.n_players]
     joint = make_joint_controller(*names, cfg=cfg, mapdata=m)
     joint = jax.jit(joint)
 
@@ -187,6 +188,8 @@ def main() -> None:
     p = sub.add_parser("play", help="跑一场对局并落 run 目录")
     p.add_argument("--p0", default="scripted", help="玩家0控制器 random|scripted")
     p.add_argument("--p1", default="scripted", help="玩家1控制器")
+    p.add_argument("--p2", default="scripted", help="玩家2控制器(n_players≥3)")
+    p.add_argument("--p3", default="scripted", help="玩家3控制器(n_players≥4)")
     p.add_argument("--seed", type=int, default=0)
     p.add_argument("--slug", default="play", help="run 目录名后缀")
     p.add_argument("--record", action="store_true", help="录制轨迹供 replay")
