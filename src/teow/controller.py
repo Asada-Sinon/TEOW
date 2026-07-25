@@ -62,7 +62,10 @@ def scripted_actions(state: WorldState, cfg: Config, mapdata: MapData,
     cl = cell_of(st.pos)                                   # 连续坐标归格(v1.2)
 
     # ---- HQ:缺工人补工人 → 富余则升本(到 ai_base_level_target 止)→ 否则爆兵 ----
-    n_workers = jnp.sum(mine & (st.etype == TYPE_WORKER))
+    from .config import TYPE_STRONGMAN as _TS
+    from .config import TYPE_WAGON as _TW
+    n_workers = jnp.sum(mine & ((st.etype == TYPE_WORKER)
+                                | (st.etype == _TS) | (st.etype == _TW)))
     hq_slot_p = player * cfg.e_max
     base_lv = st.level[hq_slot_p].astype(jnp.int32)
     up_cost = jnp.asarray(
@@ -118,11 +121,15 @@ def scripted_actions(state: WorldState, cfg: Config, mapdata: MapData,
     harv_k = jnp.argmin(hd, axis=0)
     has_harv = jnp.any(harvestable)
 
-    idle_worker = mine & (st.etype == TYPE_WORKER) & (st.order == ORDER_IDLE) & ~st.inside
+    # v1.4:采集单位三类(工人/大力士/马车)同权派工
+    from .config import TYPE_STRONGMAN, TYPE_WAGON
+    is_harv_u = ((st.etype == TYPE_WORKER) | (st.etype == TYPE_STRONGMAN)
+                 | (st.etype == TYPE_WAGON))
+    idle_worker = mine & is_harv_u & (st.order == ORDER_IDLE) & ~st.inside
     # 「征调一个建造者」:优先空闲工人,没有就从采集线上拉一个(不拉矿内的)。
     # 只靠闲人的老逻辑在「afford 门控 + 满员派工」后会饿死——人人有活干,
     # 营/扩张永远没人去建(Phase 0 工具债的连带修正)。
-    can_pull = (mine & (st.etype == TYPE_WORKER) & ~st.inside
+    can_pull = (mine & is_harv_u & ~st.inside
                 & ((st.order == ORDER_IDLE) | (st.order == ORDER_HARVEST)))
     pull_score = jnp.where(can_pull,
                            jnp.arange(n) + n * (st.order != ORDER_IDLE),
@@ -280,7 +287,7 @@ def scripted_actions(state: WorldState, cfg: Config, mapdata: MapData,
     hq_field = dist[cfg.n_nodes + player]                  # [H,W] 静态
     on_ring = hq_field[cl[:, 0], cl[:, 1]] == 1
     is_idle_unit = (mine & ~st.inside & (st.order == ORDER_IDLE)
-                    & ((st.etype == TYPE_WORKER) | (st.etype == TYPE_INFANTRY)))
+                    & (is_harv_u | (st.etype == TYPE_INFANTRY)))
     dirs = jnp.asarray([[-1, 0], [0, 1], [1, 0], [0, -1]], jnp.int32)
     cand = cl[:, None, :] + dirs[None]                     # [N,4,2]
     cc = jnp.clip(cand, 0, jnp.asarray([cfg.grid_h - 1, cfg.grid_w - 1]))
