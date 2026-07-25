@@ -14,6 +14,7 @@
 | `barracks.png` | 兵营 | 营房+交叉武器 |
 | `dog.png` | 狗子 | 冲锋的战犬 |
 | `tower.png` | 哨塔 | 瞭望塔/炮塔 |
+| `flag_p0.png` / `flag_p1.png` | 军旗(v1.3) | 插在地上的阵营色三角旗 |
 
 带 `_p0`/`_p1` 后缀 = 阵营专属版(蓝/红);不带后缀 = 双方共用同一张
 (注意:用共用贴图时阵营只能靠血条/位置区分,建议生成两套或留描边区域)。
@@ -45,6 +46,10 @@ soft ambient occlusion shadow at base, 256x256
 - barracks: `a wooden barracks building with crossed swords sign`
 - dog: `a lean armored war hound in mid-sprint`
 - tower: `a tapered stone watchtower with crenellations and an arrow slit`
+- flag: `a small triangular pennant flag on a wooden pole planted in the ground,
+  fabric rippling in the wind`(军旗是驻守锚点,必须一眼区分阵营——**只生成
+  `_p0`/`_p1` 两套**,不做共用版;旗面就是阵营色主体,蓝/红各一张。
+  注意:PNG 替换槽随 v1.3 Phase 7 前端落地后生效,此前先用矢量小旗)
 
 ## 验收清单(生成后自查)
 
