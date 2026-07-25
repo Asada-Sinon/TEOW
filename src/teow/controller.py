@@ -18,7 +18,11 @@ from .actions import (
     A_NOOP,
     a_build,
     a_build_camp,
+    a_garrison_flag,
+    a_garrison_node,
     a_harvest,
+    a_plant_flag,
+    a_recall_flag,
     a_research,
     a_train_infantry,
     a_train_worker,
@@ -134,7 +138,8 @@ def scripted_actions(state: WorldState, cfg: Config, mapdata: MapData,
     from .config import TYPE_DOG
     is_army = (st.etype == TYPE_INFANTRY) | (st.etype == TYPE_DOG)
     n_army = jnp.sum(mine & is_army)
-    inf_act = jnp.where(n_army >= cfg.ai_attack_threshold, A_ATTACK, A_NOOP)
+    attack_on = n_army >= cfg.ai_attack_threshold
+    inf_act = jnp.where(attack_on, A_ATTACK, A_NOOP)
 
     # ---- 训练营(v1.1):优先研低的那条线(掩码兜底非法),双线到顶则升营 ----
     line_lv = st.upgrades[player]                          # [2]
@@ -205,6 +210,26 @@ def scripted_actions(state: WorldState, cfg: Config, mapdata: MapData,
                      & has_bar & ~has_tower & tower_afford
                      & ~is_camp_builder & ~is_bar_builder)
 
+    # ---- 驻守/军旗(v1.3):有兵营后,槽号最小的 2 只狗驻守离家最远的已建
+    # 矿泵点;第 3 只狗在当前位置插旗(驻守途中/圈内插,位置自然靠前线),
+    # 此后新狗驻守旗 0;总攻期间兵营撤旗 0、全军照旧 A_ATTACK(act 覆盖链里
+    # ATTACK 在后,驻守被覆盖)----
+    is_my_dog = mine & (st.etype == TYPE_DOG)
+    n_dogs = jnp.sum(is_my_dog)
+    dog_rank = jnp.cumsum(is_my_dog.astype(jnp.int32)) - 1   # 槽号序内第几只狗
+    npos = jnp.asarray(mapdata.node_pos)
+    nd_home = dist[cfg.n_nodes + player, npos[:, 0], npos[:, 1]]  # [Nn] 到己方 HQ
+    owned_built = (st.node_owner == player) & (st.node_ent >= 0)
+    far_k = jnp.argmax(jnp.where(owned_built, nd_home, -1)).astype(jnp.int32)
+    has_far = jnp.any(owned_built)
+    any_flag = jnp.any(st.flag_active[player])
+    dog_act = jnp.where(is_my_dog & (dog_rank < 2) & has_bar & (n_dogs >= 2)
+                        & has_far, a_garrison_node(0, cfg) + far_k, A_NOOP)
+    dog_act = jnp.where(is_my_dog & (dog_rank == 2) & (n_dogs >= 3) & ~any_flag,
+                        a_plant_flag(cfg), dog_act)
+    dog_act = jnp.where(is_my_dog & (dog_rank >= 2) & any_flag,
+                        a_garrison_flag(0, cfg), dog_act)
+
     # ---- 矿/泵:库存 ≥ 升级成本+储备 才升(audit v1.1 P2:只查储备不查成本
     # 会把「留军费」的意图打穿,曾是 seed12 水危机的助燃剂)----
     is_node_b = (st.etype == TYPE_MINE) | (st.etype == TYPE_PUMP)
@@ -228,6 +253,11 @@ def scripted_actions(state: WorldState, cfg: Config, mapdata: MapData,
     act = jnp.where(mine & (st.etype == TYPE_CAMP), camp_act, act)
     act = jnp.where(mine & is_node_b, node_act, act)
     act = jnp.where(mine & is_army, inf_act, act)
+    # 驻守/插旗只在非总攻期下达(总攻 tick 起 ATTACK 覆盖全军);撤旗挂兵营,
+    # 覆盖训狗一拍(免费即时,下 tick 旗已灭、掩码自动放行训狗)
+    act = jnp.where(~attack_on & (dog_act != A_NOOP), dog_act, act)
+    act = jnp.where(mine & (st.etype == TYPE_BARRACKS) & attack_on
+                    & st.flag_active[player, 0], a_recall_flag(0, cfg), act)
 
     # ---- 让路:空闲单位贴在自家 HQ 正邻格(=卸货格)上会堵死运矿工人,
     # 命令它朝「远离 HQ」的方向挪一格(实测 4 个待命步兵站满卸货环锁死经济)----

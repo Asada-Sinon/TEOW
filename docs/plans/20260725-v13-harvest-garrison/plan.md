@@ -293,6 +293,19 @@
 
 ## 发现但未做
 
+- **Phase 5 发现(未做)**:seed 0 scripted vs scripted 整局不对称——p0 全场
+  0 军队(兵营 775 tick 才起、狗/步兵始终 0),p1 节奏正常(兵营 760、狗x3
+  @1005、总攻 1035)并于 1116 tick 获胜;双方逻辑相同,不对称疑来自槽号仲裁下
+  的经济分配(名额制+多重预留把 p0 压在练兵线以下)。非 Phase 5 引入:新分支
+  只作用于狗/旗,对无狗玩家恒等。时间线量自
+  `explorations/debug_v13_scripted_garrison.py`。端到端验证与收尾对决时需留意
+  「一边倒」是否普遍(多 seed 看分布),必要时调 ai_* 参数——走 /exp,不在本
+  phase 顺手改。
+- **Phase 5 例外扩界(已做,记档供 validate 对账)**:涌现测试视野从 plan 字面
+  的 900 tick 放到 `cfg.episode_len`(3000)——900 视野实测假红(v1.3 名额制
+  把攒狗推迟到 ~1000 tick),这是 plan critic m-4 自带的后备口径,时间线已复查
+  (驻守 966 / 插旗 1006 / 终局 1116)。
+
 - **Phase 4 例外扩界(已做,记档供 validate 对账)**:①`tests/test_map.py`
   两处 `cfg.n_goals` 断言(dist_fields 形状、场遍历)在 n_goals 10→16 后必挂,
   依例外条款改为静态口径 `cfg.n_nodes + 2`(plan 未列此测试改动);
