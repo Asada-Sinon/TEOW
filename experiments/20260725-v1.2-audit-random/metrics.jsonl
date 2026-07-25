@@ -1,0 +1,13 @@
+{"tick": 1, "res_p0": [70, 40], "res_p1": [80, 50], "alive_p0": 5, "alive_p1": 5, "base_level": [1, 1], "upgrades_p0": [1, 1], "upgrades_p1": [1, 1], "done": false, "winner": -1}
+{"tick": 101, "res_p0": [40, 30], "res_p1": [10, 20], "alive_p0": 6, "alive_p1": 9, "base_level": [1, 1], "upgrades_p0": [1, 1], "upgrades_p1": [1, 1], "done": false, "winner": -1}
+{"tick": 201, "res_p0": [0, 0], "res_p1": [30, 20], "alive_p0": 8, "alive_p1": 11, "base_level": [1, 1], "upgrades_p0": [1, 1], "upgrades_p1": [1, 1], "done": false, "winner": -1}
+{"tick": 301, "res_p0": [0, 0], "res_p1": [100, 90], "alive_p0": 9, "alive_p1": 13, "base_level": [1, 1], "upgrades_p0": [1, 1], "upgrades_p1": [1, 1], "done": false, "winner": -1}
+{"tick": 401, "res_p0": [0, 30], "res_p1": [70, 90], "alive_p0": 9, "alive_p1": 16, "base_level": [1, 1], "upgrades_p0": [1, 1], "upgrades_p1": [1, 1], "done": false, "winner": -1}
+{"tick": 501, "res_p0": [0, 50], "res_p1": [80, 80], "alive_p0": 8, "alive_p1": 16, "base_level": [1, 1], "upgrades_p0": [1, 1], "upgrades_p1": [1, 1], "done": false, "winner": -1}
+{"tick": 601, "res_p0": [0, 80], "res_p1": [180, 70], "alive_p0": 8, "alive_p1": 13, "base_level": [1, 1], "upgrades_p0": [1, 1], "upgrades_p1": [1, 1], "done": false, "winner": -1}
+{"tick": 701, "res_p0": [0, 100], "res_p1": [120, 0], "alive_p0": 7, "alive_p1": 14, "base_level": [1, 2], "upgrades_p0": [1, 1], "upgrades_p1": [1, 1], "done": false, "winner": -1}
+{"tick": 801, "res_p0": [0, 120], "res_p1": [134, 2], "alive_p0": 7, "alive_p1": 18, "base_level": [1, 2], "upgrades_p0": [1, 1], "upgrades_p1": [1, 1], "done": false, "winner": -1}
+{"tick": 901, "res_p0": [0, 160], "res_p1": [6, 16], "alive_p0": 7, "alive_p1": 21, "base_level": [1, 2], "upgrades_p0": [1, 1], "upgrades_p1": [1, 1], "done": false, "winner": -1}
+{"tick": 1001, "res_p0": [0, 190], "res_p1": [0, 56], "alive_p0": 7, "alive_p1": 22, "base_level": [1, 2], "upgrades_p0": [1, 1], "upgrades_p1": [1, 1], "done": false, "winner": -1}
+{"tick": 1101, "res_p0": [0, 200], "res_p1": [16, 135], "alive_p0": 7, "alive_p1": 24, "base_level": [1, 2], "upgrades_p0": [1, 1], "upgrades_p1": [1, 1], "done": false, "winner": -1}
+{"tick": 1151, "res_p0": [0, 220], "res_p1": [20, 162], "alive_p0": 3, "alive_p1": 24, "base_level": [1, 2], "upgrades_p0": [1, 1], "upgrades_p1": [1, 1], "done": true, "winner": 1}

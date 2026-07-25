@@ -302,9 +302,15 @@ def special_tasks_tick(state: WorldState, cfg: Config,
     # 研发完成:该玩家对应线 +1(legality 保证同线同 tick 至多一营在研),
     # 存量单位 hp 补上限差额(plan:不缩放,保伤痕)
     upgrades = st.upgrades
-    for line, code, hp_table, ut in (
-        (LINE_INFANTRY, BTASK_RESEARCH_INF, cfg.inf_hp_by_level, TYPE_INFANTRY),
-        (LINE_WORKER, BTASK_RESEARCH_WORKER, cfg.worker_hp_by_level, TYPE_WORKER),
+    # 每条线可惠及多个单位类型(步兵线同时管步兵与狗——audit v1.2 P0-1:
+    # 只补步兵会让存量狗血量永久分裂,而攻击又是即时查表,血攻不对称)。
+    # 线级递增与补血分开算,防多受益类型导致重复加级。
+    from .config import TYPE_DOG
+    for line, code, benef in (
+        (LINE_INFANTRY, BTASK_RESEARCH_INF,
+         ((cfg.inf_hp_by_level, TYPE_INFANTRY), (cfg.dog_hp_by_level, TYPE_DOG))),
+        (LINE_WORKER, BTASK_RESEARCH_WORKER,
+         ((cfg.worker_hp_by_level, TYPE_WORKER),)),
     ):
         rdone = done & (st.btype == code)
         for p in (0, 1):  # 编译期展开
@@ -313,9 +319,10 @@ def special_tasks_tick(state: WorldState, cfg: Config,
             new = jnp.minimum(old + 1, 7)
             upgrades = upgrades.at[p, line].set(
                 jnp.where(hit, new, old).astype(jnp.int8))
-            delta = jnp.asarray(hp_table)[new] - jnp.asarray(hp_table)[old]
-            bump = st.alive & (own_i == p) & (st.etype == ut)
-            hp = hp + jnp.where(hit & bump, delta, 0)
+            for hp_table, ut in benef:
+                delta = jnp.asarray(hp_table)[new] - jnp.asarray(hp_table)[old]
+                bump = st.alive & (own_i == p) & (st.etype == ut)
+                hp = hp + jnp.where(hit & bump, delta, 0)
 
     btype = jnp.where(done, 0, st.btype).astype(jnp.int8)
     return st._replace(hp=hp.astype(jnp.int32), level=level,

@@ -47,7 +47,7 @@ def combat_tick(state: WorldState, cfg: Config, owner: jax.Array) -> WorldState:
     valid = valid & (~is_tower[:, None] | is_unit[None, :])
     is_building = ((st.etype == TYPE_HQ) | (st.etype == TYPE_MINE)
                    | (st.etype == TYPE_PUMP) | (st.etype == TYPE_CAMP)
-                   | (st.etype == TYPE_BARRACKS))
+                   | (st.etype == TYPE_BARRACKS) | (st.etype == TYPE_TOWER))
     score = eu + 10.0 * is_building[None, :].astype(jnp.float32)
     score = jnp.where(valid, score, 1e9)
     tgt = jnp.argmin(score, axis=1)
