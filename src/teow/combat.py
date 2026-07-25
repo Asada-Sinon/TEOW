@@ -13,7 +13,9 @@ import jax.numpy as jnp
 
 from .config import (
     LINE_INFANTRY,
+    TYPE_BARRACKS,
     TYPE_CAMP,
+    TYPE_DOG,
     TYPE_HQ,
     TYPE_INFANTRY,
     TYPE_MINE,
@@ -27,7 +29,8 @@ from .state import ORDER_BUILD, ORDER_HARVEST, ORDER_IDLE, PH_TO_NODE, WorldStat
 def combat_tick(state: WorldState, cfg: Config, owner: jax.Array) -> WorldState:
     st = state
     on_board = st.alive & ~st.inside
-    is_unit = (st.etype == TYPE_WORKER) | (st.etype == TYPE_INFANTRY)
+    is_unit = ((st.etype == TYPE_WORKER) | (st.etype == TYPE_INFANTRY)
+               | (st.etype == TYPE_DOG))
     attacker = on_board & is_unit
     targetable = on_board  # 建筑(HQ/矿/泵)都可被打;矿内工人离场不可被打
 
@@ -36,7 +39,8 @@ def combat_tick(state: WorldState, cfg: Config, owner: jax.Array) -> WorldState:
     valid = (attacker[:, None] & targetable[None, :]
              & (owner[:, None] != owner[None, :]) & (eu <= cfg.melee_range))
     is_building = ((st.etype == TYPE_HQ) | (st.etype == TYPE_MINE)
-                   | (st.etype == TYPE_PUMP) | (st.etype == TYPE_CAMP))
+                   | (st.etype == TYPE_PUMP) | (st.etype == TYPE_CAMP)
+                   | (st.etype == TYPE_BARRACKS))
     score = eu + 10.0 * is_building[None, :].astype(jnp.float32)
     score = jnp.where(valid, score, 1e9)
     tgt = jnp.argmin(score, axis=1)
@@ -45,7 +49,9 @@ def combat_tick(state: WorldState, cfg: Config, owner: jax.Array) -> WorldState:
     # 步兵攻击按其玩家的步兵线等级查表(v1.1 全局线);工人攻击无升级线,恒标量
     il = st.upgrades[owner.astype(jnp.int32), LINE_INFANTRY]
     inf_atk = jnp.asarray(cfg.inf_atk_by_level)[il]
-    atk = jnp.where(st.etype == TYPE_INFANTRY, inf_atk, cfg.worker_atk)
+    dog_atk = jnp.asarray(cfg.dog_atk_by_level)[il]  # 狗吃步兵线
+    atk = jnp.where(st.etype == TYPE_INFANTRY, inf_atk,
+                    jnp.where(st.etype == TYPE_DOG, dog_atk, cfg.worker_atk))
     dmg = jnp.where(has_tgt & attacker, atk, 0).astype(jnp.int32)
     incoming = jnp.zeros(cfg.n_total, jnp.int32).at[tgt].add(dmg)
     hp = jnp.maximum(st.hp - incoming, 0)

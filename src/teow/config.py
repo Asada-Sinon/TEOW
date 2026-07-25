@@ -18,7 +18,9 @@ TYPE_MINE = 2  # 建在矿点上的采集建筑
 TYPE_PUMP = 3  # 建在水点上的采集建筑
 TYPE_WORKER = 4
 TYPE_INFANTRY = 5
-TYPE_CAMP = 6  # 技能训练营(v1.1;基地2级解锁,建成即2级)
+TYPE_CAMP = 6      # 技能训练营(v1.1;基地2级解锁,建成即2级)
+TYPE_BARRACKS = 7  # 兵营(v1.2;基地2级解锁,出狗子)
+TYPE_DOG = 8       # 狗子(v1.2;快/脆/低攻,吃步兵捆绑线)
 
 # 资源类型编码(state.resources 的第二维;与资源点 node_type 一致)
 RES_ORE = 0
@@ -33,7 +35,8 @@ LINE_WORKER = 1    # 工人经济线:载荷/开采速度/血量,无攻击
 BTASK_UPGRADE = -1        # 建筑自升级(HQ/矿/泵/营)
 BTASK_RESEARCH_INF = -2   # 训练营:研发步兵线
 BTASK_RESEARCH_WORKER = -3  # 训练营:研发工人线
-BTASK_BUILD_CAMP = -4     # 在建训练营的专属标记(建成前 hp 由 btimer 反推成长)
+BTASK_BUILD_CAMP = -4     # 在建训练营的专属标记(建成前 hp 线性成长)
+BTASK_BUILD_BARRACKS = -5  # 在建兵营(v1.2;同营的成长语义,建成 level=1)
 
 
 @dataclasses.dataclass(frozen=True)
@@ -98,7 +101,11 @@ class Config:
     # 升级/研发的 cost/time 表按「当前等级」取(花费=从 L 升到 L+1),
     # 有效位 1..6(营 2..6),表长同 8。数值初值均 [AI-DRAFT],依据见 DECISIONS。
     base_max_level: int = 7
-    camp_unlock_level: int = 2   # 基地几级解锁训练营(解锁表第一项;v1.2 兵营/哨塔沿用此模式)
+    # 解锁表(v1.2 扩成表结构,按 TYPE_* 下标):基地几级解锁该类型的建造。
+    # 0 = 不受基地等级限制;表长 16 与 speed_by_type 对齐。
+    # camp=2(TYPE_CAMP=6)、兵营=2(TYPE_BARRACKS=7)、哨塔=2(v1.2 Phase3)
+    unlock_level_by_type: tuple = (0, 0, 0, 0, 0, 0, 2, 2, 0, 2,
+                                   0, 0, 0, 0, 0, 0)
 
     # 基地升级(收益=解锁+矿泵/营等级上限,零单位加成——issue v1.1 设计决策)
     base_up_cost_ore: tuple = (0, 100, 150, 250, 400, 600, 900, 0)
@@ -126,6 +133,18 @@ class Config:
     inf_res_cost_ore: tuple = (0, 60, 90, 140, 210, 300, 420, 0)
     inf_res_cost_water: tuple = (0, 40, 60, 90, 140, 200, 280, 0)
     inf_res_time: tuple = (0, 120, 150, 180, 210, 240, 270, 0)
+
+    # 兵营与狗子(v1.2;狗子吃步兵捆绑线,不单开线——DECISIONS)
+    max_barracks: int = 2   # 每玩家兵营数量上限
+    barracks_cost_ore: int = 80
+    barracks_cost_water: int = 40
+    barracks_build_time: int = 120
+    barracks_hp: int = 200
+    dog_cost_ore: int = 20
+    dog_cost_water: int = 5
+    dog_time: int = 30
+    dog_hp_by_level: tuple = (0, 24, 29, 34, 40, 47, 55, 64)
+    dog_atk_by_level: tuple = (0, 3, 4, 4, 5, 6, 7, 8)
 
     # 工人经济线(载荷/开采速度/血量,无攻击;线等级上限=营等级)
     worker_carry_by_level: tuple = (0, 10, 12, 14, 17, 20, 24, 28)

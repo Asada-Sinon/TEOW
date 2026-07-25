@@ -1,0 +1,3 @@
+run_dir: /home/michael/workspace/pi05/temp/TEOW/experiments/20260725-p2-dogs-check
+device: TFRT_CPU_0  p0=scripted p1=scripted seed=0
+结束 tick=956 winner=1(玩家1胜)  276 tick/s

@@ -1,0 +1,11 @@
+f34bdb459834cc5ce54163cb45496c3510794203
+dirty: True
+ M src/teow/actions.py
+ M src/teow/combat.py
+ M src/teow/config.py
+ M src/teow/controller.py
+ M src/teow/economy.py
+ M src/teow/movement.py
+ M src/teow/state.py
+ M src/teow/step.py
+?? experiments/20260725-p1-cont-check/

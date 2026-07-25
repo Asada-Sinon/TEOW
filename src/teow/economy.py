@@ -95,14 +95,23 @@ def paid_orders_pass(state: WorldState, act: jax.Array, cfg: Config,
     act 必须是 apply_orders 返回的合法化动作。
     结算顺序(固定,写死防漂移):①升级+研发按槽号 cumsum 对账 ②建营
     (同玩家同 tick 至多批准一座,用①之后的余额)。"""
-    from .actions import a_build_camp, a_research, a_upgrade
+    from .actions import (
+        a_build_barracks,
+        a_build_camp,
+        a_research,
+        a_train_dog,
+        a_upgrade,
+    )
     from .config import (
+        BTASK_BUILD_BARRACKS,
         BTASK_BUILD_CAMP,
         BTASK_RESEARCH_INF,
         BTASK_RESEARCH_WORKER,
         LINE_INFANTRY,
         LINE_WORKER,
+        TYPE_BARRACKS,
         TYPE_CAMP,
+        TYPE_DOG,
     )
 
     own_i = owner.astype(jnp.int32)
@@ -134,7 +143,11 @@ def paid_orders_pass(state: WorldState, act: jax.Array, cfg: Config,
     cost += (jnp.stack([jnp.asarray(cfg.worker_res_cost_ore)[cur_w],
                         jnp.asarray(cfg.worker_res_cost_water)[cur_w]], -1)
              * w_rw[:, None])
-    want = w_up | w_ri | w_rw
+    # 训狗(v1.2):同 tick 多座兵营可同时下单,与升级/研发同一 cumsum 对账
+    w_dog = act == a_train_dog(cfg)
+    cost += (jnp.asarray([cfg.dog_cost_ore, cfg.dog_cost_water], jnp.int32)[None, :]
+             * w_dog[:, None])
+    want = w_up | w_ri | w_rw | w_dog
 
     afford = jnp.zeros(cfg.n_total, bool)
     stock = st.resources
@@ -147,23 +160,34 @@ def paid_orders_pass(state: WorldState, act: jax.Array, cfg: Config,
     pay = jnp.zeros_like(stock).at[own_i].add(jnp.where(do[:, None], cost, 0))
     stock = stock - pay
     task = jnp.where(w_ri, BTASK_RESEARCH_INF,
-                     jnp.where(w_rw, BTASK_RESEARCH_WORKER, BTASK_UPGRADE))
+                     jnp.where(w_rw, BTASK_RESEARCH_WORKER,
+                               jnp.where(w_dog, TYPE_DOG, BTASK_UPGRADE)))
     t = jnp.where(w_ri, jnp.asarray(cfg.inf_res_time)[cur_i],
                   jnp.where(w_rw, jnp.asarray(cfg.worker_res_time)[cur_w],
-                            upgrade_time_of(st, cfg)))
+                            jnp.where(w_dog, cfg.dog_time,
+                                      upgrade_time_of(st, cfg))))
     st = st._replace(
         resources=stock,
         btype=jnp.where(do, task, st.btype).astype(jnp.int8),
         btimer=jnp.where(do, t, st.btimer).astype(jnp.int16),
     )
 
-    # ---- ② 建营:同玩家取槽号最小的申请者,落其相邻第一空闲格 ----
-    camp_cost = jnp.asarray([cfg.camp_cost_ore, cfg.camp_cost_water], jnp.int32)
+    # ---- ② 自由格建筑(营/兵营):同玩家每种取槽号最小的申请者,
+    # 落其相邻第一空闲格 ----
     occ = occupancy_grid(st, cfg)
     passable = jnp.asarray(mapdata.passable)
     h, w = cfg.grid_h, cfg.grid_w
-    for p in (0, 1):  # 编译期展开
-        cand = (act == a_build_camp(cfg)) & (own_i == p)
+    structs = (
+        (a_build_camp(cfg), TYPE_CAMP, BTASK_BUILD_CAMP,
+         jnp.asarray([cfg.camp_cost_ore, cfg.camp_cost_water], jnp.int32),
+         cfg.camp_build_time, jnp.asarray(cfg.camp_hp_by_level)[2] // 10),
+        (a_build_barracks(cfg), TYPE_BARRACKS, BTASK_BUILD_BARRACKS,
+         jnp.asarray([cfg.barracks_cost_ore, cfg.barracks_cost_water], jnp.int32),
+         cfg.barracks_build_time, cfg.barracks_hp // 10),
+    )
+    for a_id, stype, btask, camp_cost, build_t, start_hp0 in structs:
+      for p in (0, 1):  # 编译期展开
+        cand = (act == a_id) & (own_i == p)
         bidx = jnp.argmax(cand)                # 全 False 返 0,has 门控
         has = jnp.any(cand) & jnp.all(st.resources[p] >= camp_cost)
 
@@ -179,22 +203,22 @@ def paid_orders_pass(state: WorldState, act: jax.Array, cfg: Config,
         slot = base + jnp.argmax(free)
         do_c = has & jnp.any(ok) & jnp.any(free)
         cell = cc[ci]
-        start_hp = jnp.asarray(cfg.camp_hp_by_level)[2] // 10
+        start_hp = start_hp0
 
         st = st._replace(
             resources=st.resources.at[p].add(jnp.where(do_c, -camp_cost, 0)),
             alive=st.alive.at[slot].set(jnp.where(do_c, True, st.alive[slot])),
             etype=st.etype.at[slot].set(
-                jnp.where(do_c, TYPE_CAMP, st.etype[slot]).astype(jnp.int8)),
+                jnp.where(do_c, stype, st.etype[slot]).astype(jnp.int8)),
             pos=st.pos.at[slot].set(
                 jnp.where(do_c, cell.astype(jnp.float32), st.pos[slot])),
             hp=st.hp.at[slot].set(jnp.where(do_c, start_hp, st.hp[slot])),
             level=st.level.at[slot].set(
                 jnp.where(do_c, 1, st.level[slot]).astype(jnp.int8)),
             btype=st.btype.at[slot].set(
-                jnp.where(do_c, BTASK_BUILD_CAMP, st.btype[slot]).astype(jnp.int8)),
+                jnp.where(do_c, btask, st.btype[slot]).astype(jnp.int8)),
             btimer=st.btimer.at[slot].set(
-                jnp.where(do_c, cfg.camp_build_time, st.btimer[slot]).astype(jnp.int16)),
+                jnp.where(do_c, build_t, st.btimer[slot]).astype(jnp.int16)),
         )
         occ = occ.at[cell[0], cell[1]].max(do_c)  # 防两家同格(远隔,保险)
     return st
@@ -206,6 +230,7 @@ def special_tasks_tick(state: WorldState, cfg: Config,
     否则「btype<0 & btimer==0」下一 tick 重复触发,level 每 tick+1 直到溢出)。
     btimer 的递减复用 production_tick(它对所有 btimer>0 无差别倒数)。"""
     from .config import (
+        BTASK_BUILD_BARRACKS,
         BTASK_BUILD_CAMP,
         BTASK_RESEARCH_INF,
         BTASK_RESEARCH_WORKER,
@@ -221,6 +246,13 @@ def special_tasks_tick(state: WorldState, cfg: Config,
     g = (full - start) // t_build  # 每 tick 增量(可为 0,余数在完成拍补)
     growing = st.alive & (st.btype == BTASK_BUILD_CAMP) & (st.btimer > 0)
     hp = st.hp + jnp.where(growing, g, 0)
+    # 在建兵营:同款线性成长(建成 level 保持 1)
+    bfull = int(cfg.barracks_hp)
+    bstart = bfull // 10
+    bt = cfg.barracks_build_time
+    bg = (bfull - bstart) // bt
+    growing_b = st.alive & (st.btype == BTASK_BUILD_BARRACKS) & (st.btimer > 0)
+    hp = hp + jnp.where(growing_b, bg, 0)
 
     done = st.alive & (st.btype < 0) & (st.btimer == 0)
 
@@ -231,6 +263,9 @@ def special_tasks_tick(state: WorldState, cfg: Config,
     remainder = (full - start) - g * (t_build - 1)
     hp = hp + jnp.where(camp_done, remainder, 0)
     level = jnp.where(camp_done, 2, st.level)
+    bar_done = done & (st.btype == BTASK_BUILD_BARRACKS)
+    b_rem = (bfull - bstart) - bg * (bt - 1)
+    hp = hp + jnp.where(bar_done, b_rem, 0)
 
     # 自升级完成
     upg = done & (st.btype == BTASK_UPGRADE)
@@ -260,17 +295,21 @@ def special_tasks_tick(state: WorldState, cfg: Config,
 
 
 def _unit_spawn_hp(cfg: Config, ut: jax.Array, upgrades_p: jax.Array) -> jax.Array:
-    """新单位出生血量:按其所属玩家的升级线等级查表(v1.1 起,全局线生效)。"""
+    """新单位出生血量:按其所属玩家的升级线等级查表(v1.1 起,全局线生效)。
+    狗子吃步兵捆绑线(DECISIONS)。"""
+    from .config import TYPE_DOG
     whp = jnp.asarray(cfg.worker_hp_by_level)[upgrades_p[LINE_WORKER]]
     ihp = jnp.asarray(cfg.inf_hp_by_level)[upgrades_p[LINE_INFANTRY]]
-    return jnp.where(ut == TYPE_WORKER, whp, ihp)
+    dhp = jnp.asarray(cfg.dog_hp_by_level)[upgrades_p[LINE_INFANTRY]]
+    return jnp.where(ut == TYPE_WORKER, whp,
+                     jnp.where(ut == TYPE_DOG, dhp, ihp))
 
 
 def production_tick(state: WorldState, cfg: Config, mapdata: MapData) -> WorldState:
     """训练倒计时与落地。落不下(周围无空格/半区无空槽)则停在 1,下 tick 重试。
 
-    NOTE(v1.1):此实现假设同玩家同 tick 至多一个生产建筑完成(v1.0 仅 HQ)。
-    引入兵营后须改为对完成者逐个仲裁落地格与槽位。
+    v1.2:同玩家同 tick 可有多个生产建筑完成(HQ+兵营),每玩家循环处理
+    至多 1+max_barracks 个完成者,逐个仲裁落地格与槽位(critic B-1 兑现)。
     """
     btimer = jnp.where(state.btimer > 0, state.btimer - 1, state.btimer)
     st = state._replace(btimer=btimer.astype(jnp.int16))
@@ -280,6 +319,7 @@ def production_tick(state: WorldState, cfg: Config, mapdata: MapData) -> WorldSt
     h, w = cfg.grid_h, cfg.grid_w
 
     for p in (0, 1):  # 编译期展开
+      for _round in range(3):  # 每玩家至多 HQ+2 兵营同 tick 完成(编译期展开)
         base = hq_slot(p, cfg)
         producing = st.alive & (st.btype > 0) & (st.btimer == 0)
         half = jnp.zeros(cfg.n_total, bool).at[base:base + cfg.e_max].set(True)

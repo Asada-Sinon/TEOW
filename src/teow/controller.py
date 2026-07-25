@@ -116,9 +116,11 @@ def scripted_actions(state: WorldState, cfg: Config, mapdata: MapData,
     worker_act = jnp.where(is_builder, a_build(0) + build_k, worker_act)
     worker_act = jnp.where(idle_worker, worker_act, A_NOOP)
 
-    # ---- 步兵:攒够阈值全军 attack-move(重复下达无害)----
-    n_inf = jnp.sum(mine & (st.etype == TYPE_INFANTRY))
-    inf_act = jnp.where(n_inf >= cfg.ai_attack_threshold, A_ATTACK, A_NOOP)
+    # ---- 军队:狗+步兵攒够阈值全军 attack-move(重复下达无害)----
+    from .config import TYPE_DOG
+    is_army = (st.etype == TYPE_INFANTRY) | (st.etype == TYPE_DOG)
+    n_army = jnp.sum(mine & is_army)
+    inf_act = jnp.where(n_army >= cfg.ai_attack_threshold, A_ATTACK, A_NOOP)
 
     # ---- 训练营(v1.1):优先研低的那条线(掩码兜底非法),双线到顶则升营 ----
     line_lv = st.upgrades[player]                          # [2]
@@ -130,12 +132,24 @@ def scripted_actions(state: WorldState, cfg: Config, mapdata: MapData,
     # ---- 建营:基地达标且没有己方营(含在建)时,征调一个工人就地起营
     # (同一征调池;若与扩张建造者撞同一人,建营优先——它在 act 覆盖链更后)----
     has_camp = jnp.any(mine & (st.etype == TYPE_CAMP))
-    base_ok = st.level[player * cfg.e_max] >= cfg.camp_unlock_level
+    unlock = jnp.asarray(cfg.unlock_level_by_type, jnp.int32)
+    base_ok = st.level[player * cfg.e_max] >= unlock[TYPE_CAMP]
     camp_afford = jnp.all(st.resources[player]
                           >= jnp.asarray([cfg.camp_cost_ore, cfg.camp_cost_water]))
     camp_builder = jnp.argmin(pull_score)
     is_camp_builder = ((jnp.arange(n) == camp_builder) & jnp.any(can_pull)
                        & base_ok & ~has_camp & camp_afford)
+
+    # ---- 兵营:有了营再建兵营(科技优先),兵营空闲就训狗 ----
+    from .actions import a_build_barracks, a_train_dog
+    from .config import TYPE_BARRACKS
+    has_bar = jnp.any(mine & (st.etype == TYPE_BARRACKS))
+    bar_afford = jnp.all(st.resources[player] >= jnp.asarray(
+        [cfg.barracks_cost_ore, cfg.barracks_cost_water]))
+    bar_builder = jnp.argmin(pull_score)
+    is_bar_builder = ((jnp.arange(n) == bar_builder) & jnp.any(can_pull)
+                      & (st.level[player * cfg.e_max] >= unlock[TYPE_BARRACKS])
+                      & has_camp & ~has_bar & bar_afford & ~is_camp_builder)
 
     # ---- 矿/泵:库存 ≥ 升级成本+储备 才升(audit v1.1 P2:只查储备不查成本
     # 会把「留军费」的意图打穿,曾是 seed12 水危机的助燃剂)----
@@ -153,9 +167,11 @@ def scripted_actions(state: WorldState, cfg: Config, mapdata: MapData,
     act = jnp.where(mine & (st.etype == TYPE_HQ), hq_act, act)
     act = jnp.where(idle_worker, worker_act, act)
     act = jnp.where(is_camp_builder, a_build_camp(cfg), act)
+    act = jnp.where(is_bar_builder, a_build_barracks(cfg), act)
+    act = jnp.where(mine & (st.etype == TYPE_BARRACKS), a_train_dog(cfg), act)
     act = jnp.where(mine & (st.etype == TYPE_CAMP), camp_act, act)
     act = jnp.where(mine & is_node_b, node_act, act)
-    act = jnp.where(mine & (st.etype == TYPE_INFANTRY), inf_act, act)
+    act = jnp.where(mine & is_army, inf_act, act)
 
     # ---- 让路:空闲单位贴在自家 HQ 正邻格(=卸货格)上会堵死运矿工人,
     # 命令它朝「远离 HQ」的方向挪一格(实测 4 个待命步兵站满卸货环锁死经济)----

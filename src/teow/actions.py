@@ -75,7 +75,7 @@ def a_upgrade(cfg: Config) -> int:
 
 
 def a_build_camp(cfg: Config) -> int:
-    """工人在自身相邻空闲格起技能训练营(基地≥camp_unlock_level 解锁)。
+    """工人在自身相邻空闲格起技能训练营(解锁表 TYPE_CAMP)。
     扣费+落格+占槽都在 paid_orders_pass(同 tick 同玩家至多批准一座)。"""
     return 10 + 2 * cfg.n_nodes
 
@@ -85,8 +85,18 @@ def a_research(line: int, cfg: Config) -> int:
     return 11 + line + 2 * cfg.n_nodes
 
 
-def n_actions(cfg: Config) -> int:
+def a_build_barracks(cfg: Config) -> int:
+    """工人起兵营(v1.2;解锁表 TYPE_BARRACKS,机制同建营)。"""
     return 13 + 2 * cfg.n_nodes
+
+
+def a_train_dog(cfg: Config) -> int:
+    """兵营训练狗子(v1.2)。"""
+    return 14 + 2 * cfg.n_nodes
+
+
+def n_actions(cfg: Config) -> int:
+    return 15 + 2 * cfg.n_nodes
 
 
 def unit_costs(cfg: Config) -> jax.Array:
@@ -113,8 +123,9 @@ def legality_mask(state: WorldState, cfg: Config, mapdata: MapData,
     h, w = cfg.grid_h, cfg.grid_w
     passable = jnp.asarray(mapdata.passable)
 
+    from .config import TYPE_DOG
     is_worker = state.etype == TYPE_WORKER
-    is_inf = state.etype == TYPE_INFANTRY
+    is_inf = (state.etype == TYPE_INFANTRY) | (state.etype == TYPE_DOG)  # 战斗单位
     is_hq = state.etype == TYPE_HQ
     actable = state.alive & ~state.inside  # 矿内工人只许 NOOP
 
@@ -150,7 +161,8 @@ def legality_mask(state: WorldState, cfg: Config, mapdata: MapData,
         jnp.any(~state.alive[:cfg.e_max]),
         jnp.any(~state.alive[cfg.e_max:]),
     ])[half]                                              # [N]
-    hq_idle = actable & is_hq & (state.btimer == 0) & free_in_half
+    hq_idle = (actable & is_hq & (state.btimer == 0) & (state.btype == 0)
+               & free_in_half)
     mask = mask.at[:, a_train_worker(cfg)].set(
         hq_idle & jnp.all(stock >= ucost[0], axis=-1))
     mask = mask.at[:, a_train_infantry(cfg)].set(
@@ -169,12 +181,31 @@ def legality_mask(state: WorldState, cfg: Config, mapdata: MapData,
               & jnp.all(stock >= up_cost, axis=-1))
     mask = mask.at[:, a_upgrade(cfg)].set(can_up)
 
-    # 建训练营(v1.1):工人 + 基地解锁 + 半区有空槽 + 乐观付得起
-    # (落格与最终扣费在 paid_orders_pass;同玩家同 tick 至多批准一座)
+    # 自由格建筑(营/兵营):工人 + 解锁表 + 半区有空槽 + 乐观付得起
+    # (落格与最终扣费在 paid_orders_pass;同玩家同 tick 每种至多批准一座)
+    from .config import TYPE_BARRACKS
+    unlock = jnp.asarray(cfg.unlock_level_by_type, jnp.int32)
     camp_cost = jnp.asarray([cfg.camp_cost_ore, cfg.camp_cost_water], jnp.int32)
-    can_camp = (actable & is_worker & (hq_lv >= cfg.camp_unlock_level)
+    can_camp = (actable & is_worker & (hq_lv >= unlock[TYPE_CAMP])
                 & free_in_half & jnp.all(stock >= camp_cost, axis=-1))
     mask = mask.at[:, a_build_camp(cfg)].set(can_camp)
+    bar_cost = jnp.asarray([cfg.barracks_cost_ore, cfg.barracks_cost_water], jnp.int32)
+    n_bar = jnp.stack([
+        jnp.sum((owner == 0) & state.alive & (state.etype == TYPE_BARRACKS)),
+        jnp.sum((owner == 1) & state.alive & (state.etype == TYPE_BARRACKS)),
+    ])[half]
+    can_bar = (actable & is_worker & (hq_lv >= unlock[TYPE_BARRACKS])
+               & (n_bar < cfg.max_barracks) & free_in_half
+               & jnp.all(stock >= bar_cost, axis=-1))
+    mask = mask.at[:, a_build_barracks(cfg)].set(can_bar)
+
+    # 训狗(v1.2):建成兵营空闲 + 半区有空槽 + 付得起
+    is_bar = state.etype == TYPE_BARRACKS
+    dog_cost = jnp.asarray([cfg.dog_cost_ore, cfg.dog_cost_water], jnp.int32)
+    bar_idle = (actable & is_bar & (state.btimer == 0) & (state.btype == 0)
+                & free_in_half)
+    mask = mask.at[:, a_train_dog(cfg)].set(
+        bar_idle & jnp.all(stock >= dog_cost, axis=-1))
 
     # 研发(v1.1):建成的营(level>=2)空闲 + 线级<营级 + 付得起
     # + 本玩家没有别的营在研同一条线(防同线并研双倍跳级)
@@ -220,6 +251,7 @@ def apply_orders(state: WorldState, actions: jax.Array, cfg: Config,
     is_harv = (act >= a_harvest(0, cfg)) & (act < a_harvest(cfg.n_nodes, cfg))
     is_tw = act == a_train_worker(cfg)
     is_ti = act == a_train_infantry(cfg)
+    # 训狗不在此扣费:同 tick 多座兵营可同时下单,走 paid_orders_pass 对账
 
     build_k = jnp.where(is_build, act - a_build(0), -1).astype(jnp.int8)
     harv_k = jnp.where(is_harv, act - a_harvest(0, cfg), -1).astype(jnp.int8)

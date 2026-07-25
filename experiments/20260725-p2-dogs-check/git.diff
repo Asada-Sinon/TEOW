@@ -1,0 +1,436 @@
+diff --git a/src/teow/actions.py b/src/teow/actions.py
+index 1156e92..767e7b1 100644
+--- a/src/teow/actions.py
++++ b/src/teow/actions.py
+@@ -75,7 +75,7 @@ def a_upgrade(cfg: Config) -> int:
+ 
+ 
+ def a_build_camp(cfg: Config) -> int:
+-    """工人在自身相邻空闲格起技能训练营(基地≥camp_unlock_level 解锁)。
++    """工人在自身相邻空闲格起技能训练营(解锁表 TYPE_CAMP)。
+     扣费+落格+占槽都在 paid_orders_pass(同 tick 同玩家至多批准一座)。"""
+     return 10 + 2 * cfg.n_nodes
+ 
+@@ -85,10 +85,20 @@ def a_research(line: int, cfg: Config) -> int:
+     return 11 + line + 2 * cfg.n_nodes
+ 
+ 
+-def n_actions(cfg: Config) -> int:
++def a_build_barracks(cfg: Config) -> int:
++    """工人起兵营(v1.2;解锁表 TYPE_BARRACKS,机制同建营)。"""
+     return 13 + 2 * cfg.n_nodes
+ 
+ 
++def a_train_dog(cfg: Config) -> int:
++    """兵营训练狗子(v1.2)。"""
++    return 14 + 2 * cfg.n_nodes
++
++
++def n_actions(cfg: Config) -> int:
++    return 15 + 2 * cfg.n_nodes
++
++
+ def unit_costs(cfg: Config) -> jax.Array:
+     """int32 [2(单位:工人/步兵), 2(资源)]。"""
+     return jnp.asarray(
+@@ -113,8 +123,9 @@ def legality_mask(state: WorldState, cfg: Config, mapdata: MapData,
+     h, w = cfg.grid_h, cfg.grid_w
+     passable = jnp.asarray(mapdata.passable)
+ 
++    from .config import TYPE_DOG
+     is_worker = state.etype == TYPE_WORKER
+-    is_inf = state.etype == TYPE_INFANTRY
++    is_inf = (state.etype == TYPE_INFANTRY) | (state.etype == TYPE_DOG)  # 战斗单位
+     is_hq = state.etype == TYPE_HQ
+     actable = state.alive & ~state.inside  # 矿内工人只许 NOOP
+ 
+@@ -150,7 +161,8 @@ def legality_mask(state: WorldState, cfg: Config, mapdata: MapData,
+         jnp.any(~state.alive[:cfg.e_max]),
+         jnp.any(~state.alive[cfg.e_max:]),
+     ])[half]                                              # [N]
+-    hq_idle = actable & is_hq & (state.btimer == 0) & free_in_half
++    hq_idle = (actable & is_hq & (state.btimer == 0) & (state.btype == 0)
++               & free_in_half)
+     mask = mask.at[:, a_train_worker(cfg)].set(
+         hq_idle & jnp.all(stock >= ucost[0], axis=-1))
+     mask = mask.at[:, a_train_infantry(cfg)].set(
+@@ -169,12 +181,31 @@ def legality_mask(state: WorldState, cfg: Config, mapdata: MapData,
+               & jnp.all(stock >= up_cost, axis=-1))
+     mask = mask.at[:, a_upgrade(cfg)].set(can_up)
+ 
+-    # 建训练营(v1.1):工人 + 基地解锁 + 半区有空槽 + 乐观付得起
+-    # (落格与最终扣费在 paid_orders_pass;同玩家同 tick 至多批准一座)
++    # 自由格建筑(营/兵营):工人 + 解锁表 + 半区有空槽 + 乐观付得起
++    # (落格与最终扣费在 paid_orders_pass;同玩家同 tick 每种至多批准一座)
++    from .config import TYPE_BARRACKS
++    unlock = jnp.asarray(cfg.unlock_level_by_type, jnp.int32)
+     camp_cost = jnp.asarray([cfg.camp_cost_ore, cfg.camp_cost_water], jnp.int32)
+-    can_camp = (actable & is_worker & (hq_lv >= cfg.camp_unlock_level)
++    can_camp = (actable & is_worker & (hq_lv >= unlock[TYPE_CAMP])
+                 & free_in_half & jnp.all(stock >= camp_cost, axis=-1))
+     mask = mask.at[:, a_build_camp(cfg)].set(can_camp)
++    bar_cost = jnp.asarray([cfg.barracks_cost_ore, cfg.barracks_cost_water], jnp.int32)
++    n_bar = jnp.stack([
++        jnp.sum((owner == 0) & state.alive & (state.etype == TYPE_BARRACKS)),
++        jnp.sum((owner == 1) & state.alive & (state.etype == TYPE_BARRACKS)),
++    ])[half]
++    can_bar = (actable & is_worker & (hq_lv >= unlock[TYPE_BARRACKS])
++               & (n_bar < cfg.max_barracks) & free_in_half
++               & jnp.all(stock >= bar_cost, axis=-1))
++    mask = mask.at[:, a_build_barracks(cfg)].set(can_bar)
++
++    # 训狗(v1.2):建成兵营空闲 + 半区有空槽 + 付得起
++    is_bar = state.etype == TYPE_BARRACKS
++    dog_cost = jnp.asarray([cfg.dog_cost_ore, cfg.dog_cost_water], jnp.int32)
++    bar_idle = (actable & is_bar & (state.btimer == 0) & (state.btype == 0)
++                & free_in_half)
++    mask = mask.at[:, a_train_dog(cfg)].set(
++        bar_idle & jnp.all(stock >= dog_cost, axis=-1))
+ 
+     # 研发(v1.1):建成的营(level>=2)空闲 + 线级<营级 + 付得起
+     # + 本玩家没有别的营在研同一条线(防同线并研双倍跳级)
+@@ -220,6 +251,7 @@ def apply_orders(state: WorldState, actions: jax.Array, cfg: Config,
+     is_harv = (act >= a_harvest(0, cfg)) & (act < a_harvest(cfg.n_nodes, cfg))
+     is_tw = act == a_train_worker(cfg)
+     is_ti = act == a_train_infantry(cfg)
++    # 训狗不在此扣费:同 tick 多座兵营可同时下单,走 paid_orders_pass 对账
+ 
+     build_k = jnp.where(is_build, act - a_build(0), -1).astype(jnp.int8)
+     harv_k = jnp.where(is_harv, act - a_harvest(0, cfg), -1).astype(jnp.int8)
+diff --git a/src/teow/combat.py b/src/teow/combat.py
+index a696428..f82e8c9 100644
+--- a/src/teow/combat.py
++++ b/src/teow/combat.py
+@@ -13,7 +13,9 @@ import jax.numpy as jnp
+ 
+ from .config import (
+     LINE_INFANTRY,
++    TYPE_BARRACKS,
+     TYPE_CAMP,
++    TYPE_DOG,
+     TYPE_HQ,
+     TYPE_INFANTRY,
+     TYPE_MINE,
+@@ -27,7 +29,8 @@ from .state import ORDER_BUILD, ORDER_HARVEST, ORDER_IDLE, PH_TO_NODE, WorldStat
+ def combat_tick(state: WorldState, cfg: Config, owner: jax.Array) -> WorldState:
+     st = state
+     on_board = st.alive & ~st.inside
+-    is_unit = (st.etype == TYPE_WORKER) | (st.etype == TYPE_INFANTRY)
++    is_unit = ((st.etype == TYPE_WORKER) | (st.etype == TYPE_INFANTRY)
++               | (st.etype == TYPE_DOG))
+     attacker = on_board & is_unit
+     targetable = on_board  # 建筑(HQ/矿/泵)都可被打;矿内工人离场不可被打
+ 
+@@ -36,7 +39,8 @@ def combat_tick(state: WorldState, cfg: Config, owner: jax.Array) -> WorldState:
+     valid = (attacker[:, None] & targetable[None, :]
+              & (owner[:, None] != owner[None, :]) & (eu <= cfg.melee_range))
+     is_building = ((st.etype == TYPE_HQ) | (st.etype == TYPE_MINE)
+-                   | (st.etype == TYPE_PUMP) | (st.etype == TYPE_CAMP))
++                   | (st.etype == TYPE_PUMP) | (st.etype == TYPE_CAMP)
++                   | (st.etype == TYPE_BARRACKS))
+     score = eu + 10.0 * is_building[None, :].astype(jnp.float32)
+     score = jnp.where(valid, score, 1e9)
+     tgt = jnp.argmin(score, axis=1)
+@@ -45,7 +49,9 @@ def combat_tick(state: WorldState, cfg: Config, owner: jax.Array) -> WorldState:
+     # 步兵攻击按其玩家的步兵线等级查表(v1.1 全局线);工人攻击无升级线,恒标量
+     il = st.upgrades[owner.astype(jnp.int32), LINE_INFANTRY]
+     inf_atk = jnp.asarray(cfg.inf_atk_by_level)[il]
+-    atk = jnp.where(st.etype == TYPE_INFANTRY, inf_atk, cfg.worker_atk)
++    dog_atk = jnp.asarray(cfg.dog_atk_by_level)[il]  # 狗吃步兵线
++    atk = jnp.where(st.etype == TYPE_INFANTRY, inf_atk,
++                    jnp.where(st.etype == TYPE_DOG, dog_atk, cfg.worker_atk))
+     dmg = jnp.where(has_tgt & attacker, atk, 0).astype(jnp.int32)
+     incoming = jnp.zeros(cfg.n_total, jnp.int32).at[tgt].add(dmg)
+     hp = jnp.maximum(st.hp - incoming, 0)
+diff --git a/src/teow/config.py b/src/teow/config.py
+index 2a6cb21..fa81155 100644
+--- a/src/teow/config.py
++++ b/src/teow/config.py
+@@ -18,7 +18,9 @@ TYPE_MINE = 2  # 建在矿点上的采集建筑
+ TYPE_PUMP = 3  # 建在水点上的采集建筑
+ TYPE_WORKER = 4
+ TYPE_INFANTRY = 5
+-TYPE_CAMP = 6  # 技能训练营(v1.1;基地2级解锁,建成即2级)
++TYPE_CAMP = 6      # 技能训练营(v1.1;基地2级解锁,建成即2级)
++TYPE_BARRACKS = 7  # 兵营(v1.2;基地2级解锁,出狗子)
++TYPE_DOG = 8       # 狗子(v1.2;快/脆/低攻,吃步兵捆绑线)
+ 
+ # 资源类型编码(state.resources 的第二维;与资源点 node_type 一致)
+ RES_ORE = 0
+@@ -33,7 +35,8 @@ LINE_WORKER = 1    # 工人经济线:载荷/开采速度/血量,无攻击
+ BTASK_UPGRADE = -1        # 建筑自升级(HQ/矿/泵/营)
+ BTASK_RESEARCH_INF = -2   # 训练营:研发步兵线
+ BTASK_RESEARCH_WORKER = -3  # 训练营:研发工人线
+-BTASK_BUILD_CAMP = -4     # 在建训练营的专属标记(建成前 hp 由 btimer 反推成长)
++BTASK_BUILD_CAMP = -4     # 在建训练营的专属标记(建成前 hp 线性成长)
++BTASK_BUILD_BARRACKS = -5  # 在建兵营(v1.2;同营的成长语义,建成 level=1)
+ 
+ 
+ @dataclasses.dataclass(frozen=True)
+@@ -98,7 +101,11 @@ class Config:
+     # 升级/研发的 cost/time 表按「当前等级」取(花费=从 L 升到 L+1),
+     # 有效位 1..6(营 2..6),表长同 8。数值初值均 [AI-DRAFT],依据见 DECISIONS。
+     base_max_level: int = 7
+-    camp_unlock_level: int = 2   # 基地几级解锁训练营(解锁表第一项;v1.2 兵营/哨塔沿用此模式)
++    # 解锁表(v1.2 扩成表结构,按 TYPE_* 下标):基地几级解锁该类型的建造。
++    # 0 = 不受基地等级限制;表长 16 与 speed_by_type 对齐。
++    # camp=2(TYPE_CAMP=6)、兵营=2(TYPE_BARRACKS=7)、哨塔=2(v1.2 Phase3)
++    unlock_level_by_type: tuple = (0, 0, 0, 0, 0, 0, 2, 2, 0, 2,
++                                   0, 0, 0, 0, 0, 0)
+ 
+     # 基地升级(收益=解锁+矿泵/营等级上限,零单位加成——issue v1.1 设计决策)
+     base_up_cost_ore: tuple = (0, 100, 150, 250, 400, 600, 900, 0)
+@@ -127,6 +134,18 @@ class Config:
+     inf_res_cost_water: tuple = (0, 40, 60, 90, 140, 200, 280, 0)
+     inf_res_time: tuple = (0, 120, 150, 180, 210, 240, 270, 0)
+ 
++    # 兵营与狗子(v1.2;狗子吃步兵捆绑线,不单开线——DECISIONS)
++    max_barracks: int = 2   # 每玩家兵营数量上限
++    barracks_cost_ore: int = 80
++    barracks_cost_water: int = 40
++    barracks_build_time: int = 120
++    barracks_hp: int = 200
++    dog_cost_ore: int = 20
++    dog_cost_water: int = 5
++    dog_time: int = 30
++    dog_hp_by_level: tuple = (0, 24, 29, 34, 40, 47, 55, 64)
++    dog_atk_by_level: tuple = (0, 3, 4, 4, 5, 6, 7, 8)
++
+     # 工人经济线(载荷/开采速度/血量,无攻击;线等级上限=营等级)
+     worker_carry_by_level: tuple = (0, 10, 12, 14, 17, 20, 24, 28)
+     worker_mine_time_by_level: tuple = (0, 20, 18, 16, 14, 12, 10, 9)
+diff --git a/src/teow/controller.py b/src/teow/controller.py
+index d91845d..d8ee770 100644
+--- a/src/teow/controller.py
++++ b/src/teow/controller.py
+@@ -116,9 +116,11 @@ def scripted_actions(state: WorldState, cfg: Config, mapdata: MapData,
+     worker_act = jnp.where(is_builder, a_build(0) + build_k, worker_act)
+     worker_act = jnp.where(idle_worker, worker_act, A_NOOP)
+ 
+-    # ---- 步兵:攒够阈值全军 attack-move(重复下达无害)----
+-    n_inf = jnp.sum(mine & (st.etype == TYPE_INFANTRY))
+-    inf_act = jnp.where(n_inf >= cfg.ai_attack_threshold, A_ATTACK, A_NOOP)
++    # ---- 军队:狗+步兵攒够阈值全军 attack-move(重复下达无害)----
++    from .config import TYPE_DOG
++    is_army = (st.etype == TYPE_INFANTRY) | (st.etype == TYPE_DOG)
++    n_army = jnp.sum(mine & is_army)
++    inf_act = jnp.where(n_army >= cfg.ai_attack_threshold, A_ATTACK, A_NOOP)
+ 
+     # ---- 训练营(v1.1):优先研低的那条线(掩码兜底非法),双线到顶则升营 ----
+     line_lv = st.upgrades[player]                          # [2]
+@@ -130,13 +132,25 @@ def scripted_actions(state: WorldState, cfg: Config, mapdata: MapData,
+     # ---- 建营:基地达标且没有己方营(含在建)时,征调一个工人就地起营
+     # (同一征调池;若与扩张建造者撞同一人,建营优先——它在 act 覆盖链更后)----
+     has_camp = jnp.any(mine & (st.etype == TYPE_CAMP))
+-    base_ok = st.level[player * cfg.e_max] >= cfg.camp_unlock_level
++    unlock = jnp.asarray(cfg.unlock_level_by_type, jnp.int32)
++    base_ok = st.level[player * cfg.e_max] >= unlock[TYPE_CAMP]
+     camp_afford = jnp.all(st.resources[player]
+                           >= jnp.asarray([cfg.camp_cost_ore, cfg.camp_cost_water]))
+     camp_builder = jnp.argmin(pull_score)
+     is_camp_builder = ((jnp.arange(n) == camp_builder) & jnp.any(can_pull)
+                        & base_ok & ~has_camp & camp_afford)
+ 
++    # ---- 兵营:有了营再建兵营(科技优先),兵营空闲就训狗 ----
++    from .actions import a_build_barracks, a_train_dog
++    from .config import TYPE_BARRACKS
++    has_bar = jnp.any(mine & (st.etype == TYPE_BARRACKS))
++    bar_afford = jnp.all(st.resources[player] >= jnp.asarray(
++        [cfg.barracks_cost_ore, cfg.barracks_cost_water]))
++    bar_builder = jnp.argmin(pull_score)
++    is_bar_builder = ((jnp.arange(n) == bar_builder) & jnp.any(can_pull)
++                      & (st.level[player * cfg.e_max] >= unlock[TYPE_BARRACKS])
++                      & has_camp & ~has_bar & bar_afford & ~is_camp_builder)
++
+     # ---- 矿/泵:库存 ≥ 升级成本+储备 才升(audit v1.1 P2:只查储备不查成本
+     # 会把「留军费」的意图打穿,曾是 seed12 水危机的助燃剂)----
+     is_node_b = (st.etype == TYPE_MINE) | (st.etype == TYPE_PUMP)
+@@ -153,9 +167,11 @@ def scripted_actions(state: WorldState, cfg: Config, mapdata: MapData,
+     act = jnp.where(mine & (st.etype == TYPE_HQ), hq_act, act)
+     act = jnp.where(idle_worker, worker_act, act)
+     act = jnp.where(is_camp_builder, a_build_camp(cfg), act)
++    act = jnp.where(is_bar_builder, a_build_barracks(cfg), act)
++    act = jnp.where(mine & (st.etype == TYPE_BARRACKS), a_train_dog(cfg), act)
+     act = jnp.where(mine & (st.etype == TYPE_CAMP), camp_act, act)
+     act = jnp.where(mine & is_node_b, node_act, act)
+-    act = jnp.where(mine & (st.etype == TYPE_INFANTRY), inf_act, act)
++    act = jnp.where(mine & is_army, inf_act, act)
+ 
+     # ---- 让路:空闲单位贴在自家 HQ 正邻格(=卸货格)上会堵死运矿工人,
+     # 命令它朝「远离 HQ」的方向挪一格(实测 4 个待命步兵站满卸货环锁死经济)----
+diff --git a/src/teow/economy.py b/src/teow/economy.py
+index 523d9d7..e78aa98 100644
+--- a/src/teow/economy.py
++++ b/src/teow/economy.py
+@@ -95,14 +95,23 @@ def paid_orders_pass(state: WorldState, act: jax.Array, cfg: Config,
+     act 必须是 apply_orders 返回的合法化动作。
+     结算顺序(固定,写死防漂移):①升级+研发按槽号 cumsum 对账 ②建营
+     (同玩家同 tick 至多批准一座,用①之后的余额)。"""
+-    from .actions import a_build_camp, a_research, a_upgrade
++    from .actions import (
++        a_build_barracks,
++        a_build_camp,
++        a_research,
++        a_train_dog,
++        a_upgrade,
++    )
+     from .config import (
++        BTASK_BUILD_BARRACKS,
+         BTASK_BUILD_CAMP,
+         BTASK_RESEARCH_INF,
+         BTASK_RESEARCH_WORKER,
+         LINE_INFANTRY,
+         LINE_WORKER,
++        TYPE_BARRACKS,
+         TYPE_CAMP,
++        TYPE_DOG,
+     )
+ 
+     own_i = owner.astype(jnp.int32)
+@@ -134,7 +143,11 @@ def paid_orders_pass(state: WorldState, act: jax.Array, cfg: Config,
+     cost += (jnp.stack([jnp.asarray(cfg.worker_res_cost_ore)[cur_w],
+                         jnp.asarray(cfg.worker_res_cost_water)[cur_w]], -1)
+              * w_rw[:, None])
+-    want = w_up | w_ri | w_rw
++    # 训狗(v1.2):同 tick 多座兵营可同时下单,与升级/研发同一 cumsum 对账
++    w_dog = act == a_train_dog(cfg)
++    cost += (jnp.asarray([cfg.dog_cost_ore, cfg.dog_cost_water], jnp.int32)[None, :]
++             * w_dog[:, None])
++    want = w_up | w_ri | w_rw | w_dog
+ 
+     afford = jnp.zeros(cfg.n_total, bool)
+     stock = st.resources
+@@ -147,23 +160,34 @@ def paid_orders_pass(state: WorldState, act: jax.Array, cfg: Config,
+     pay = jnp.zeros_like(stock).at[own_i].add(jnp.where(do[:, None], cost, 0))
+     stock = stock - pay
+     task = jnp.where(w_ri, BTASK_RESEARCH_INF,
+-                     jnp.where(w_rw, BTASK_RESEARCH_WORKER, BTASK_UPGRADE))
++                     jnp.where(w_rw, BTASK_RESEARCH_WORKER,
++                               jnp.where(w_dog, TYPE_DOG, BTASK_UPGRADE)))
+     t = jnp.where(w_ri, jnp.asarray(cfg.inf_res_time)[cur_i],
+                   jnp.where(w_rw, jnp.asarray(cfg.worker_res_time)[cur_w],
+-                            upgrade_time_of(st, cfg)))
++                            jnp.where(w_dog, cfg.dog_time,
++                                      upgrade_time_of(st, cfg))))
+     st = st._replace(
+         resources=stock,
+         btype=jnp.where(do, task, st.btype).astype(jnp.int8),
+         btimer=jnp.where(do, t, st.btimer).astype(jnp.int16),
+     )
+ 
+-    # ---- ② 建营:同玩家取槽号最小的申请者,落其相邻第一空闲格 ----
+-    camp_cost = jnp.asarray([cfg.camp_cost_ore, cfg.camp_cost_water], jnp.int32)
++    # ---- ② 自由格建筑(营/兵营):同玩家每种取槽号最小的申请者,
++    # 落其相邻第一空闲格 ----
+     occ = occupancy_grid(st, cfg)
+     passable = jnp.asarray(mapdata.passable)
+     h, w = cfg.grid_h, cfg.grid_w
+-    for p in (0, 1):  # 编译期展开
+-        cand = (act == a_build_camp(cfg)) & (own_i == p)
++    structs = (
++        (a_build_camp(cfg), TYPE_CAMP, BTASK_BUILD_CAMP,
++         jnp.asarray([cfg.camp_cost_ore, cfg.camp_cost_water], jnp.int32),
++         cfg.camp_build_time, jnp.asarray(cfg.camp_hp_by_level)[2] // 10),
++        (a_build_barracks(cfg), TYPE_BARRACKS, BTASK_BUILD_BARRACKS,
++         jnp.asarray([cfg.barracks_cost_ore, cfg.barracks_cost_water], jnp.int32),
++         cfg.barracks_build_time, cfg.barracks_hp // 10),
++    )
++    for a_id, stype, btask, camp_cost, build_t, start_hp0 in structs:
++      for p in (0, 1):  # 编译期展开
++        cand = (act == a_id) & (own_i == p)
+         bidx = jnp.argmax(cand)                # 全 False 返 0,has 门控
+         has = jnp.any(cand) & jnp.all(st.resources[p] >= camp_cost)
+ 
+@@ -179,22 +203,22 @@ def paid_orders_pass(state: WorldState, act: jax.Array, cfg: Config,
+         slot = base + jnp.argmax(free)
+         do_c = has & jnp.any(ok) & jnp.any(free)
+         cell = cc[ci]
+-        start_hp = jnp.asarray(cfg.camp_hp_by_level)[2] // 10
++        start_hp = start_hp0
+ 
+         st = st._replace(
+             resources=st.resources.at[p].add(jnp.where(do_c, -camp_cost, 0)),
+             alive=st.alive.at[slot].set(jnp.where(do_c, True, st.alive[slot])),
+             etype=st.etype.at[slot].set(
+-                jnp.where(do_c, TYPE_CAMP, st.etype[slot]).astype(jnp.int8)),
++                jnp.where(do_c, stype, st.etype[slot]).astype(jnp.int8)),
+             pos=st.pos.at[slot].set(
+                 jnp.where(do_c, cell.astype(jnp.float32), st.pos[slot])),
+             hp=st.hp.at[slot].set(jnp.where(do_c, start_hp, st.hp[slot])),
+             level=st.level.at[slot].set(
+                 jnp.where(do_c, 1, st.level[slot]).astype(jnp.int8)),
+             btype=st.btype.at[slot].set(
+-                jnp.where(do_c, BTASK_BUILD_CAMP, st.btype[slot]).astype(jnp.int8)),
++                jnp.where(do_c, btask, st.btype[slot]).astype(jnp.int8)),
+             btimer=st.btimer.at[slot].set(
+-                jnp.where(do_c, cfg.camp_build_time, st.btimer[slot]).astype(jnp.int16)),
++                jnp.where(do_c, build_t, st.btimer[slot]).astype(jnp.int16)),
+         )
+         occ = occ.at[cell[0], cell[1]].max(do_c)  # 防两家同格(远隔,保险)
+     return st
+@@ -206,6 +230,7 @@ def special_tasks_tick(state: WorldState, cfg: Config,
+     否则「btype<0 & btimer==0」下一 tick 重复触发,level 每 tick+1 直到溢出)。
+     btimer 的递减复用 production_tick(它对所有 btimer>0 无差别倒数)。"""
+     from .config import (
++        BTASK_BUILD_BARRACKS,
+         BTASK_BUILD_CAMP,
+         BTASK_RESEARCH_INF,
+         BTASK_RESEARCH_WORKER,
+@@ -221,6 +246,13 @@ def special_tasks_tick(state: WorldState, cfg: Config,
+     g = (full - start) // t_build  # 每 tick 增量(可为 0,余数在完成拍补)
+     growing = st.alive & (st.btype == BTASK_BUILD_CAMP) & (st.btimer > 0)
+     hp = st.hp + jnp.where(growing, g, 0)
++    # 在建兵营:同款线性成长(建成 level 保持 1)
++    bfull = int(cfg.barracks_hp)
++    bstart = bfull // 10
++    bt = cfg.barracks_build_time
++    bg = (bfull - bstart) // bt
++    growing_b = st.alive & (st.btype == BTASK_BUILD_BARRACKS) & (st.btimer > 0)
++    hp = hp + jnp.where(growing_b, bg, 0)
+ 
+     done = st.alive & (st.btype < 0) & (st.btimer == 0)
+ 
+@@ -231,6 +263,9 @@ def special_tasks_tick(state: WorldState, cfg: Config,
+     remainder = (full - start) - g * (t_build - 1)
+     hp = hp + jnp.where(camp_done, remainder, 0)
+     level = jnp.where(camp_done, 2, st.level)
++    bar_done = done & (st.btype == BTASK_BUILD_BARRACKS)
++    b_rem = (bfull - bstart) - bg * (bt - 1)
++    hp = hp + jnp.where(bar_done, b_rem, 0)
+ 
+     # 自升级完成
+     upg = done & (st.btype == BTASK_UPGRADE)
+@@ -260,17 +295,21 @@ def special_tasks_tick(state: WorldState, cfg: Config,
+ 
+ 
+ def _unit_spawn_hp(cfg: Config, ut: jax.Array, upgrades_p: jax.Array) -> jax.Array:
+-    """新单位出生血量:按其所属玩家的升级线等级查表(v1.1 起,全局线生效)。"""
++    """新单位出生血量:按其所属玩家的升级线等级查表(v1.1 起,全局线生效)。
++    狗子吃步兵捆绑线(DECISIONS)。"""
++    from .config import TYPE_DOG
+     whp = jnp.asarray(cfg.worker_hp_by_level)[upgrades_p[LINE_WORKER]]
+     ihp = jnp.asarray(cfg.inf_hp_by_level)[upgrades_p[LINE_INFANTRY]]
+-    return jnp.where(ut == TYPE_WORKER, whp, ihp)
++    dhp = jnp.asarray(cfg.dog_hp_by_level)[upgrades_p[LINE_INFANTRY]]
++    return jnp.where(ut == TYPE_WORKER, whp,
++                     jnp.where(ut == TYPE_DOG, dhp, ihp))
+ 
+ 
+ def production_tick(state: WorldState, cfg: Config, mapdata: MapData) -> WorldState:
+     """训练倒计时与落地。落不下(周围无空格/半区无空槽)则停在 1,下 tick 重试。
+ 
+-    NOTE(v1.1):此实现假设同玩家同 tick 至多一个生产建筑完成(v1.0 仅 HQ)。
+-    引入兵营后须改为对完成者逐个仲裁落地格与槽位。
++    v1.2:同玩家同 tick 可有多个生产建筑完成(HQ+兵营),每玩家循环处理
++    至多 1+max_barracks 个完成者,逐个仲裁落地格与槽位(critic B-1 兑现)。
+     """
+     btimer = jnp.where(state.btimer > 0, state.btimer - 1, state.btimer)
+     st = state._replace(btimer=btimer.astype(jnp.int16))
+@@ -280,6 +319,7 @@ def production_tick(state: WorldState, cfg: Config, mapdata: MapData) -> WorldSt
+     h, w = cfg.grid_h, cfg.grid_w
+ 
+     for p in (0, 1):  # 编译期展开
++      for _round in range(3):  # 每玩家至多 HQ+2 兵营同 tick 完成(编译期展开)
+         base = hq_slot(p, cfg)
+         producing = st.alive & (st.btype > 0) & (st.btimer == 0)
+         half = jnp.zeros(cfg.n_total, bool).at[base:base + cfg.e_max].set(True)

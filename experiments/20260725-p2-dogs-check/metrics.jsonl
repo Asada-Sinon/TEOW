@@ -1,0 +1,11 @@
+{"tick": 1, "res_p0": [80, 50], "res_p1": [80, 50], "alive_p0": 5, "alive_p1": 5, "base_level": [1, 1], "upgrades_p0": [1, 1], "upgrades_p1": [1, 1], "done": false, "winner": -1}
+{"tick": 101, "res_p0": [10, 20], "res_p1": [10, 20], "alive_p0": 8, "alive_p1": 8, "base_level": [1, 1], "upgrades_p0": [1, 1], "upgrades_p1": [1, 1], "done": false, "winner": -1}
+{"tick": 201, "res_p0": [40, 30], "res_p1": [50, 60], "alive_p0": 11, "alive_p1": 10, "base_level": [1, 1], "upgrades_p0": [1, 1], "upgrades_p1": [1, 1], "done": false, "winner": -1}
+{"tick": 301, "res_p0": [70, 100], "res_p1": [120, 160], "alive_p0": 13, "alive_p1": 12, "base_level": [1, 1], "upgrades_p0": [1, 1], "upgrades_p1": [1, 1], "done": false, "winner": -1}
+{"tick": 401, "res_p0": [70, 130], "res_p1": [140, 230], "alive_p0": 16, "alive_p1": 13, "base_level": [1, 1], "upgrades_p0": [1, 1], "upgrades_p1": [1, 1], "done": false, "winner": -1}
+{"tick": 501, "res_p0": [190, 180], "res_p1": [40, 210], "alive_p0": 16, "alive_p1": 13, "base_level": [1, 2], "upgrades_p0": [1, 1], "upgrades_p1": [1, 1], "done": false, "winner": -1}
+{"tick": 601, "res_p0": [30, 60], "res_p1": [28, 258], "alive_p0": 17, "alive_p1": 15, "base_level": [2, 2], "upgrades_p0": [1, 1], "upgrades_p1": [1, 1], "done": false, "winner": -1}
+{"tick": 701, "res_p0": [48, 22], "res_p1": [70, 352], "alive_p0": 18, "alive_p1": 15, "base_level": [2, 3], "upgrades_p0": [1, 1], "upgrades_p1": [1, 1], "done": false, "winner": -1}
+{"tick": 801, "res_p0": [88, 7], "res_p1": [4, 406], "alive_p0": 19, "alive_p1": 20, "base_level": [3, 3], "upgrades_p0": [1, 1], "upgrades_p1": [2, 1], "done": false, "winner": -1}
+{"tick": 901, "res_p0": [8, 38], "res_p1": [28, 491], "alive_p0": 6, "alive_p1": 18, "base_level": [3, 3], "upgrades_p0": [1, 1], "upgrades_p1": [2, 2], "done": false, "winner": -1}
+{"tick": 956, "res_p0": [8, 38], "res_p1": [10, 524], "alive_p0": 3, "alive_p1": 22, "base_level": [1, 3], "upgrades_p0": [1, 1], "upgrades_p1": [2, 2], "done": true, "winner": 1}

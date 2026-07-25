@@ -1,0 +1,643 @@
+diff --git a/src/teow/actions.py b/src/teow/actions.py
+index 0eeed2b..1156e92 100644
+--- a/src/teow/actions.py
++++ b/src/teow/actions.py
+@@ -123,12 +123,14 @@ def legality_mask(state: WorldState, cfg: Config, mapdata: MapData,
+     mask = mask.at[:, A_STOP].set(actable & (is_worker | is_inf))
+     mask = mask.at[:, A_ATTACK].set(actable & is_inf)
+ 
+-    # 移动:目标格在界内且静态可通行(占用竞争交给仲裁)
++    # 移动:目标格在界内且静态可通行(v1.2 连续坐标,经 cell_of 归格)
++    from .state import cell_of
+     for d in range(4):
+-        nxt = state.pos + _DIRS[d]
+-        ok = ((nxt[:, 0] >= 0) & (nxt[:, 0] < h) & (nxt[:, 1] >= 0) & (nxt[:, 1] < w))
+-        nxt_c = jnp.clip(nxt, 0, jnp.asarray([h - 1, w - 1]))
+-        ok = ok & passable[nxt_c[:, 0], nxt_c[:, 1]]
++        nxt = state.pos + _DIRS[d].astype(jnp.float32)
++        nc = cell_of(nxt)
++        ok = ((nc[:, 0] >= 0) & (nc[:, 0] < h) & (nc[:, 1] >= 0) & (nc[:, 1] < w))
++        nc = jnp.clip(nc, 0, jnp.asarray([h - 1, w - 1]))
++        ok = ok & passable[nc[:, 0], nc[:, 1]]
+         mask = mask.at[:, A_MOVE0 + d].set(actable & (is_worker | is_inf) & ok)
+ 
+     # 建造/采集:逐点([Nn,N] 小矩阵,Nn=6)
+@@ -233,9 +235,10 @@ def apply_orders(state: WorldState, actions: jax.Array, cfg: Config,
+     target_node = jnp.where(is_build, build_k, state.target_node)
+     target_node = jnp.where(is_harv, harv_k, target_node)
+ 
+-    enemy_hq = jnp.asarray(mapdata.hq_pos)[1 - owner.astype(jnp.int32)]  # [N,2]
++    enemy_hq = jnp.asarray(mapdata.hq_pos, jnp.float32)[1 - owner.astype(jnp.int32)]
+     target_cell = jnp.where(is_att[:, None], enemy_hq, state.target_cell)
+-    target_cell = jnp.where(is_move[:, None], state.pos + _DIRS[mdir], target_cell)
++    target_cell = jnp.where(is_move[:, None],
++                            state.pos + _DIRS[mdir].astype(jnp.float32), target_cell)
+ 
+     # 换指令时相位复位;带着货被改派采集 → 先回家卸货再进循环
+     # (「满载」按该工人当前线级的载荷判;历史低级载荷也 >0 即回家,用 >0 更稳)
+diff --git a/src/teow/combat.py b/src/teow/combat.py
+index b998a89..1b99ed1 100644
+--- a/src/teow/combat.py
++++ b/src/teow/combat.py
+@@ -23,7 +23,6 @@ from .config import (
+ )
+ from .state import ORDER_BUILD, ORDER_HARVEST, ORDER_IDLE, PH_TO_NODE, WorldState
+ 
+-_BIG = jnp.int32(1 << 20)
+ 
+ 
+ def combat_tick(state: WorldState, cfg: Config, owner: jax.Array) -> WorldState:
+@@ -33,13 +32,14 @@ def combat_tick(state: WorldState, cfg: Config, owner: jax.Array) -> WorldState:
+     attacker = on_board & is_unit
+     targetable = on_board  # 建筑(HQ/矿/泵)都可被打;矿内工人离场不可被打
+ 
+-    cheb = jnp.max(jnp.abs(st.pos[:, None, :] - st.pos[None, :, :]), axis=-1)
++    # v1.2:欧氏射程(melee_range≈旧 Chebyshev≤1 含对角)
++    eu = jnp.linalg.norm(st.pos[:, None, :] - st.pos[None, :, :], axis=-1)
+     valid = (attacker[:, None] & targetable[None, :]
+-             & (owner[:, None] != owner[None, :]) & (cheb <= 1))
++             & (owner[:, None] != owner[None, :]) & (eu <= cfg.melee_range))
+     is_building = ((st.etype == TYPE_HQ) | (st.etype == TYPE_MINE)
+                    | (st.etype == TYPE_PUMP) | (st.etype == TYPE_CAMP))
+-    score = cheb.astype(jnp.int32) + 10 * is_building[None, :].astype(jnp.int32)
+-    score = jnp.where(valid, score, _BIG)
++    score = eu + 10.0 * is_building[None, :].astype(jnp.float32)
++    score = jnp.where(valid, score, 1e9)
+     tgt = jnp.argmin(score, axis=1)
+     has_tgt = jnp.any(valid, axis=1)               # 门控:全无效时 argmin 返 0
+ 
+@@ -115,7 +115,6 @@ def cleanup_deaths(state: WorldState, cfg: Config, owner: jax.Array) -> WorldSta
+         mine_timer=jnp.where(park, 0, mine_timer).astype(jnp.int16),
+         btype=jnp.where(park, 0, st.btype).astype(jnp.int8),
+         btimer=jnp.where(park, 0, st.btimer).astype(jnp.int16),
+-        cooldown=jnp.where(park, 0, st.cooldown).astype(jnp.int8),
+         # level 必须停泊回 1:槽位复用时新实体不得继承前任建筑的等级
+         level=jnp.where(park, 1, st.level).astype(jnp.int8),
+         target_node=jnp.where(park, -1, st.target_node).astype(jnp.int8),
+diff --git a/src/teow/config.py b/src/teow/config.py
+index 0100b51..9f45307 100644
+--- a/src/teow/config.py
++++ b/src/teow/config.py
+@@ -51,9 +51,19 @@ class Config:
+     node_capacity: int = 4   # 每个矿/泵同时进驻的工人上限
+ 
+     # ---- 采集一体循环 ----
+-    # 开采耗时/载荷已并入工人经济线的 *_by_level 表(v1.1);一趟入账公式
+-    # (critic S-2 定案): carry_cap[工人线级] + node_yield_bonus[矿泵级]。
+-    move_cooldown: int = 2   # 每移动一格的冷却 tick(所有单位同速,v1.2 狗子再分化)
++    # 开采耗时/载荷已并入工人经济线的 *_by_level 表(v1.1);一趟入账公式:
++    # carry_cap[工人线级] + node_yield_bonus[矿泵级]。
++
++    # ---- 连续移动(v1.2:单位 360°,建筑/资源点仍格子锚定)----
++    # speed 按实体类型查表(格/tick;工/兵 0.5 与 v1.1 的 move_cooldown=2 等效,
++    # 行为近似保持);建筑 0。表长 16 给 v1.2+ 新类型留位。
++    speed_by_type: tuple = (0.0, 0.0, 0.0, 0.0, 0.5, 0.5, 0.0, 0.0, 0.9, 0.0,
++                            0.0, 0.0, 0.0, 0.0, 0.0, 0.0)
++    unit_radius: float = 0.35   # 单位圆半径(<0.5,圆不出格,建筑推离用格判定)
++    reach_radius: float = 1.2   # 入驻/卸货/开工的欧氏到达半径(≈旧 4 邻)
++    melee_range: float = 1.5    # 近战射程(≈旧 Chebyshev≤1,含对角)
++    stationary_cost: int = 24   # 动态场里静止单位所在格的软障碍附加代价
++    #                             (v1.0 的硬障碍软化:连续单位可贴身挤过)
+     congestion_cost: int = 8 # 动态场里「穿过移动单位所在格」的附加代价:让对向
+     #                          工人流互相绕道、各走一条道。0 会复现对头死锁
+     #                          (audit P0-1),过大则拥挤时寻路过度绕远。
+diff --git a/src/teow/controller.py b/src/teow/controller.py
+index 814817f..d91845d 100644
+--- a/src/teow/controller.py
++++ b/src/teow/controller.py
+@@ -54,6 +54,8 @@ def scripted_actions(state: WorldState, cfg: Config, mapdata: MapData,
+     n = cfg.n_total
+     mine = st.alive & (owner == player)
+     dist = jnp.asarray(mapdata.dist_fields)                # [G,H,W]
++    from .state import cell_of
++    cl = cell_of(st.pos)                                   # 连续坐标归格(v1.2)
+ 
+     # ---- HQ:缺工人补工人 → 富余则升本(到 ai_base_level_target 止)→ 否则爆兵 ----
+     n_workers = jnp.sum(mine & (st.etype == TYPE_WORKER))
+@@ -69,7 +71,7 @@ def scripted_actions(state: WorldState, cfg: Config, mapdata: MapData,
+                        a_upgrade(cfg), hq_act)
+ 
+     # ---- 工人:一个去建(最近的无主点),其余采(最近的有余位己方点)----
+-    node_d = dist[:cfg.n_nodes, st.pos[:, 0], st.pos[:, 1]]  # [Nn,N]
++    node_d = dist[:cfg.n_nodes, cl[:, 0], cl[:, 1]]        # [Nn,N]
+     # 按「已指派数」(驻内 + 在途)控制派工,而不是只看驻内数——否则会把一堆
+     # 工人堆到同一个点门口排队
+     tn = jnp.clip(st.target_node.astype(jnp.int32), 0, cfg.n_nodes - 1)
+@@ -158,11 +160,11 @@ def scripted_actions(state: WorldState, cfg: Config, mapdata: MapData,
+     # ---- 让路:空闲单位贴在自家 HQ 正邻格(=卸货格)上会堵死运矿工人,
+     # 命令它朝「远离 HQ」的方向挪一格(实测 4 个待命步兵站满卸货环锁死经济)----
+     hq_field = dist[cfg.n_nodes + player]                  # [H,W] 静态
+-    on_ring = hq_field[st.pos[:, 0], st.pos[:, 1]] == 1
++    on_ring = hq_field[cl[:, 0], cl[:, 1]] == 1
+     is_idle_unit = (mine & ~st.inside & (st.order == ORDER_IDLE)
+                     & ((st.etype == TYPE_WORKER) | (st.etype == TYPE_INFANTRY)))
+     dirs = jnp.asarray([[-1, 0], [0, 1], [1, 0], [0, -1]], jnp.int32)
+-    cand = st.pos[:, None, :] + dirs[None]                 # [N,4,2]
++    cand = cl[:, None, :] + dirs[None]                     # [N,4,2]
+     cc = jnp.clip(cand, 0, jnp.asarray([cfg.grid_h - 1, cfg.grid_w - 1]))
+     away = hq_field[cc[:, :, 0], cc[:, :, 1]]              # 越大越远
+     best_dir = jnp.argmax(away, axis=1)
+diff --git a/src/teow/economy.py b/src/teow/economy.py
+index 4b14d34..523d9d7 100644
+--- a/src/teow/economy.py
++++ b/src/teow/economy.py
+@@ -37,6 +37,7 @@ from .state import (
+     PH_TO_HQ,
+     PH_TO_NODE,
+     WorldState,
++    cell_of,
+     hq_slot,
+ )
+ 
+@@ -49,8 +50,9 @@ _SPAWN_DIRS = jnp.asarray(
+ def occupancy_grid(state: WorldState, cfg: Config) -> jax.Array:
+     """bool [H,W]:在场实体(alive 且不在矿内)占用图。每 tick 重算,不进 state。"""
+     on = state.alive & ~state.inside
++    cell = cell_of(state.pos)
+     occ = jnp.zeros((cfg.grid_h, cfg.grid_w), bool)
+-    return occ.at[state.pos[:, 0], state.pos[:, 1]].max(on)
++    return occ.at[cell[:, 0], cell[:, 1]].max(on)
+ 
+ 
+ def inside_counts(state: WorldState, cfg: Config) -> jax.Array:
+@@ -165,7 +167,8 @@ def paid_orders_pass(state: WorldState, act: jax.Array, cfg: Config,
+         bidx = jnp.argmax(cand)                # 全 False 返 0,has 门控
+         has = jnp.any(cand) & jnp.all(st.resources[p] >= camp_cost)
+ 
+-        cells = st.pos[bidx] + _SPAWN_DIRS
++        cells = cell_of(st.pos[bidx])[None, :] + _SPAWN_DIRS
++        cells = cells[0] if cells.ndim == 3 else cells
+         inb = ((cells[:, 0] >= 0) & (cells[:, 0] < h)
+                & (cells[:, 1] >= 0) & (cells[:, 1] < w))
+         cc = jnp.clip(cells, 0, jnp.asarray([h - 1, w - 1]))
+@@ -183,7 +186,8 @@ def paid_orders_pass(state: WorldState, act: jax.Array, cfg: Config,
+             alive=st.alive.at[slot].set(jnp.where(do_c, True, st.alive[slot])),
+             etype=st.etype.at[slot].set(
+                 jnp.where(do_c, TYPE_CAMP, st.etype[slot]).astype(jnp.int8)),
+-            pos=st.pos.at[slot].set(jnp.where(do_c, cell, st.pos[slot])),
++            pos=st.pos.at[slot].set(
++                jnp.where(do_c, cell.astype(jnp.float32), st.pos[slot])),
+             hp=st.hp.at[slot].set(jnp.where(do_c, start_hp, st.hp[slot])),
+             level=st.level.at[slot].set(
+                 jnp.where(do_c, 1, st.level[slot]).astype(jnp.int8)),
+@@ -284,7 +288,8 @@ def production_tick(state: WorldState, cfg: Config, mapdata: MapData) -> WorldSt
+         has_p = jnp.any(cand)
+ 
+         # 落地格:生产者 8 邻中第一个界内、可通行、无人格
+-        cells = st.pos[pidx] + _SPAWN_DIRS                       # [8,2]
++        cells = cell_of(st.pos[pidx])[None, :] + _SPAWN_DIRS
++        cells = (cells[0] if cells.ndim == 3 else cells)             # [8,2]
+         inb = ((cells[:, 0] >= 0) & (cells[:, 0] < h)
+                & (cells[:, 1] >= 0) & (cells[:, 1] < w))
+         cc = jnp.clip(cells, 0, jnp.asarray([h - 1, w - 1]))
+@@ -305,15 +310,15 @@ def production_tick(state: WorldState, cfg: Config, mapdata: MapData) -> WorldSt
+         st = st._replace(
+             alive=st.alive.at[slot].set(jnp.where(do, True, st.alive[slot])),
+             etype=st.etype.at[slot].set(jnp.where(do, ut, st.etype[slot])),
+-            pos=st.pos.at[slot].set(jnp.where(do, spawn_cell, st.pos[slot])),
++            pos=st.pos.at[slot].set(
++                jnp.where(do, spawn_cell.astype(jnp.float32), st.pos[slot])),
+             hp=st.hp.at[slot].set(jnp.where(do, uhp, st.hp[slot])),
+-            cooldown=st.cooldown.at[slot].set(jnp.where(do, 0, st.cooldown[slot])),
+             order=st.order.at[slot].set(jnp.where(do, ORDER_IDLE, st.order[slot])),
+             phase=st.phase.at[slot].set(jnp.where(do, PH_TO_NODE, st.phase[slot])),
+             target_node=st.target_node.at[slot].set(
+                 jnp.where(do, -1, st.target_node[slot])),
+             target_cell=st.target_cell.at[slot].set(
+-                jnp.where(do, spawn_cell, st.target_cell[slot])),
++                jnp.where(do, spawn_cell.astype(jnp.float32), st.target_cell[slot])),
+             cargo=st.cargo.at[slot].set(jnp.where(do, 0, st.cargo[slot])),
+             mine_timer=st.mine_timer.at[slot].set(jnp.where(do, 0, st.mine_timer[slot])),
+             inside=st.inside.at[slot].set(jnp.where(do, False, st.inside[slot])),
+@@ -336,11 +341,11 @@ def start_constructions(state: WorldState, cfg: Config, mapdata: MapData,
+                         owner: jax.Array, key: jax.Array) -> WorldState:
+     """工人到场(与点 4 邻)后开工:抢点仲裁 → 按点序对账扣费 → 立 timer。
+     跨玩家同 tick 抢同一点:每 tick 随机先手玩家,防下标恒赢的对称性偏置。"""
+-    dist = jnp.asarray(mapdata.dist_fields)                # [G,H,W]
+     tn = jnp.clip(state.target_node.astype(jnp.int32), 0, cfg.n_nodes - 1)
+-    my_d = dist[tn, state.pos[:, 0], state.pos[:, 1]]      # [N] 到各自目标点的距离
++    npos = jnp.asarray(mapdata.node_pos, jnp.float32)
++    my_d = jnp.linalg.norm(state.pos - npos[tn], axis=-1)  # 欧氏(v1.2)
+     arrived = (state.alive & ~state.inside & (state.order == ORDER_BUILD)
+-               & (state.target_node >= 0) & (my_d == 1))
++               & (state.target_node >= 0) & (my_d <= cfg.reach_radius))
+ 
+     first = jax.random.bernoulli(key).astype(jnp.int8)     # 本 tick 先手玩家
+     from .actions import node_costs
+@@ -398,7 +403,8 @@ def construction_tick(state: WorldState, cfg: Config, mapdata: MapData,
+             alive=st.alive.at[slot].set(jnp.where(do, True, st.alive[slot])),
+             etype=st.etype.at[slot].set(
+                 jnp.where(do, stype, st.etype[slot]).astype(jnp.int8)),
+-            pos=st.pos.at[slot].set(jnp.where(do, node_pos[k], st.pos[slot])),
++            pos=st.pos.at[slot].set(
++                jnp.where(do, node_pos[k].astype(jnp.float32), st.pos[slot])),
+             hp=st.hp.at[slot].set(jnp.where(do, cfg.node_struct_hp, st.hp[slot])),
+             inside=st.inside.at[slot].set(jnp.where(do, False, st.inside[slot])),
+             order=st.order.at[slot].set(jnp.where(do, ORDER_IDLE, st.order[slot])),
+@@ -428,15 +434,16 @@ def construction_tick(state: WorldState, cfg: Config, mapdata: MapData,
+ def harvest_tick(state: WorldState, cfg: Config, mapdata: MapData,
+                  owner: jax.Array) -> WorldState:
+     """采集一体循环:入驻(抢槽)→ 矿内倒计时 → 出矿(抢出口格)→ 到家卸货。"""
+-    dist = jnp.asarray(mapdata.dist_fields)
+     node_type = jnp.asarray(mapdata.node_type)
++    npos = jnp.asarray(mapdata.node_pos, jnp.float32)
+     tn = jnp.clip(state.target_node.astype(jnp.int32), 0, cfg.n_nodes - 1)
+     harv = state.alive & (state.order == ORDER_HARVEST) & (state.target_node >= 0)
+ 
+     st = state
+-    # ---- 入驻:相邻 + 点归属己方且结构在 + 容量余额,同点按槽号排队 ----
+-    d_node = dist[tn, st.pos[:, 0], st.pos[:, 1]]
+-    want_in = (harv & ~st.inside & (st.phase == PH_TO_NODE) & (d_node == 1)
++    # ---- 入驻:到达半径内 + 点归属己方且结构在 + 容量余额,同点按槽号排队 ----
++    d_node = jnp.linalg.norm(st.pos - npos[tn], axis=-1)
++    want_in = (harv & ~st.inside & (st.phase == PH_TO_NODE)
++               & (d_node <= cfg.reach_radius)
+                & (st.node_owner[tn] == owner) & (st.node_ent[tn] >= 0))
+     counts = inside_counts(st, cfg)                        # [Nn]
+     # 开采耗时按各工人所属玩家的工人线等级查表(v1.1)
+@@ -477,9 +484,10 @@ def harvest_tick(state: WorldState, cfg: Config, mapdata: MapData,
+     )
+ 
+     # ---- 卸货:与己方 HQ 相邻即入账(资源类型 = 目标点类型)----
+-    hq_goal = cfg.n_nodes + owner.astype(jnp.int32)
+-    d_hq = dist[hq_goal, st.pos[:, 0], st.pos[:, 1]]
+-    dep = (harv & ~st.inside & (st.phase == PH_TO_HQ) & (st.cargo > 0) & (d_hq == 1))
++    hqp = jnp.asarray(mapdata.hq_pos, jnp.float32)[owner.astype(jnp.int32)]
++    d_hq = jnp.linalg.norm(st.pos - hqp, axis=-1)
++    dep = (harv & ~st.inside & (st.phase == PH_TO_HQ) & (st.cargo > 0)
++           & (d_hq <= cfg.reach_radius))
+     rtype = st.cargo_type.astype(jnp.int32)                # 出矿时定格的载荷类型
+     gain = (jnp.zeros_like(st.resources)
+             .at[owner.astype(jnp.int32), rtype]
+diff --git a/src/teow/movement.py b/src/teow/movement.py
+index 0ab30ca..78591ef 100644
+--- a/src/teow/movement.py
++++ b/src/teow/movement.py
+@@ -1,22 +1,18 @@
+-"""移动:动态距离场下降 + scatter-min 抢格仲裁。
+-
+-两套距离场,各司其职:
+-- **静态 BFS 场**(map.py 预计算):只用于「到达/入驻/卸货/开工」的相邻判定——
+-  语义是与目标建筑相邻,与单位占用无关。
+-- **动态场**(本文件,每 tick min-plus 松弛重算):用于选路。障碍 = 静态不可通行
+-  + **静止单位**(没有移动类指令、或已到达目标的在场单位)。纯静态场会被站桩
+-  单位永久堵死(实测:满载工人被 HQ 旁发呆的初始工人堵在唯一下坡格上,循环
+-  卡死)——动态场让路径绕开他们。移动中的单位不算障碍(转瞬即离,算了会抖)。
+-  松弛 K=H+W 次覆盖全图;24×24×8 场每 tick ~90k 元素运算,单环境无感。
+-  NOTE(v2):vmap 数千 env 训练时此项是每 tick 主要开销,届时考虑降频重算/
+-  减少迭代数/增量更新。
+-
+-其余纪律:
+-- 任意格目标(MOVE 一格)用 L1 贪心,不走场。
+-- 候选格排除「tick 初被占」的格(反正仲裁会拒,提前排除让单位选次优绕行);
+-  同 tick 抢同一空格用每 tick 随机优先级 scatter-min 仲裁,防 self-play 下标
+-  偏置(调研报告 §1)。
+-- 方向候选顺序对玩家 1 取反,保证 180° 旋转对称下两家行为互为镜像。
++"""连续移动(v1.2):场梯度寻路 + 圆形互推 + 建筑格硬约束。
++
++管线(顺序固定,硬约束殿后):
++  1. 方向:场型指令(HARVEST/BUILD/ATTACK)对动态距离场做**双线性梯度采样**
++     (采样前 clip 掉 BIG_DIST 哨兵——否则建筑邻域梯度被 BIG 支配,单位倒退
++     不贴墙,critic S-3);MOVE 直指目标点。
++  2. candidate = pos + dir * speed[etype](格/tick,Config 表)。
++  3. 建筑/边界:目标格是硬障碍则分轴滑动(先试仅动 r,再试仅动 c,都不行原地)。
++  4. 单位圆互推一轮(SMAX 模式):重叠量沿连线推开;**精确共线时按槽号奇偶加
++     确定性切向分量**(180° 对称开局的正对互推会退化为原地对顶,critic FYI-1)。
++  5. 建筑格硬 clamp 殿后:互推若把单位挤进硬障碍格,退回推前位置的分轴滑动结果。
++
++动态场:静止单位从 v1.0 的硬障碍改为大 cell_cost 软障碍(连续单位可贴身绕过);
++建筑格与静态不可通行格仍是硬障碍。移动中单位保持 congestion_cost 软障碍。
++v1.0 的抢格仲裁/候选格/方向序取反全部退役(无格可抢,方向连续天然对称)。
+ """
+ 
+ from __future__ import annotations
+@@ -24,8 +20,7 @@ from __future__ import annotations
+ import jax
+ import jax.numpy as jnp
+ 
+-from .config import TYPE_INFANTRY, TYPE_WORKER, Config
+-from .economy import occupancy_grid
++from .config import Config
+ from .map import BIG_DIST, MapData
+ from .state import (
+     ORDER_ATTACK,
+@@ -36,18 +31,13 @@ from .state import (
+     PH_MINING,
+     PH_TO_HQ,
+     WorldState,
++    cell_of,
+ )
+ 
+-_DIRS = jnp.asarray([[-1, 0], [0, 1], [1, 0], [0, -1]], jnp.int32)  # N,E,S,W
+-
+ 
+ def _relax_fields(goal_seeds: jax.Array, blocked: jax.Array,
+                   cell_cost: jax.Array, k_iters: int) -> jax.Array:
+-    """min-plus 松弛出「绕开 blocked、按 cell_cost 计价」的距离场。
+-    goal_seeds bool [G,H,W];blocked bool [H,W] 硬障碍(目标格本身可以是障碍,
+-    种子强制为 0);cell_cost int32 [H,W] 进入该格的代价(空地 1,被移动单位
+-    占的格 1+congestion_cost——软障碍,让对向流互相绕道而不是对头冻结,
+-    见 audit P0-1)。"""
++    """min-plus 松弛距离场(与 v1.1 相同;blocked=硬障碍,cell_cost=进格代价)。"""
+     big = jnp.int32(BIG_DIST)
+     d = jnp.where(goal_seeds, 0, big)
+ 
+@@ -67,93 +57,158 @@ def _relax_fields(goal_seeds: jax.Array, blocked: jax.Array,
+     return d
+ 
+ 
++def _bilinear(field: jax.Array, pos: jax.Array) -> jax.Array:
++    """[H,W] 场在连续点集 [N,2] 上的双线性插值。pos 超界按边缘 clamp。"""
++    h, w = field.shape
++    r = jnp.clip(pos[:, 0], 0.0, h - 1.001)
++    c = jnp.clip(pos[:, 1], 0.0, w - 1.001)
++    r0 = jnp.floor(r).astype(jnp.int32)
++    c0 = jnp.floor(c).astype(jnp.int32)
++    fr = r - r0
++    fc = c - c0
++    f00 = field[r0, c0]
++    f01 = field[r0, c0 + 1]
++    f10 = field[r0 + 1, c0]
++    f11 = field[r0 + 1, c0 + 1]
++    return ((1 - fr) * (1 - fc) * f00 + (1 - fr) * fc * f01
++            + fr * (1 - fc) * f10 + fr * fc * f11)
++
++
++def building_cells(state: WorldState, cfg: Config) -> jax.Array:
++    """bool [H,W]:在场建筑占用格(建筑=硬障碍)。
++    统一判据:speed_by_type>0 即单位,=0 即建筑(新类型进表自动生效)。"""
++    spd = jnp.asarray(cfg.speed_by_type, jnp.float32)[
++        jnp.clip(state.etype.astype(jnp.int32), 0, 15)]
++    b = state.alive & (spd == 0)
++    cell = cell_of(state.pos)
++    return (jnp.zeros((cfg.grid_h, cfg.grid_w), bool)
++            .at[cell[:, 0], cell[:, 1]].max(b))
++
++
+ def movement_tick(state: WorldState, cfg: Config, mapdata: MapData,
+                   owner: jax.Array, key: jax.Array) -> WorldState:
+-    n = cfg.n_total
++    del key  # 连续移动全程确定性,不再需要抢格随机优先级(保留参数稳住签名)
+     h, w = cfg.grid_h, cfg.grid_w
+-    static_dist = jnp.asarray(mapdata.dist_fields)         # [G,H,W] 相邻判定用
+-    passable = jnp.asarray(mapdata.passable)
+     st = state
++    passable = jnp.asarray(mapdata.passable)
++    node_pos = jnp.asarray(mapdata.node_pos, jnp.float32)
++    hq_pos = jnp.asarray(mapdata.hq_pos, jnp.float32)
+ 
+-    is_unit = (st.etype == TYPE_WORKER) | (st.etype == TYPE_INFANTRY)
++    speed = jnp.asarray(cfg.speed_by_type, jnp.float32)[
++        jnp.clip(st.etype.astype(jnp.int32), 0, 15)]
++    is_unit = speed > 0
+     on_board = st.alive & ~st.inside
+     tn = jnp.clip(st.target_node.astype(jnp.int32), 0, cfg.n_nodes - 1)
+     own_i = owner.astype(jnp.int32)
+ 
+-    # ---- 目标场编号与是否用场 ----
++    # ---- 目标点与目标场 ----
+     goal = jnp.where(st.order == ORDER_ATTACK, cfg.n_nodes + (1 - own_i), tn)
+     goal = jnp.where((st.order == ORDER_HARVEST) & (st.phase == PH_TO_HQ),
+                      cfg.n_nodes + own_i, goal)
+     use_field = ((st.order == ORDER_HARVEST) | (st.order == ORDER_BUILD)
+                  | (st.order == ORDER_ATTACK))
+-
+-    # ---- 到达判定(静态相邻语义)----
+-    here_static = static_dist[goal, st.pos[:, 0], st.pos[:, 1]]
+-    l1_here = jnp.sum(jnp.abs(st.pos - st.target_cell), axis=-1)
+-    arrived = jnp.where(use_field, here_static <= 1, l1_here == 0)
+-    # 步兵 attack-move:身边已有敌人就地开打,不再挤路
+-    cheb = jnp.max(jnp.abs(st.pos[:, None, :] - st.pos[None, :, :]), axis=-1)
+-    enemy_adj = jnp.any(
+-        (cheb <= 1) & (owner[None, :] != owner[:, None])
++    goal_center = jnp.where(
++        (goal < cfg.n_nodes)[:, None], node_pos[jnp.clip(goal, 0, cfg.n_nodes - 1)],
++        hq_pos[jnp.clip(goal - cfg.n_nodes, 0, 1)])
++
++    # ---- 到达判定(欧氏)----
++    eu_goal = jnp.linalg.norm(st.pos - goal_center, axis=-1)
++    eu_move = jnp.linalg.norm(st.pos - st.target_cell, axis=-1)
++    arrived = jnp.where(use_field, eu_goal <= cfg.reach_radius, eu_move <= 0.4)
++    # attack-move:射程内有敌就地开打
++    dmat = jnp.linalg.norm(st.pos[:, None, :] - st.pos[None, :, :], axis=-1)
++    enemy_near = jnp.any(
++        (dmat <= cfg.melee_range) & (owner[None, :] != owner[:, None])
+         & (st.alive & ~st.inside)[None, :], axis=-1)
+-    arrived = arrived | ((st.order == ORDER_ATTACK) & enemy_adj)
++    arrived = arrived | ((st.order == ORDER_ATTACK) & enemy_near)
+ 
+     moving_order = ((st.order == ORDER_MOVE) | (st.order == ORDER_ATTACK)
+                     | (st.order == ORDER_BUILD)
+                     | ((st.order == ORDER_HARVEST) & (st.phase != PH_MINING)))
+-    wants = on_board & is_unit & moving_order & ~arrived & (st.cooldown == 0)
++    wants = on_board & is_unit & moving_order & ~arrived
+ 
+-    # ---- 动态场:静止单位=硬障碍(站桩会永久堵路);移动单位=软障碍
+-    # (穿其格 +congestion_cost),对向工人流据此互相绕道,消除对头死锁
+-    # (audit P0-1:两拨采集工在走廊对头相遇后全体永久冻结)----
++    # ---- 动态场(硬障碍:静态+建筑格;软障碍:静止/移动单位)----
++    bcells = building_cells(st, cfg)
++    cell = cell_of(st.pos)
+     moving_unit = on_board & is_unit & moving_order & ~arrived
+-    stationary = on_board & ~moving_unit
+-    occ_stat = (jnp.zeros((h, w), bool)
+-                .at[st.pos[:, 0], st.pos[:, 1]].max(stationary))
+-    occ_mov = (jnp.zeros((h, w), bool)
+-               .at[st.pos[:, 0], st.pos[:, 1]].max(moving_unit))
+-    blocked = ~passable | occ_stat
+-    cell_cost = 1 + cfg.congestion_cost * occ_mov.astype(jnp.int32)
++    stat_unit = on_board & is_unit & ~moving_unit
++    occ_mov = (jnp.zeros((h, w), bool).at[cell[:, 0], cell[:, 1]].max(moving_unit))
++    occ_stat = (jnp.zeros((h, w), bool).at[cell[:, 0], cell[:, 1]].max(stat_unit))
++    blocked = ~passable | bcells
++    cell_cost = (1 + cfg.congestion_cost * occ_mov.astype(jnp.int32)
++                 + cfg.stationary_cost * occ_stat.astype(jnp.int32))
+     dyn = _relax_fields(jnp.asarray(mapdata.goal_seeds), blocked, cell_cost, h + w)
+-
+-    def fval(cell: jax.Array) -> jax.Array:
+-        fv = dyn[goal, cell[:, 0], cell[:, 1]]
+-        l1 = jnp.sum(jnp.abs(cell - st.target_cell), axis=-1)
+-        return jnp.where(use_field, fv, l1)
+-
+-    here = fval(st.pos)
+-
+-    # ---- 候选格评分:4 邻(玩家 1 方向序取反),排除界外/静态障碍/tick 初被占 ----
+-    occ = occupancy_grid(st, cfg)
+-    dirs_pp = jnp.where((owner == 0)[:, None, None], _DIRS[None], -_DIRS[None])
+-    cands = st.pos[:, None, :] + dirs_pp                   # [N,4,2]
+-    inb = ((cands[:, :, 0] >= 0) & (cands[:, :, 0] < h)
+-           & (cands[:, :, 1] >= 0) & (cands[:, :, 1] < w))
+-    cc = jnp.clip(cands, 0, jnp.asarray([h - 1, w - 1]))
+-    ok = inb & passable[cc[:, :, 0], cc[:, :, 1]] & ~occ[cc[:, :, 0], cc[:, :, 1]]
+-    cand_f = jnp.stack([fval(cc[:, d]) for d in range(4)], axis=1)  # [N,4]
+-    cand_f = jnp.where(ok, cand_f, BIG_DIST)
+-    best = jnp.argmin(cand_f, axis=1)
+-    best_f = jnp.take_along_axis(cand_f, best[:, None], axis=1)[:, 0]
+-    # 严格改善才走(等值滑动会来回振荡);全无效时 argmin 返 0,由 best_f 门控
+-    do_move = wants & (best_f < here)
+-    prop = jnp.where(do_move[:, None],
+-                     jnp.take_along_axis(cc, best[:, None, None].repeat(2, -1),
+-                                         axis=1)[:, 0], st.pos)
+-
+-    # ---- 抢格仲裁:每 tick 随机优先级 scatter-min ----
+-    prio = jax.random.permutation(key, n).astype(jnp.int32)
+-    cell_id = prop[:, 0] * w + prop[:, 1]
+-    claim = (jnp.full(cfg.n_cells, jnp.iinfo(jnp.int32).max)
+-             .at[cell_id].min(jnp.where(do_move, prio, jnp.iinfo(jnp.int32).max)))
+-    win = do_move & (claim[cell_id] == prio)
+-
+-    new_pos = jnp.where(win[:, None], prop, st.pos)
+-    cooldown = jnp.where(win, cfg.move_cooldown, st.cooldown).astype(jnp.int8)
+-
+-    # MOVE 到达(含本 tick 走到)→ 转 IDLE
+-    l1_after = jnp.sum(jnp.abs(new_pos - st.target_cell), axis=-1)
+-    move_done = (st.order == ORDER_MOVE) & (l1_after == 0)
++    # 双线性采样前 clip 哨兵(critic S-3)
++    dyn_c = jnp.minimum(dyn, 4 * (h + w)).astype(jnp.float32)
++
++    # ---- 方向:场梯度(中心差分,步长 0.5)或直指;vmap 逐实体在各自场上采样 ----
++    def sample_one(fidx, p):
++        return _bilinear(dyn_c[fidx], p[None, :])[0]
++
++    grad_r = (jax.vmap(sample_one)(goal, st.pos + jnp.asarray([0.5, 0.0]))
++              - jax.vmap(sample_one)(goal, st.pos - jnp.asarray([0.5, 0.0])))
++    grad_c = (jax.vmap(sample_one)(goal, st.pos + jnp.asarray([0.0, 0.5]))
++              - jax.vmap(sample_one)(goal, st.pos - jnp.asarray([0.0, 0.5])))
++    gvec = -jnp.stack([grad_r, grad_c], axis=-1)            # 下降方向
++    gnorm = jnp.linalg.norm(gvec, axis=-1, keepdims=True)
++    dir_field = jnp.where(gnorm > 1e-6, gvec / jnp.maximum(gnorm, 1e-6), 0.0)
++    dvec = st.target_cell - st.pos
++    dnorm = jnp.linalg.norm(dvec, axis=-1, keepdims=True)
++    dir_move = jnp.where(dnorm > 1e-6, dvec / jnp.maximum(dnorm, 1e-6), 0.0)
++    direction = jnp.where(use_field[:, None], dir_field, dir_move)
++
++    step_len = jnp.minimum(speed, jnp.where(use_field, eu_goal, eu_move))
++    delta = direction * (step_len * wants)[:, None]
++    cand = st.pos + delta
++
++    # ---- 建筑/边界:分轴滑动 ----
++    def blocked_at(p):
++        cc = cell_of(p)
++        cc = jnp.clip(cc, 0, jnp.asarray([h - 1, w - 1]))
++        inb = ((p[:, 0] >= -0.4) & (p[:, 0] <= h - 0.6)
++               & (p[:, 1] >= -0.4) & (p[:, 1] <= w - 0.6))
++        return blocked[cc[:, 0], cc[:, 1]] | ~inb
++
++    cand_r = jnp.stack([cand[:, 0], st.pos[:, 1]], axis=-1)  # 仅动 r
++    cand_c = jnp.stack([st.pos[:, 0], cand[:, 1]], axis=-1)  # 仅动 c
++    ok_full = ~blocked_at(cand)
++    ok_r = ~blocked_at(cand_r)
++    ok_c = ~blocked_at(cand_c)
++    new_pos = jnp.where(ok_full[:, None], cand,
++                        jnp.where(ok_r[:, None], cand_r,
++                                  jnp.where(ok_c[:, None], cand_c, st.pos)))
++
++    # ---- 单位圆互推一轮(在场单位;含静止者被挤开)----
++    active = on_board & is_unit
++    diff = new_pos[:, None, :] - new_pos[None, :, :]        # [N,N,2] i-j
++    dist = jnp.linalg.norm(diff, axis=-1)
++    pair = (active[:, None] & active[None, :]
++            & ~jnp.eye(cfg.n_total, dtype=bool))
++    overlap = jnp.maximum(0.0, 2 * cfg.unit_radius - dist) * pair
++    # 共线退化兜底:距离≈0 时用槽号定向的确定性单位向量;并给推力加按槽号
++    # 奇偶定向的切向分量,破 180° 对称正对僵持(critic FYI-1)
++    slots = jnp.arange(cfg.n_total)
++    ang = slots.astype(jnp.float32) * 2.399963  # 黄金角,槽间方向彼此错开
++    eps_vec = jnp.stack([jnp.cos(ang), jnp.sin(ang)], axis=-1)  # [N,2]
++    near0 = dist < 1e-5
++    safe_diff = jnp.where(near0[:, :, None],
++                          eps_vec[:, None, :] - eps_vec[None, :, :], diff)
++    safe_n = jnp.linalg.norm(safe_diff, axis=-1, keepdims=True)
++    push_dir = safe_diff / jnp.maximum(safe_n, 1e-6)
++    tangent = jnp.stack([-push_dir[:, :, 1], push_dir[:, :, 0]], axis=-1)
++    parity = (1.0 - 2.0 * (slots % 2).astype(jnp.float32))  # +1/-1
++    push = jnp.sum(
++        (0.5 * overlap)[:, :, None]
++        * (push_dir + 0.15 * tangent * parity[:, None, None]), axis=1)
++    pushed = new_pos + push
++
++    # ---- 硬约束殿后:互推挤进硬障碍格则回退到推前位置 ----
++    final = jnp.where(blocked_at(pushed)[:, None], new_pos, pushed)
++    final = jnp.where((on_board & is_unit)[:, None], final, st.pos)
++
++    # MOVE 到达 → 转 IDLE
++    l2_after = jnp.linalg.norm(final - st.target_cell, axis=-1)
++    move_done = (st.order == ORDER_MOVE) & (l2_after <= 0.4)
+     order = jnp.where(move_done, ORDER_IDLE, st.order).astype(jnp.int8)
+ 
+-    return st._replace(pos=new_pos, cooldown=cooldown, order=order)
++    return st._replace(pos=final.astype(jnp.float32), order=order)
+diff --git a/src/teow/state.py b/src/teow/state.py
+index bfa4398..952e7be 100644
+--- a/src/teow/state.py
++++ b/src/teow/state.py
+@@ -36,13 +36,14 @@ class WorldState(NamedTuple):
+     # ---- 实体表 [N = 2*e_max] ----
+     alive: jax.Array        # bool  [N]
+     etype: jax.Array        # int8  [N]  TYPE_*
+-    pos: jax.Array          # int32 [N,2] (row,col);inside 时保留入口格
++    pos: jax.Array          # f32   [N,2] (row,col) 连续坐标(v1.2)。坐标约定:
++    #                          格 (r,c) 覆盖 [r-0.5, r+0.5),**格心=整数坐标**,
++    #                          归格唯一经 cell_of()。建筑写格心;inside 保留入口点。
+     hp: jax.Array           # int32 [N]
+-    cooldown: jax.Array     # int8  [N]  移动冷却
+     order: jax.Array        # int8  [N]  ORDER_*
+     phase: jax.Array        # int8  [N]  PH_*
+     target_node: jax.Array  # int8  [N]  资源点 id;-1 无
+-    target_cell: jax.Array  # int32 [N,2] MOVE/ATTACK 的目的格
++    target_cell: jax.Array  # f32   [N,2] MOVE/ATTACK 的目的点
+     cargo: jax.Array        # int16 [N]  工人载荷量
+     cargo_type: jax.Array   # int8  [N]  载荷资源类型(出矿时定格;不能从 target_node
+     #                                     推——途中矿被拆/被改派会把矿石错记成水)
+@@ -68,6 +69,12 @@ class WorldState(NamedTuple):
+     winner: jax.Array       # int8 标量  -1 未分;0/1 胜者;2 和局
+ 
+ 
++def cell_of(pos: jax.Array) -> jax.Array:
++    """连续坐标 → 所在格 (round;格心=整数)。所有格索引唯一经此(坐标约定
++    单定义处,critic S-2)。"""
++    return jnp.round(pos).astype(jnp.int32)
++
++
+ def owner_of_slots(cfg: Config) -> jax.Array:
+     """int8 [N]:每个槽位的归属(常量,调用方闭包使用,不进 state)。"""
+     return jnp.concatenate([jnp.zeros(cfg.e_max, jnp.int8),
+@@ -85,7 +92,7 @@ def init_state(cfg: Config, mapdata: MapData) -> WorldState:
+ 
+     alive = np.zeros(n, bool)
+     etype = np.zeros(n, np.int8)
+-    pos = np.zeros((n, 2), np.int32)
++    pos = np.zeros((n, 2), np.float32)
+     hp = np.zeros(n, np.int32)
+ 
+     for p in (0, 1):
+@@ -106,7 +113,6 @@ def init_state(cfg: Config, mapdata: MapData) -> WorldState:
+         etype=jnp.asarray(etype),
+         pos=jnp.asarray(pos),
+         hp=jnp.asarray(hp),
+-        cooldown=jnp.zeros(n, jnp.int8),
+         order=jnp.zeros(n, jnp.int8),
+         phase=jnp.zeros(n, jnp.int8),
+         target_node=jnp.full(n, -1, jnp.int8),
+diff --git a/src/teow/step.py b/src/teow/step.py
+index 13cd164..dcbc663 100644
+--- a/src/teow/step.py
++++ b/src/teow/step.py
+@@ -41,7 +41,6 @@ from .state import WorldState, hq_slot, init_state, owner_of_slots
+ 
+ def _end_tick(state: WorldState, cfg: Config) -> WorldState:
+     st = state
+-    cooldown = jnp.maximum(st.cooldown - 1, 0).astype(jnp.int8)
+     tick = st.tick + 1
+     hq_dead = jnp.stack([st.hp[hq_slot(0, cfg)] <= 0,
+                          st.hp[hq_slot(1, cfg)] <= 0])
+@@ -50,8 +49,7 @@ def _end_tick(state: WorldState, cfg: Config) -> WorldState:
+                                  jnp.where(hq_dead[1], 0, st.winner)))
+     winner = jnp.where((winner == -1) & (tick >= cfg.episode_len), 2, winner)
+     done = winner != -1
+-    return st._replace(cooldown=cooldown, tick=tick,
+-                       done=done, winner=winner.astype(jnp.int8))
++    return st._replace(tick=tick, done=done, winner=winner.astype(jnp.int8))
+ 
+ 
+ def build_step(cfg: Config, mapdata: MapData):

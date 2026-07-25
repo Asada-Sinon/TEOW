@@ -1,0 +1,11 @@
+6f3ddbc130a6ebe896537585708413c0b169a5df
+dirty: True
+ M src/teow/actions.py
+ M src/teow/combat.py
+ M src/teow/config.py
+ M src/teow/controller.py
+ M src/teow/economy.py
+?? experiments/20260725-p1-cont-check/
+?? experiments/20260725-p1-cont-check2/
+?? experiments/20260725-p2-dogs-check/
+?? tests/test_barracks.py
