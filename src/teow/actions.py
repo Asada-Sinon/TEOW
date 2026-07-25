@@ -123,12 +123,14 @@ def legality_mask(state: WorldState, cfg: Config, mapdata: MapData,
     mask = mask.at[:, A_STOP].set(actable & (is_worker | is_inf))
     mask = mask.at[:, A_ATTACK].set(actable & is_inf)
 
-    # 移动:目标格在界内且静态可通行(占用竞争交给仲裁)
+    # 移动:目标格在界内且静态可通行(v1.2 连续坐标,经 cell_of 归格)
+    from .state import cell_of
     for d in range(4):
-        nxt = state.pos + _DIRS[d]
-        ok = ((nxt[:, 0] >= 0) & (nxt[:, 0] < h) & (nxt[:, 1] >= 0) & (nxt[:, 1] < w))
-        nxt_c = jnp.clip(nxt, 0, jnp.asarray([h - 1, w - 1]))
-        ok = ok & passable[nxt_c[:, 0], nxt_c[:, 1]]
+        nxt = state.pos + _DIRS[d].astype(jnp.float32)
+        nc = cell_of(nxt)
+        ok = ((nc[:, 0] >= 0) & (nc[:, 0] < h) & (nc[:, 1] >= 0) & (nc[:, 1] < w))
+        nc = jnp.clip(nc, 0, jnp.asarray([h - 1, w - 1]))
+        ok = ok & passable[nc[:, 0], nc[:, 1]]
         mask = mask.at[:, A_MOVE0 + d].set(actable & (is_worker | is_inf) & ok)
 
     # 建造/采集:逐点([Nn,N] 小矩阵,Nn=6)
@@ -233,9 +235,10 @@ def apply_orders(state: WorldState, actions: jax.Array, cfg: Config,
     target_node = jnp.where(is_build, build_k, state.target_node)
     target_node = jnp.where(is_harv, harv_k, target_node)
 
-    enemy_hq = jnp.asarray(mapdata.hq_pos)[1 - owner.astype(jnp.int32)]  # [N,2]
+    enemy_hq = jnp.asarray(mapdata.hq_pos, jnp.float32)[1 - owner.astype(jnp.int32)]
     target_cell = jnp.where(is_att[:, None], enemy_hq, state.target_cell)
-    target_cell = jnp.where(is_move[:, None], state.pos + _DIRS[mdir], target_cell)
+    target_cell = jnp.where(is_move[:, None],
+                            state.pos + _DIRS[mdir].astype(jnp.float32), target_cell)
 
     # 换指令时相位复位;带着货被改派采集 → 先回家卸货再进循环
     # (「满载」按该工人当前线级的载荷判;历史低级载荷也 >0 即回家,用 >0 更稳)

@@ -37,6 +37,7 @@ from .state import (
     PH_TO_HQ,
     PH_TO_NODE,
     WorldState,
+    cell_of,
     hq_slot,
 )
 
@@ -49,8 +50,9 @@ _SPAWN_DIRS = jnp.asarray(
 def occupancy_grid(state: WorldState, cfg: Config) -> jax.Array:
     """bool [H,W]:在场实体(alive 且不在矿内)占用图。每 tick 重算,不进 state。"""
     on = state.alive & ~state.inside
+    cell = cell_of(state.pos)
     occ = jnp.zeros((cfg.grid_h, cfg.grid_w), bool)
-    return occ.at[state.pos[:, 0], state.pos[:, 1]].max(on)
+    return occ.at[cell[:, 0], cell[:, 1]].max(on)
 
 
 def inside_counts(state: WorldState, cfg: Config) -> jax.Array:
@@ -165,7 +167,8 @@ def paid_orders_pass(state: WorldState, act: jax.Array, cfg: Config,
         bidx = jnp.argmax(cand)                # 全 False 返 0,has 门控
         has = jnp.any(cand) & jnp.all(st.resources[p] >= camp_cost)
 
-        cells = st.pos[bidx] + _SPAWN_DIRS
+        cells = cell_of(st.pos[bidx])[None, :] + _SPAWN_DIRS
+        cells = cells[0] if cells.ndim == 3 else cells
         inb = ((cells[:, 0] >= 0) & (cells[:, 0] < h)
                & (cells[:, 1] >= 0) & (cells[:, 1] < w))
         cc = jnp.clip(cells, 0, jnp.asarray([h - 1, w - 1]))
@@ -183,7 +186,8 @@ def paid_orders_pass(state: WorldState, act: jax.Array, cfg: Config,
             alive=st.alive.at[slot].set(jnp.where(do_c, True, st.alive[slot])),
             etype=st.etype.at[slot].set(
                 jnp.where(do_c, TYPE_CAMP, st.etype[slot]).astype(jnp.int8)),
-            pos=st.pos.at[slot].set(jnp.where(do_c, cell, st.pos[slot])),
+            pos=st.pos.at[slot].set(
+                jnp.where(do_c, cell.astype(jnp.float32), st.pos[slot])),
             hp=st.hp.at[slot].set(jnp.where(do_c, start_hp, st.hp[slot])),
             level=st.level.at[slot].set(
                 jnp.where(do_c, 1, st.level[slot]).astype(jnp.int8)),
@@ -284,7 +288,8 @@ def production_tick(state: WorldState, cfg: Config, mapdata: MapData) -> WorldSt
         has_p = jnp.any(cand)
 
         # 落地格:生产者 8 邻中第一个界内、可通行、无人格
-        cells = st.pos[pidx] + _SPAWN_DIRS                       # [8,2]
+        cells = cell_of(st.pos[pidx])[None, :] + _SPAWN_DIRS
+        cells = (cells[0] if cells.ndim == 3 else cells)             # [8,2]
         inb = ((cells[:, 0] >= 0) & (cells[:, 0] < h)
                & (cells[:, 1] >= 0) & (cells[:, 1] < w))
         cc = jnp.clip(cells, 0, jnp.asarray([h - 1, w - 1]))
@@ -305,15 +310,15 @@ def production_tick(state: WorldState, cfg: Config, mapdata: MapData) -> WorldSt
         st = st._replace(
             alive=st.alive.at[slot].set(jnp.where(do, True, st.alive[slot])),
             etype=st.etype.at[slot].set(jnp.where(do, ut, st.etype[slot])),
-            pos=st.pos.at[slot].set(jnp.where(do, spawn_cell, st.pos[slot])),
+            pos=st.pos.at[slot].set(
+                jnp.where(do, spawn_cell.astype(jnp.float32), st.pos[slot])),
             hp=st.hp.at[slot].set(jnp.where(do, uhp, st.hp[slot])),
-            cooldown=st.cooldown.at[slot].set(jnp.where(do, 0, st.cooldown[slot])),
             order=st.order.at[slot].set(jnp.where(do, ORDER_IDLE, st.order[slot])),
             phase=st.phase.at[slot].set(jnp.where(do, PH_TO_NODE, st.phase[slot])),
             target_node=st.target_node.at[slot].set(
                 jnp.where(do, -1, st.target_node[slot])),
             target_cell=st.target_cell.at[slot].set(
-                jnp.where(do, spawn_cell, st.target_cell[slot])),
+                jnp.where(do, spawn_cell.astype(jnp.float32), st.target_cell[slot])),
             cargo=st.cargo.at[slot].set(jnp.where(do, 0, st.cargo[slot])),
             mine_timer=st.mine_timer.at[slot].set(jnp.where(do, 0, st.mine_timer[slot])),
             inside=st.inside.at[slot].set(jnp.where(do, False, st.inside[slot])),
@@ -336,11 +341,11 @@ def start_constructions(state: WorldState, cfg: Config, mapdata: MapData,
                         owner: jax.Array, key: jax.Array) -> WorldState:
     """工人到场(与点 4 邻)后开工:抢点仲裁 → 按点序对账扣费 → 立 timer。
     跨玩家同 tick 抢同一点:每 tick 随机先手玩家,防下标恒赢的对称性偏置。"""
-    dist = jnp.asarray(mapdata.dist_fields)                # [G,H,W]
     tn = jnp.clip(state.target_node.astype(jnp.int32), 0, cfg.n_nodes - 1)
-    my_d = dist[tn, state.pos[:, 0], state.pos[:, 1]]      # [N] 到各自目标点的距离
+    npos = jnp.asarray(mapdata.node_pos, jnp.float32)
+    my_d = jnp.linalg.norm(state.pos - npos[tn], axis=-1)  # 欧氏(v1.2)
     arrived = (state.alive & ~state.inside & (state.order == ORDER_BUILD)
-               & (state.target_node >= 0) & (my_d == 1))
+               & (state.target_node >= 0) & (my_d <= cfg.reach_radius))
 
     first = jax.random.bernoulli(key).astype(jnp.int8)     # 本 tick 先手玩家
     from .actions import node_costs
@@ -398,7 +403,8 @@ def construction_tick(state: WorldState, cfg: Config, mapdata: MapData,
             alive=st.alive.at[slot].set(jnp.where(do, True, st.alive[slot])),
             etype=st.etype.at[slot].set(
                 jnp.where(do, stype, st.etype[slot]).astype(jnp.int8)),
-            pos=st.pos.at[slot].set(jnp.where(do, node_pos[k], st.pos[slot])),
+            pos=st.pos.at[slot].set(
+                jnp.where(do, node_pos[k].astype(jnp.float32), st.pos[slot])),
             hp=st.hp.at[slot].set(jnp.where(do, cfg.node_struct_hp, st.hp[slot])),
             inside=st.inside.at[slot].set(jnp.where(do, False, st.inside[slot])),
             order=st.order.at[slot].set(jnp.where(do, ORDER_IDLE, st.order[slot])),
@@ -428,15 +434,16 @@ def construction_tick(state: WorldState, cfg: Config, mapdata: MapData,
 def harvest_tick(state: WorldState, cfg: Config, mapdata: MapData,
                  owner: jax.Array) -> WorldState:
     """采集一体循环:入驻(抢槽)→ 矿内倒计时 → 出矿(抢出口格)→ 到家卸货。"""
-    dist = jnp.asarray(mapdata.dist_fields)
     node_type = jnp.asarray(mapdata.node_type)
+    npos = jnp.asarray(mapdata.node_pos, jnp.float32)
     tn = jnp.clip(state.target_node.astype(jnp.int32), 0, cfg.n_nodes - 1)
     harv = state.alive & (state.order == ORDER_HARVEST) & (state.target_node >= 0)
 
     st = state
-    # ---- 入驻:相邻 + 点归属己方且结构在 + 容量余额,同点按槽号排队 ----
-    d_node = dist[tn, st.pos[:, 0], st.pos[:, 1]]
-    want_in = (harv & ~st.inside & (st.phase == PH_TO_NODE) & (d_node == 1)
+    # ---- 入驻:到达半径内 + 点归属己方且结构在 + 容量余额,同点按槽号排队 ----
+    d_node = jnp.linalg.norm(st.pos - npos[tn], axis=-1)
+    want_in = (harv & ~st.inside & (st.phase == PH_TO_NODE)
+               & (d_node <= cfg.reach_radius)
                & (st.node_owner[tn] == owner) & (st.node_ent[tn] >= 0))
     counts = inside_counts(st, cfg)                        # [Nn]
     # 开采耗时按各工人所属玩家的工人线等级查表(v1.1)
@@ -477,9 +484,10 @@ def harvest_tick(state: WorldState, cfg: Config, mapdata: MapData,
     )
 
     # ---- 卸货:与己方 HQ 相邻即入账(资源类型 = 目标点类型)----
-    hq_goal = cfg.n_nodes + owner.astype(jnp.int32)
-    d_hq = dist[hq_goal, st.pos[:, 0], st.pos[:, 1]]
-    dep = (harv & ~st.inside & (st.phase == PH_TO_HQ) & (st.cargo > 0) & (d_hq == 1))
+    hqp = jnp.asarray(mapdata.hq_pos, jnp.float32)[owner.astype(jnp.int32)]
+    d_hq = jnp.linalg.norm(st.pos - hqp, axis=-1)
+    dep = (harv & ~st.inside & (st.phase == PH_TO_HQ) & (st.cargo > 0)
+           & (d_hq <= cfg.reach_radius))
     rtype = st.cargo_type.astype(jnp.int32)                # 出矿时定格的载荷类型
     gain = (jnp.zeros_like(st.resources)
             .at[owner.astype(jnp.int32), rtype]

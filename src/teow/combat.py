@@ -23,8 +23,6 @@ from .config import (
 )
 from .state import ORDER_BUILD, ORDER_HARVEST, ORDER_IDLE, PH_TO_NODE, WorldState
 
-_BIG = jnp.int32(1 << 20)
-
 
 def combat_tick(state: WorldState, cfg: Config, owner: jax.Array) -> WorldState:
     st = state
@@ -33,13 +31,14 @@ def combat_tick(state: WorldState, cfg: Config, owner: jax.Array) -> WorldState:
     attacker = on_board & is_unit
     targetable = on_board  # 建筑(HQ/矿/泵)都可被打;矿内工人离场不可被打
 
-    cheb = jnp.max(jnp.abs(st.pos[:, None, :] - st.pos[None, :, :]), axis=-1)
+    # v1.2:欧氏射程(melee_range≈旧 Chebyshev≤1 含对角)
+    eu = jnp.linalg.norm(st.pos[:, None, :] - st.pos[None, :, :], axis=-1)
     valid = (attacker[:, None] & targetable[None, :]
-             & (owner[:, None] != owner[None, :]) & (cheb <= 1))
+             & (owner[:, None] != owner[None, :]) & (eu <= cfg.melee_range))
     is_building = ((st.etype == TYPE_HQ) | (st.etype == TYPE_MINE)
                    | (st.etype == TYPE_PUMP) | (st.etype == TYPE_CAMP))
-    score = cheb.astype(jnp.int32) + 10 * is_building[None, :].astype(jnp.int32)
-    score = jnp.where(valid, score, _BIG)
+    score = eu + 10.0 * is_building[None, :].astype(jnp.float32)
+    score = jnp.where(valid, score, 1e9)
     tgt = jnp.argmin(score, axis=1)
     has_tgt = jnp.any(valid, axis=1)               # 门控:全无效时 argmin 返 0
 
@@ -115,7 +114,6 @@ def cleanup_deaths(state: WorldState, cfg: Config, owner: jax.Array) -> WorldSta
         mine_timer=jnp.where(park, 0, mine_timer).astype(jnp.int16),
         btype=jnp.where(park, 0, st.btype).astype(jnp.int8),
         btimer=jnp.where(park, 0, st.btimer).astype(jnp.int16),
-        cooldown=jnp.where(park, 0, st.cooldown).astype(jnp.int8),
         # level 必须停泊回 1:槽位复用时新实体不得继承前任建筑的等级
         level=jnp.where(park, 1, st.level).astype(jnp.int8),
         target_node=jnp.where(park, -1, st.target_node).astype(jnp.int8),

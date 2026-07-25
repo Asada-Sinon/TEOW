@@ -36,13 +36,14 @@ class WorldState(NamedTuple):
     # ---- 实体表 [N = 2*e_max] ----
     alive: jax.Array        # bool  [N]
     etype: jax.Array        # int8  [N]  TYPE_*
-    pos: jax.Array          # int32 [N,2] (row,col);inside 时保留入口格
+    pos: jax.Array          # f32   [N,2] (row,col) 连续坐标(v1.2)。坐标约定:
+    #                          格 (r,c) 覆盖 [r-0.5, r+0.5),**格心=整数坐标**,
+    #                          归格唯一经 cell_of()。建筑写格心;inside 保留入口点。
     hp: jax.Array           # int32 [N]
-    cooldown: jax.Array     # int8  [N]  移动冷却
     order: jax.Array        # int8  [N]  ORDER_*
     phase: jax.Array        # int8  [N]  PH_*
     target_node: jax.Array  # int8  [N]  资源点 id;-1 无
-    target_cell: jax.Array  # int32 [N,2] MOVE/ATTACK 的目的格
+    target_cell: jax.Array  # f32   [N,2] MOVE/ATTACK 的目的点
     cargo: jax.Array        # int16 [N]  工人载荷量
     cargo_type: jax.Array   # int8  [N]  载荷资源类型(出矿时定格;不能从 target_node
     #                                     推——途中矿被拆/被改派会把矿石错记成水)
@@ -68,6 +69,12 @@ class WorldState(NamedTuple):
     winner: jax.Array       # int8 标量  -1 未分;0/1 胜者;2 和局
 
 
+def cell_of(pos: jax.Array) -> jax.Array:
+    """连续坐标 → 所在格 (round;格心=整数)。所有格索引唯一经此(坐标约定
+    单定义处,critic S-2)。"""
+    return jnp.round(pos).astype(jnp.int32)
+
+
 def owner_of_slots(cfg: Config) -> jax.Array:
     """int8 [N]:每个槽位的归属(常量,调用方闭包使用,不进 state)。"""
     return jnp.concatenate([jnp.zeros(cfg.e_max, jnp.int8),
@@ -85,7 +92,7 @@ def init_state(cfg: Config, mapdata: MapData) -> WorldState:
 
     alive = np.zeros(n, bool)
     etype = np.zeros(n, np.int8)
-    pos = np.zeros((n, 2), np.int32)
+    pos = np.zeros((n, 2), np.float32)
     hp = np.zeros(n, np.int32)
 
     for p in (0, 1):
@@ -106,7 +113,6 @@ def init_state(cfg: Config, mapdata: MapData) -> WorldState:
         etype=jnp.asarray(etype),
         pos=jnp.asarray(pos),
         hp=jnp.asarray(hp),
-        cooldown=jnp.zeros(n, jnp.int8),
         order=jnp.zeros(n, jnp.int8),
         phase=jnp.zeros(n, jnp.int8),
         target_node=jnp.full(n, -1, jnp.int8),

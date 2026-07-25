@@ -41,7 +41,6 @@ from .state import WorldState, hq_slot, init_state, owner_of_slots
 
 def _end_tick(state: WorldState, cfg: Config) -> WorldState:
     st = state
-    cooldown = jnp.maximum(st.cooldown - 1, 0).astype(jnp.int8)
     tick = st.tick + 1
     hq_dead = jnp.stack([st.hp[hq_slot(0, cfg)] <= 0,
                          st.hp[hq_slot(1, cfg)] <= 0])
@@ -50,8 +49,7 @@ def _end_tick(state: WorldState, cfg: Config) -> WorldState:
                                  jnp.where(hq_dead[1], 0, st.winner)))
     winner = jnp.where((winner == -1) & (tick >= cfg.episode_len), 2, winner)
     done = winner != -1
-    return st._replace(cooldown=cooldown, tick=tick,
-                       done=done, winner=winner.astype(jnp.int8))
+    return st._replace(tick=tick, done=done, winner=winner.astype(jnp.int8))
 
 
 def build_step(cfg: Config, mapdata: MapData):

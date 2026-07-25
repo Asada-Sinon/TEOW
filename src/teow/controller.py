@@ -54,6 +54,8 @@ def scripted_actions(state: WorldState, cfg: Config, mapdata: MapData,
     n = cfg.n_total
     mine = st.alive & (owner == player)
     dist = jnp.asarray(mapdata.dist_fields)                # [G,H,W]
+    from .state import cell_of
+    cl = cell_of(st.pos)                                   # 连续坐标归格(v1.2)
 
     # ---- HQ:缺工人补工人 → 富余则升本(到 ai_base_level_target 止)→ 否则爆兵 ----
     n_workers = jnp.sum(mine & (st.etype == TYPE_WORKER))
@@ -69,7 +71,7 @@ def scripted_actions(state: WorldState, cfg: Config, mapdata: MapData,
                        a_upgrade(cfg), hq_act)
 
     # ---- 工人:一个去建(最近的无主点),其余采(最近的有余位己方点)----
-    node_d = dist[:cfg.n_nodes, st.pos[:, 0], st.pos[:, 1]]  # [Nn,N]
+    node_d = dist[:cfg.n_nodes, cl[:, 0], cl[:, 1]]        # [Nn,N]
     # 按「已指派数」(驻内 + 在途)控制派工,而不是只看驻内数——否则会把一堆
     # 工人堆到同一个点门口排队
     tn = jnp.clip(st.target_node.astype(jnp.int32), 0, cfg.n_nodes - 1)
@@ -158,11 +160,11 @@ def scripted_actions(state: WorldState, cfg: Config, mapdata: MapData,
     # ---- 让路:空闲单位贴在自家 HQ 正邻格(=卸货格)上会堵死运矿工人,
     # 命令它朝「远离 HQ」的方向挪一格(实测 4 个待命步兵站满卸货环锁死经济)----
     hq_field = dist[cfg.n_nodes + player]                  # [H,W] 静态
-    on_ring = hq_field[st.pos[:, 0], st.pos[:, 1]] == 1
+    on_ring = hq_field[cl[:, 0], cl[:, 1]] == 1
     is_idle_unit = (mine & ~st.inside & (st.order == ORDER_IDLE)
                     & ((st.etype == TYPE_WORKER) | (st.etype == TYPE_INFANTRY)))
     dirs = jnp.asarray([[-1, 0], [0, 1], [1, 0], [0, -1]], jnp.int32)
-    cand = st.pos[:, None, :] + dirs[None]                 # [N,4,2]
+    cand = cl[:, None, :] + dirs[None]                     # [N,4,2]
     cc = jnp.clip(cand, 0, jnp.asarray([cfg.grid_h - 1, cfg.grid_w - 1]))
     away = hq_field[cc[:, :, 0], cc[:, :, 1]]              # 越大越远
     best_dir = jnp.argmax(away, axis=1)

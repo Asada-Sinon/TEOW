@@ -81,6 +81,9 @@ def write_provenance(run_dir: pathlib.Path, cfg: Config) -> None:
     (run_dir / "resolved_config.json").write_text(
         json.dumps(dataclasses.asdict(cfg), indent=2, ensure_ascii=False))
     (run_dir / "seed.txt").write_text(str(cfg.seed) + "\n")
+    # backend 是决定论口径的一部分(v1.2 起 pos 为 float32,跨后端不保证逐位
+    # 一致;审计重放必须与录制同后端——critic S-4)
+    (run_dir / "backend.txt").write_text(jax.default_backend() + "\n")
     (run_dir / "command.txt").write_text(shlex.join(sys.argv) + "\n")
     head = subprocess.run(["git", "rev-parse", "HEAD"],
                           capture_output=True, text=True).stdout.strip()
