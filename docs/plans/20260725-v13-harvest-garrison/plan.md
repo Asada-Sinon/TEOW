@@ -293,6 +293,12 @@
 
 ## 发现但未做
 
+- **Phase 7 观察(未做)**:同 seed 0 的 scripted vs scripted,`run.py play` 正式
+  链路结果为 P0 胜 @1519 tick(experiments/20260725-v13-frontend-demo/),与
+  Phase 5 诊断脚本时间线(P1 胜 @1116、P0 全场 0 军队)不一致——两条链路存在
+  某处分歧(疑 key 流或初始化差异,未定位)。端到端验证时若靠诊断脚本结论
+  判「一边倒」,须先以 run.py 链路复核。
+
 - **Phase 6 发现(未做)**:scripted vs scripted 对局对 seed 完全不敏感——场景 B
   每变体 8 seeds 的 winner/end_tick/tower_seen 逐 seed 相同,「多 seed」退化为
   单样本(推测:v1.2 起 movement 不吃 key,step 内两处随机仲裁在这些对局未产生
