@@ -69,19 +69,22 @@ def upgrade_cost_of(state, cfg: Config) -> jax.Array:
     """int32 [N,2]:每个实体「从当前等级升一级」的(ore,water)成本,按类型查表。
     定价唯一定义处(legality 乐观检查与 paid_orders_pass 实扣都用它)。
     非可升级类型返回 0(调用方用类型掩码门控)。"""
-    from .config import TYPE_TOWER
+    from .config import TYPE_BARRACKS, TYPE_TOWER
     lv = jnp.clip(state.level.astype(jnp.int32), 0, 7)
     is_hq = state.etype == TYPE_HQ
     is_camp = state.etype == TYPE_CAMP
     is_tower = state.etype == TYPE_TOWER
+    is_bar = state.etype == TYPE_BARRACKS
     ore = jnp.where(is_hq, jnp.asarray(cfg.base_up_cost_ore)[lv],
                     jnp.asarray(cfg.node_up_cost_ore)[lv])
     ore = jnp.where(is_camp, jnp.asarray(cfg.camp_up_cost_ore)[lv], ore)
     ore = jnp.where(is_tower, jnp.asarray(cfg.tower_up_cost_ore)[lv], ore)
+    ore = jnp.where(is_bar, jnp.asarray(cfg.barracks_up_cost_ore)[lv], ore)
     wat = jnp.where(is_hq, jnp.asarray(cfg.base_up_cost_water)[lv],
                     jnp.asarray(cfg.node_up_cost_water)[lv])
     wat = jnp.where(is_camp, jnp.asarray(cfg.camp_up_cost_water)[lv], wat)
     wat = jnp.where(is_tower, jnp.asarray(cfg.tower_up_cost_water)[lv], wat)
+    wat = jnp.where(is_bar, jnp.asarray(cfg.barracks_up_cost_water)[lv], wat)
     return jnp.stack([ore, wat], axis=-1)
 
 
@@ -89,11 +92,13 @@ def upgrade_time_of(state, cfg: Config) -> jax.Array:
     """int32 [N]:每个实体升一级的耗时,按类型查表。"""
     lv = jnp.clip(state.level.astype(jnp.int32), 0, 7)
     is_hq = state.etype == TYPE_HQ
-    from .config import TYPE_TOWER
+    from .config import TYPE_BARRACKS, TYPE_TOWER
     is_camp = state.etype == TYPE_CAMP
     t = jnp.where(is_hq, jnp.asarray(cfg.base_up_time)[lv],
                   jnp.asarray(cfg.node_up_time)[lv])
     t = jnp.where(is_camp, jnp.asarray(cfg.camp_up_time)[lv], t)
+    t = jnp.where(state.etype == TYPE_BARRACKS,
+                  jnp.asarray(cfg.barracks_up_time)[lv], t)
     return jnp.where(state.etype == TYPE_TOWER,
                      jnp.asarray(cfg.tower_up_time)[lv], t)
 
@@ -150,11 +155,20 @@ def paid_orders_pass(state: WorldState, act: jax.Array, cfg: Config,
                           jnp.asarray(cfg.line_res_cost_water)[cur_l]], -1)
     cost = upgrade_cost_of(st, cfg) * w_up[:, None]
     cost += res_cost * w_res[:, None]
-    # 训狗(v1.2):同 tick 多座兵营可同时下单,与升级/研发同一 cumsum 对账
-    w_dog = act == a_train_dog(cfg)
-    cost += (jnp.asarray([cfg.dog_cost_ore, cfg.dog_cost_water], jnp.int32)[None, :]
-             * w_dog[:, None])
-    want = w_up | w_res | w_dog
+    # 兵营训练(v1.4:狗+六新兵种):同 tick 多座兵营可同时下单,
+    # 与升级/研发同一 cumsum 对账;成本按 train_cost 表 gather
+    from .actions import TRAIN_ORDER, a_train_unit
+    from .config import TYPE_ARCHER
+    w_btr = act == a_train_dog(cfg)
+    btr_t = jnp.where(w_btr, TYPE_DOG, 0)
+    for t in TRAIN_ORDER[TRAIN_ORDER.index(TYPE_ARCHER):]:  # 兵营系六兵种
+        w_t = act == a_train_unit(t, cfg)
+        w_btr = w_btr | w_t
+        btr_t = jnp.where(w_t, t, btr_t)
+    tco = jnp.asarray(cfg.train_cost_ore_by_type, jnp.int32)
+    tcw = jnp.asarray(cfg.train_cost_water_by_type, jnp.int32)
+    cost += jnp.stack([tco[btr_t], tcw[btr_t]], -1) * w_btr[:, None]
+    want = w_up | w_res | w_btr
 
     afford = jnp.zeros(cfg.n_total, bool)
     stock = st.resources
@@ -167,9 +181,10 @@ def paid_orders_pass(state: WorldState, act: jax.Array, cfg: Config,
     pay = jnp.zeros_like(stock).at[own_i].add(jnp.where(do[:, None], cost, 0))
     stock = stock - pay
     task = jnp.where(w_res, btask_research(0) - res_line,
-                     jnp.where(w_dog, TYPE_DOG, BTASK_UPGRADE))
+                     jnp.where(w_btr, btr_t, BTASK_UPGRADE))
+    ttime = jnp.asarray(cfg.train_time_by_type, jnp.int32)
     t = jnp.where(w_res, jnp.asarray(cfg.line_res_time)[cur_l],
-                  jnp.where(w_dog, cfg.dog_time,
+                  jnp.where(w_btr, ttime[btr_t],
                             upgrade_time_of(st, cfg)))
     st = st._replace(
         resources=stock,
@@ -188,7 +203,7 @@ def paid_orders_pass(state: WorldState, act: jax.Array, cfg: Config,
          cfg.camp_build_time, jnp.asarray(cfg.camp_hp_by_level)[2] // 10),
         (a_build_barracks(cfg), TYPE_BARRACKS, BTASK_BUILD_BARRACKS,
          jnp.asarray([cfg.barracks_cost_ore, cfg.barracks_cost_water], jnp.int32),
-         cfg.barracks_build_time, cfg.barracks_hp // 10),
+         cfg.barracks_build_time, int(cfg.barracks_hp_by_level[1]) // 10),
         (a_build_tower(cfg), TYPE_TOWER, BTASK_BUILD_TOWER,
          jnp.asarray([cfg.tower_cost_ore, cfg.tower_cost_water], jnp.int32),
          cfg.tower_build_time, int(cfg.tower_hp_by_level[1]) // 10),
@@ -258,7 +273,8 @@ def special_tasks_tick(state: WorldState, cfg: Config,
     hp = st.hp
     grow_specs = (
         (BTASK_BUILD_CAMP, int(cfg.camp_hp_by_level[2]), cfg.camp_build_time),
-        (BTASK_BUILD_BARRACKS, int(cfg.barracks_hp), cfg.barracks_build_time),
+        (BTASK_BUILD_BARRACKS, int(cfg.barracks_hp_by_level[1]),
+         cfg.barracks_build_time),
         (BTASK_BUILD_TOWER, int(cfg.tower_hp_by_level[1]), cfg.tower_build_time),
         (BTASK_BUILD_MORTAR, int(cfg.mortar_hp), cfg.mortar_build_time),
     )
@@ -274,12 +290,16 @@ def special_tasks_tick(state: WorldState, cfg: Config,
     camp_done = done & (st.btype == BTASK_BUILD_CAMP)
     level = jnp.where(camp_done, 2, st.level)
 
-    # 自升级完成;哨塔升级补血量上限差额(升级提升血量,issue v1.2)
+    # 自升级完成;哨塔/兵营升级补血量上限差额(升级提升血量;v1.4 兵营加入)
     upg = done & (st.btype == BTASK_UPGRADE)
     lv0 = jnp.clip(st.level.astype(jnp.int32), 0, 6)
     thp = jnp.asarray(cfg.tower_hp_by_level)
     tower_up = upg & (st.etype == TYPE_TOWER)
     hp = hp + jnp.where(tower_up, thp[lv0 + 1] - thp[lv0], 0)
+    from .config import TYPE_BARRACKS as _TB
+    bhp = jnp.asarray(cfg.barracks_hp_by_level)
+    bar_up = upg & (st.etype == _TB)
+    hp = hp + jnp.where(bar_up, bhp[lv0 + 1] - bhp[lv0], 0)
     level = jnp.where(upg, level + 1, level).astype(jnp.int8)
 
     # 研发完成:该玩家对应线 +1(legality+paid 去重保证同线同 tick 至多一营在研),
@@ -331,7 +351,8 @@ def production_tick(state: WorldState, cfg: Config, mapdata: MapData) -> WorldSt
     h, w = cfg.grid_h, cfg.grid_w
 
     for p in (0, 1):  # 编译期展开
-      for _round in range(3):  # 每玩家至多 HQ+2 兵营同 tick 完成(编译期展开)
+      # 每玩家至多 HQ + max_barracks 座兵营同 tick 完成(编译期展开;plan D8)
+      for _round in range(1 + cfg.max_barracks):
         base = hq_slot(p, cfg)
         producing = st.alive & (st.btype > 0) & (st.btimer == 0)
         half = jnp.zeros(cfg.n_total, bool).at[base:base + cfg.e_max].set(True)

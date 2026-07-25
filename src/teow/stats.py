@@ -52,7 +52,7 @@ def hp_table(cfg: Config) -> jax.Array:
         TYPE_WORKER: _flat(cfg.worker_hp),
         TYPE_INFANTRY: cfg.inf_hp_by_level,
         TYPE_CAMP: cfg.camp_hp_by_level,
-        TYPE_BARRACKS: _flat(cfg.barracks_hp),
+        TYPE_BARRACKS: cfg.barracks_hp_by_level,
         TYPE_DOG: cfg.dog_hp_by_level,
         TYPE_TOWER: cfg.tower_hp_by_level,
         TYPE_STRONGMAN: _flat(cfg.strongman_hp),

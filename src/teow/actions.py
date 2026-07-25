@@ -274,6 +274,14 @@ def legality_mask(state: WorldState, cfg: Config, mapdata: MapData,
         hq_idle & jnp.all(stock >= ucost[0], axis=-1))
     mask = mask.at[:, a_train_infantry(cfg)].set(
         hq_idle & jnp.all(stock >= ucost[1], axis=-1))
+    # HQ 高级采集单位(v1.4):大力士(HQ3)/马车(HQ5),门=基地等级
+    tl = cfg.train_level_by_type
+    hq_lv0 = state.level[half * cfg.e_max].astype(jnp.int32)  # 所属玩家基地级
+    for t in (TYPE_STRONGMAN, TYPE_WAGON):
+        c = jnp.asarray([cfg.train_cost_ore_by_type[t],
+                         cfg.train_cost_water_by_type[t]], jnp.int32)
+        ok_t = hq_idle & (hq_lv0 >= tl[t]) & jnp.all(stock >= c, axis=-1)
+        mask = mask.at[:, a_train_unit(t, cfg)].set(ok_t)
 
     # 升级(v1.1):建筑空闲(btimer==0,critic S-1:否则覆写在训单位)+ 上限链
     # + 乐观付得起(最终扣费在 paid_orders_pass 顺序对账,同 tick 多笔不透支)
@@ -282,11 +290,13 @@ def legality_mask(state: WorldState, cfg: Config, mapdata: MapData,
     hq_lv = state.level[half * cfg.e_max].astype(jnp.int32)   # 各实体所属玩家的基地级
     is_node_b = (state.etype == TYPE_MINE) | (state.etype == TYPE_PUMP)
     is_camp = state.etype == TYPE_CAMP
+    from .config import TYPE_BARRACKS as _TB0
     from .config import TYPE_TOWER as _TT
     is_tower = state.etype == _TT
+    is_bar_u = state.etype == _TB0     # 兵营可升级(v1.4;上限=基地等级)
     cap_ok = jnp.where(is_hq, lv < cfg.base_max_level, lv < hq_lv)
     up_cost = upgrade_cost_of(state, cfg)                     # [N,2] 按类型/等级
-    can_up = (actable & (is_hq | is_node_b | is_camp | is_tower)
+    can_up = (actable & (is_hq | is_node_b | is_camp | is_tower | is_bar_u)
               & (state.btimer == 0) & cap_ok
               & jnp.all(stock >= up_cost, axis=-1))
     mask = mask.at[:, a_upgrade(cfg)].set(can_up)
@@ -342,6 +352,13 @@ def legality_mask(state: WorldState, cfg: Config, mapdata: MapData,
                 & free_in_half)
     mask = mask.at[:, a_train_dog(cfg)].set(
         bar_idle & jnp.all(stock >= dog_cost, axis=-1))
+    # 兵营高级兵种(v1.4):门=**本座兵营**自身等级 ≥ train_level_by_type
+    for t in (TYPE_ARCHER, TYPE_LCAV, TYPE_HEAVY, TYPE_MAGE,
+              TYPE_HEALER, TYPE_RAM):
+        c = jnp.asarray([cfg.train_cost_ore_by_type[t],
+                         cfg.train_cost_water_by_type[t]], jnp.int32)
+        ok_t = bar_idle & (lv >= tl[t]) & jnp.all(stock >= c, axis=-1)
+        mask = mask.at[:, a_train_unit(t, cfg)].set(ok_t)
 
     # 研发(v1.4 八线):建成的营(level>=2)空闲 + 线级<营级 + 付得起
     # + 本玩家没有别的营在研同一条线(防同线并研双倍跳级)
@@ -448,6 +465,8 @@ def apply_orders(state: WorldState, actions: jax.Array, cfg: Config,
     is_harv = (act >= a_harvest(0, cfg)) & (act < a_harvest(cfg.n_nodes, cfg))
     is_tw = act == a_train_worker(cfg)
     is_ti = act == a_train_infantry(cfg)
+    is_tsm = act == a_train_unit(TYPE_STRONGMAN, cfg)   # v1.4 HQ 系
+    is_twg = act == a_train_unit(TYPE_WAGON, cfg)
     is_ghq = act == a_garrison_hq(cfg)
     is_gnode = ((act >= a_garrison_node(0, cfg))
                 & (act < a_garrison_node(cfg.n_nodes, cfg)))
@@ -501,14 +520,23 @@ def apply_orders(state: WorldState, actions: jax.Array, cfg: Config,
     phase = jnp.where(new_cmd, PH_TO_NODE, state.phase).astype(jnp.int8)
     phase = jnp.where(is_harv & (state.cargo > 0), PH_TO_HQ, phase)
 
-    # 训练扣费 + 开工
+    # 训练扣费 + 开工(HQ 系即扣:每家仅 1 座 HQ,同 tick 至多一笔,安全;
+    # 兵营系训练走 paid_orders_pass cumsum 对账)
     ucost = unit_costs(cfg)
-    spend = (is_tw[:, None] * ucost[0] + is_ti[:, None] * ucost[1])  # [N,2]
+    sm_cost = jnp.asarray([cfg.strongman_cost_ore, cfg.strongman_cost_water],
+                          jnp.int32)
+    wg_cost = jnp.asarray([cfg.wagon_cost_ore, cfg.wagon_cost_water], jnp.int32)
+    spend = (is_tw[:, None] * ucost[0] + is_ti[:, None] * ucost[1]
+             + is_tsm[:, None] * sm_cost + is_twg[:, None] * wg_cost)  # [N,2]
     pay = jnp.zeros_like(state.resources).at[owner.astype(jnp.int32)].add(spend)
     btype = jnp.where(is_tw, TYPE_WORKER, state.btype)
-    btype = jnp.where(is_ti, TYPE_INFANTRY, btype).astype(jnp.int8)
+    btype = jnp.where(is_ti, TYPE_INFANTRY, btype)
+    btype = jnp.where(is_tsm, TYPE_STRONGMAN, btype)
+    btype = jnp.where(is_twg, TYPE_WAGON, btype).astype(jnp.int8)
     btimer = jnp.where(is_tw, cfg.worker_time, state.btimer)
-    btimer = jnp.where(is_ti, cfg.infantry_time, btimer).astype(jnp.int16)
+    btimer = jnp.where(is_ti, cfg.infantry_time, btimer)
+    btimer = jnp.where(is_tsm, cfg.strongman_time, btimer)
+    btimer = jnp.where(is_twg, cfg.wagon_time, btimer).astype(jnp.int16)
 
     # ---- 军旗表更新(v1.3;免费无扣费,留在本函数不进 paid_orders_pass)。
     # 求值顺序(critic M-2):撤旗对单位的清理在个体 order 覆写**之后**——

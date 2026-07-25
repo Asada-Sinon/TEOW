@@ -227,12 +227,15 @@ class Config:
     line_res_cost_water: tuple = (0, 40, 60, 90, 140, 200, 280, 0)
     line_res_time: tuple = (0, 120, 150, 180, 210, 240, 270, 0)
 
-    # 兵营(v1.2;v1.4 起可升级,上限=基地等级)
+    # 兵营(v1.2;v1.4 起可升级 1→7,上限=基地等级,升级解锁高级兵种)
     max_barracks: int = 2   # 每玩家兵营数量上限
     barracks_cost_ore: int = 80
     barracks_cost_water: int = 40
     barracks_build_time: int = 120
-    barracks_hp: int = 200
+    barracks_hp_by_level: tuple = (0, 200, 240, 280, 330, 380, 440, 500)
+    barracks_up_cost_ore: tuple = (0, 60, 90, 130, 190, 270, 370, 0)
+    barracks_up_cost_water: tuple = (0, 40, 60, 90, 130, 190, 270, 0)
+    barracks_up_time: tuple = (0, 90, 110, 130, 150, 170, 190, 0)
 
     # 哨塔(等级上限=基地等级,升级提升血量与攻击;只攻单位不攻建筑)
     # v1.4 多塔:可建数量挂基地等级,每两级 +1(用户确认数值,非草案):

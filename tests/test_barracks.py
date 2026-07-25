@@ -39,7 +39,7 @@ def test_barracks_unlock_and_dog_training():
 
     st, bar = setup_barracks(cfg, state, step_fn)
     assert int(st.level[bar]) == 1          # 兵营建成是 1 级(营才是建成即 2)
-    assert int(st.hp[bar]) == cfg.barracks_hp  # 未挨打建成=满血
+    assert int(st.hp[bar]) == cfg.barracks_hp_by_level[1]  # 未挨打建成=满血
 
     # 训狗:扣费在 paid pass,dog_time 后落地,吃步兵线的狗表血量
     res0 = st.resources[0].tolist()
