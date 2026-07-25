@@ -272,7 +272,8 @@ class Config:
     #      resolved config 能完整复现一场对局)----
     ai_worker_target: int = 8    # 工人数低于此值时 HQ 优先补工人
     ai_attack_threshold: int = 6 # 战斗单位攒到此数全军压向敌方 HQ
-    ai_base_level_target: int = 3  # 脚本 AI 把基地升到几级为止
+    ai_base_level_target: int = 3  # 脚本 AI 把基地升到几级为止(默认 3 保持对局节奏;
+    #                                v1.4 覆盖型审计局传 5-7 并配富开局解锁全兵种)
     ai_upgrade_reserve: int = 40   # 库存超出升级成本多少才肯升级/研发(留军费)
 
     # ---- 派生量(不是字段)----

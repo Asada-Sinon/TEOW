@@ -72,9 +72,25 @@ def scripted_actions(state: WorldState, cfg: Config, mapdata: MapData,
         [cfg.base_up_cost_ore, cfg.base_up_cost_water], jnp.int32)[:, base_lv]
     rich_for_base = jnp.all(st.resources[player]
                             >= up_cost + cfg.ai_upgrade_reserve)
+    # v1.4:HQ3 起补大力士(≤2)、HQ5 起补马车(1),优先级在补工人之后、
+    # 爆步兵之前(采集单位计入 n_workers 配额,不会无限膨胀)
+    from .actions import a_train_unit
+    n_sm = jnp.sum(mine & (st.etype == _TS))
+    n_wg = jnp.sum(mine & (st.etype == _TW))
+    tl_hq = cfg.train_level_by_type
+    want_sm = (base_lv >= tl_hq[_TS]) & (n_sm < 2)
+    want_wg = (base_lv >= tl_hq[_TW]) & (n_wg < 1)
     hq_act = jnp.where(n_workers < cfg.ai_worker_target,
-                       a_train_worker(cfg), a_train_infantry(cfg))
-    hq_act = jnp.where(rich_for_base & (base_lv < cfg.ai_base_level_target),
+                       a_train_worker(cfg),
+                       jnp.where(want_wg, a_train_unit(_TW, cfg),
+                                 jnp.where(want_sm, a_train_unit(_TS, cfg),
+                                           a_train_infantry(cfg))))
+    # 升级在途门:升级完成拍控制器还看着旧等级,会再下一单把基地顶超目标
+    # 一级(600/400 白烧,晚期训练被饿——v1.4 覆盖局实测);只挡「升级任务
+    # 在途」,不挡训练(训练中下升级单本就被掩码 NOOP,完成后自然轮到)
+    from .config import BTASK_UPGRADE as _BU
+    hq_act = jnp.where(rich_for_base & (base_lv < cfg.ai_base_level_target)
+                       & (st.btype[hq_slot_p] != _BU),
                        a_upgrade(cfg), hq_act)
 
     # ---- 工人:一个去建(最近的无主点),其余采(最近的有余位己方点)----
@@ -141,9 +157,10 @@ def scripted_actions(state: WorldState, cfg: Config, mapdata: MapData,
     worker_act = jnp.where(is_builder, a_build(0) + build_k, worker_act)
     worker_act = jnp.where(idle_worker, worker_act, A_NOOP)
 
-    # ---- 军队:狗+步兵攒够阈值全军 attack-move(重复下达无害)----
+    # ---- 军队:全部战斗兵种(line_of_type≥0)攒够阈值全军 attack-move ----
     from .config import TYPE_DOG
-    is_army = (st.etype == TYPE_INFANTRY) | (st.etype == TYPE_DOG)
+    is_army = jnp.asarray(cfg.line_of_type, jnp.int32)[
+        jnp.clip(st.etype.astype(jnp.int32), 0, 31)] >= 0
     n_army = jnp.sum(mine & is_army)
     attack_on = n_army >= cfg.ai_attack_threshold
     inf_act = jnp.where(attack_on, A_ATTACK, A_NOOP)
@@ -187,10 +204,56 @@ def scripted_actions(state: WorldState, cfg: Config, mapdata: MapData,
     spare = st.resources[player] - reserve
     inf_ok = jnp.all(spare >= jnp.asarray(
         [cfg.infantry_cost_ore, cfg.infantry_cost_water]))
-    dog_ok = jnp.all(spare >= jnp.asarray(
-        [cfg.dog_cost_ore, cfg.dog_cost_water]))
     hq_act = jnp.where((hq_act == a_train_infantry(cfg)) & ~inf_ok,
                        A_NOOP, hq_act)
+
+    # ---- 兵营行为(v1.4):落后基地就升级(富余),否则训「己方数量最少的
+    # 已解锁兵种」(healer/ram 各封顶 2,防一屋子辅助);成本过 spare 预留门 ----
+    from .actions import a_train_dog
+    from .actions import a_train_unit as _atu
+    from .config import (
+        TYPE_ARCHER,
+        TYPE_HEALER,
+        TYPE_HEAVY,
+        TYPE_LCAV,
+        TYPE_MAGE,
+        TYPE_RAM,
+    )
+    # healer 排在 mage 前:argmin 平手取先者,否则「mage 阵亡归零」与 healer
+    # 永远同分,healer 永不入队(覆盖局实测)
+    bar_types = (TYPE_DOG, TYPE_ARCHER, TYPE_LCAV, TYPE_HEAVY,
+                 TYPE_HEALER, TYPE_MAGE, TYPE_RAM)
+    bar_caps = (99, 99, 99, 99, 2, 99, 2)
+    tlv = cfg.train_level_by_type
+    counts = jnp.stack([jnp.sum(mine & (st.etype == t)) for t in bar_types])
+    counts = counts + jnp.where(
+        counts >= jnp.asarray(bar_caps), 999, 0)             # 封顶型惩罚
+    lv_vec = st.level.astype(jnp.int32)
+    unlocked_t = jnp.stack(
+        [lv_vec >= tlv[t] for t in bar_types], axis=1)       # [N, T]
+    # 平手偏置(×8 保证计数差主导):高阶兵种优先——狗在乱战里反复归零,
+    # 纯 argmin 平手恒取狗,ram(尾位)永不入队(覆盖局实测);healer 先于 mage
+    tie_bias = jnp.asarray((6, 5, 4, 3, 1, 2, 0), jnp.int32)  # 对齐 bar_types
+    t_score = (counts[None, :] * 8 + tie_bias[None, :]
+               + jnp.where(unlocked_t, 0, 9999))
+    choice = jnp.argmin(t_score, axis=1)                     # [N] 每兵营选型
+    train_ids = jnp.asarray(
+        [a_train_dog(cfg)] + [_atu(t, cfg) for t in bar_types[1:]], jnp.int32)
+    tco_v = jnp.asarray(cfg.train_cost_ore_by_type, jnp.int32)
+    tcw_v = jnp.asarray(cfg.train_cost_water_by_type, jnp.int32)
+    chosen_t = jnp.asarray(bar_types, jnp.int32)[choice]
+    train_ok = ((spare[0] >= tco_v[chosen_t]) & (spare[1] >= tcw_v[chosen_t]))
+    bar_train_act = jnp.where(train_ok, train_ids[choice], A_NOOP)
+    # 升级优先:兵营级 < 基地级且富余(含预备金)
+    bar_up_cost = jnp.stack(
+        [jnp.asarray(cfg.barracks_up_cost_ore)[jnp.clip(lv_vec, 0, 7)],
+         jnp.asarray(cfg.barracks_up_cost_water)[jnp.clip(lv_vec, 0, 7)]], -1)
+    rich_for_barup = jnp.all(
+        st.resources[player][None, :] >= bar_up_cost + cfg.ai_upgrade_reserve,
+        axis=-1)
+    bar_act_full = jnp.where(rich_for_barup & (lv_vec < base_lv)
+                             & (st.btype != _BU),
+                             a_upgrade(cfg), bar_train_act)
 
     # ---- 建营:基地达标且没有己方营(含在建)时,征调一个工人就地起营
     # (同一征调池;若与扩张建造者撞同一人,建营优先——它在 act 覆盖链更后)----
@@ -214,6 +277,18 @@ def scripted_actions(state: WorldState, cfg: Config, mapdata: MapData,
                       & (st.level[player * cfg.e_max] >= unlock[TYPE_BARRACKS])
                       & has_camp & ~has_bar & bar_afford & ~is_camp_builder)
 
+    # ---- 迫击炮(v1.4):基地 3 级、有兵营后建一座(cap 1)----
+    from .actions import a_build_mortar
+    from .config import TYPE_MORTAR
+    has_mortar = jnp.any(mine & (st.etype == TYPE_MORTAR))
+    mor_afford = jnp.all(st.resources[player] >= jnp.asarray(
+        [cfg.mortar_cost_ore, cfg.mortar_cost_water]))
+    mr_builder = jnp.argmin(pull_score)
+    is_mr_builder = ((jnp.arange(n) == mr_builder) & jnp.any(can_pull)
+                     & (st.level[player * cfg.e_max] >= unlock[TYPE_MORTAR])
+                     & has_bar & ~has_mortar & mor_afford
+                     & ~is_camp_builder & ~is_bar_builder)
+
     # ---- 哨塔:有兵营后建到数量上限为止(v1.4 多塔:上限挂基地等级)----
     from .actions import a_build_tower
     from .config import TYPE_TOWER
@@ -226,7 +301,7 @@ def scripted_actions(state: WorldState, cfg: Config, mapdata: MapData,
     is_tw_builder = ((jnp.arange(n) == tw_builder) & jnp.any(can_pull)
                      & (st.level[player * cfg.e_max] >= unlock[TYPE_TOWER])
                      & has_bar & (n_towers < twr_cap) & tower_afford
-                     & ~is_camp_builder & ~is_bar_builder)
+                     & ~is_camp_builder & ~is_bar_builder & ~is_mr_builder)
 
     # ---- 驻守/军旗(v1.3):有兵营后,槽号最小的 2 只狗驻守离家最远的已建
     # 矿泵点;第 3 只狗在当前位置插旗(驻守途中/圈内插,位置自然靠前线),
@@ -243,7 +318,10 @@ def scripted_actions(state: WorldState, cfg: Config, mapdata: MapData,
     any_flag = jnp.any(st.flag_active[player])
     dog_act = jnp.where(is_my_dog & (dog_rank < 2) & has_bar & (n_dogs >= 2)
                         & has_far, a_garrison_node(0, cfg) + far_k, A_NOOP)
-    dog_act = jnp.where(is_my_dog & (dog_rank == 2) & (n_dogs >= 3) & ~any_flag,
+    # 第一只狗先插旗(v1.4 鲁棒化:旧「第 3 只狗插旗」在总攻波次里凑不齐
+    # 3 只并发狗,插旗时点贴着终局、对 jit 融合浮点微差过敏;插旗免费即时,
+    # 一拍完成后该狗下 tick 自然回到驻守分支)
+    dog_act = jnp.where(is_my_dog & (dog_rank == 0) & ~any_flag,
                         a_plant_flag(cfg), dog_act)
     dog_act = jnp.where(is_my_dog & (dog_rank >= 2) & any_flag,
                         a_garrison_flag(0, cfg), dog_act)
@@ -266,8 +344,8 @@ def scripted_actions(state: WorldState, cfg: Config, mapdata: MapData,
     act = jnp.where(is_camp_builder, a_build_camp(cfg), act)
     act = jnp.where(is_bar_builder, a_build_barracks(cfg), act)
     act = jnp.where(is_tw_builder, a_build_tower(cfg), act)
-    act = jnp.where(mine & (st.etype == TYPE_BARRACKS) & dog_ok,
-                    a_train_dog(cfg), act)
+    act = jnp.where(is_mr_builder, a_build_mortar(cfg), act)
+    act = jnp.where(mine & (st.etype == TYPE_BARRACKS), bar_act_full, act)
     act = jnp.where(mine & (st.etype == TYPE_CAMP), camp_act, act)
     act = jnp.where(mine & is_node_b, node_act, act)
     act = jnp.where(mine & is_army, inf_act, act)
