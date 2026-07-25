@@ -39,6 +39,20 @@
 
 <!-- 真实的 session 记录从这一行下面开始写，最新的一节永远插在紧挨本行的下面。 -->
 
+## Session 2026-07-25(下午,用户在线,v1.1 全程)
+- 完成: v1.1 升级系统全部落地并打 tag——用户改需求(升本零单位加成,改为技能
+  训练营双线研发,上限链 线≤营≤基地)→ plan+plan-critic(抓到扣费透支 BLOCKER)
+  → 6 phase 实现 → 两轮无上下文审计(P0-1 跨营并研双倍扣费已修复复审关闭)
+  → changelog v1.1。25 项测试绿。对局涌现「攀科技 vs 爆兵」双路线均有胜局
+  (experiments/20260725-v1.1-audit2/ 等)。
+- PENDING: ①v1.2(兵营/狗子/哨塔/浏览器前端)走 /plan 读 issue.md v1.2 节;
+  实现前先做 changelog v1.1 已知问题里的三件工具债:builder 超时自愈、
+  解锁表扩表结构、审计对账脚本补「同 tick 死亡交互」口径;②1 宽走廊回归用例
+  (v1.0 遗留,v1.2 若加地形墙必须先补)。
+- 坑: 同 tick 多笔支出必须走 paid_orders_pass 顺序对账,任何新付费动作不得在
+  apply_orders 直接扣费;负数 btype 任务完成必须 btype←0;测试给富开局要用
+  Config(start_ore=..., start_water=...) 不要改默认值。
+
 ## Session 2026-07-25(用户睡眠期自主推进)
 - 完成: v1.0 全部落地并打 tag——工作流特化(versioning 规则/engine-auditor/
   /version-close)、issue.md 通透版、纯 JAX 引擎全链路、14 测试绿、两轮无上下文
