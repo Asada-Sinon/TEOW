@@ -93,12 +93,28 @@ function draw() {
   const t = Math.min(1, (performance.now() - curAt) / frameInterval);
   const ents = lerpEnts(prev, cur, t);
   const bldTypes = meta.building_types || [1, 2, 3, 6, 7, 9];
-  for (const e of ents) {
+  const AIR = [27, 28];                            // v1.6 空军最后画(z 最高)
+  const ordered = ents.filter(e => !AIR.includes(e.t))
+                      .concat(ents.filter(e => AIR.includes(e.t)));
+  for (const e of ordered) {
+    if (e.ab >= 0) continue;                       // 舱内乘员不画
     const owner = Math.floor(e.s / meta.e_max);   // v1.5 P 家行块
-    const [x, y] = px(e.p);
+    const isAir = AIR.includes(e.t);
+    let [x, y] = px(e.p);
+    if (isAir) {                                   // 椭圆阴影 + 本体上移
+      ctx.save(); ctx.globalAlpha = 0.25; ctx.fillStyle = "#000";
+      ctx.beginPath(); ctx.ellipse(x, y + s * 0.35, s * 0.4, s * 0.15, 0, 0, 7);
+      ctx.fill(); ctx.restore();
+      y -= s * 0.25;
+    }
     const isBldT = bldTypes.includes(e.t);
     drawSprite(ctx, e.t, owner, x, y, s * (isBldT ? 1.5 : 1.0),
                { building: e.bt < 0, inside: e.in, bld: isBldT });
+    if (e.t === 27 && e.px > 0) {                  // 飞艇载员徽章
+      ctx.fillStyle = "#f8fafc";
+      ctx.font = `bold ${Math.max(9, s * 0.34)}px sans-serif`;
+      ctx.fillText(String(e.px), x - s * 0.15, y + s * 0.1);
+    }
     if (e.lv > 1) {               // 等级角标
       ctx.fillStyle = "#facc15";
       ctx.font = `bold ${Math.max(9, s * 0.38)}px sans-serif`;

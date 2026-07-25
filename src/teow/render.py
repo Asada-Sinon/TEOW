@@ -12,19 +12,26 @@ import pathlib
 import numpy as np
 
 from .config import (
+    TYPE_AIRSHIP,
     TYPE_ARCHER,
     TYPE_BARRACKS,
     TYPE_CAMP,
+    TYPE_CATAPULT,
     TYPE_DOG,
+    TYPE_DRAGON,
     TYPE_FENCE_IRON,
     TYPE_FENCE_STONE,
     TYPE_FENCE_WOOD,
+    TYPE_FLAMER,
     TYPE_HEALER,
     TYPE_HEAVY,
     TYPE_HQ,
     TYPE_INFANTRY,
+    TYPE_LANDMINE,
+    TYPE_LASER,
     TYPE_LCAV,
     TYPE_MAGE,
+    TYPE_MAGETOWER,
     TYPE_MINE,
     TYPE_MORTAR,
     TYPE_PUMP,
@@ -74,7 +81,10 @@ def _draw_frame(ax, frame: dict, e_max: int, passable: np.ndarray,
                     ax.plot(fc + 0.14, fr - 0.3, ">", ms=6, color=col)
 
     level = frame.get("level")
+    aboard_all = frame.get("aboard")
     for i in np.flatnonzero(alive):
+        if aboard_all is not None and int(aboard_all[i]) >= 0:
+            continue              # 舱内乘员不画(v1.6)
         r, c = pos[i]
         col = P_COLOR[int(owner[i])]
         t = etype[i]
@@ -129,6 +139,26 @@ def _draw_frame(ax, frame: dict, e_max: int, passable: np.ndarray,
             fence_ms = {TYPE_FENCE_WOOD: 7, TYPE_FENCE_STONE: 9,
                         TYPE_FENCE_IRON: 11}[int(t)]
             ax.plot(c, r, "s", ms=fence_ms, mfc="none", mec=col, mew=2)
+        elif t == TYPE_MAGETOWER:
+            building = frame["btype"][i] < 0
+            ax.plot(c, r, "d", ms=11, color=col, alpha=0.4 if building else 0.9)
+        elif t == TYPE_LANDMINE:
+            ax.plot(c, r, "x", ms=7, color=col, mew=2)
+        elif t == TYPE_FLAMER:
+            building = frame["btype"][i] < 0
+            ax.plot(c, r, "v", ms=11, color=col, alpha=0.4 if building else 0.9)
+        elif t == TYPE_LASER:
+            building = frame["btype"][i] < 0
+            ax.plot(c, r, "1", ms=13, color=col, alpha=0.4 if building else 0.9)
+        elif t == TYPE_CATAPULT:
+            ax.plot(c, r, "D", ms=8, color=col)
+        elif t in (TYPE_AIRSHIP, TYPE_DRAGON):
+            aboard_arr = frame.get("aboard")
+            if aboard_arr is not None and int(aboard_arr[i]) >= 0:
+                continue          # 舱内不画(空军自身 aboard 恒 -1,此为通配)
+            ax.plot(c + 0.15, r + 0.15, "o", ms=6, color="#888888", alpha=0.4)
+            marker = "8" if t == TYPE_AIRSHIP else "*"
+            ax.plot(c, r - 0.25, marker, ms=11, color=col)
 
     res = frame["resources"]
     # 标题用 ASCII:matplotlib 默认字体没有 CJK 字形,中文会渲染成豆腐块

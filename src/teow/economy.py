@@ -48,8 +48,11 @@ _SPAWN_DIRS = jnp.asarray(
 
 
 def occupancy_grid(state: WorldState, cfg: Config) -> jax.Array:
-    """bool [H,W]:在场实体(alive 且不在矿内)占用图。每 tick 重算,不进 state。"""
-    on = state.alive & ~state.inside
+    """bool [H,W]:在场实体(alive 且不在矿内/舱内)占用图。每 tick 重算,
+    不进 state。空中单位不占格(v1.6:建筑可落在飞艇正下方)。"""
+    is_air = jnp.asarray(cfg.is_air_by_type, bool)[
+        jnp.clip(state.etype.astype(jnp.int32), 0, 31)]
+    on = state.alive & ~state.inside & (state.aboard < 0) & ~is_air
     cell = cell_of(state.pos)
     occ = jnp.zeros((cfg.grid_h, cfg.grid_w), bool)
     return occ.at[cell[:, 0], cell[:, 1]].max(on)
@@ -113,6 +116,7 @@ def paid_orders_pass(state: WorldState, act: jax.Array, cfg: Config,
     from .actions import (
         a_build_barracks,
         a_build_camp,
+        a_build_defense,
         a_build_fence,
         a_build_mortar,
         a_build_tower,
@@ -126,6 +130,10 @@ def paid_orders_pass(state: WorldState, act: jax.Array, cfg: Config,
         BTASK_BUILD_FENCE_IRON,
         BTASK_BUILD_FENCE_STONE,
         BTASK_BUILD_FENCE_WOOD,
+        BTASK_BUILD_FLAMER,
+        BTASK_BUILD_LANDMINE,
+        BTASK_BUILD_LASER,
+        BTASK_BUILD_MAGETOWER,
         BTASK_BUILD_MORTAR,
         BTASK_BUILD_TOWER,
         TYPE_BARRACKS,
@@ -134,6 +142,10 @@ def paid_orders_pass(state: WorldState, act: jax.Array, cfg: Config,
         TYPE_FENCE_IRON,
         TYPE_FENCE_STONE,
         TYPE_FENCE_WOOD,
+        TYPE_FLAMER,
+        TYPE_LANDMINE,
+        TYPE_LASER,
+        TYPE_MAGETOWER,
         TYPE_MORTAR,
         TYPE_TOWER,
     )
@@ -164,12 +176,16 @@ def paid_orders_pass(state: WorldState, act: jax.Array, cfg: Config,
     cost += res_cost * w_res[:, None]
     # 兵营训练(v1.4:狗+六新兵种):同 tick 多座兵营可同时下单,
     # 与升级/研发同一 cumsum 对账;成本按 train_cost 表 gather
-    from .actions import TRAIN_ORDER, a_train_unit
+    from .actions import TRAIN_ORDER, TRAIN_ORDER_V16, a_train_unit, a_train_v16
     from .config import TYPE_ARCHER
     w_btr = act == a_train_dog(cfg)
     btr_t = jnp.where(w_btr, TYPE_DOG, 0)
     for t in TRAIN_ORDER[TRAIN_ORDER.index(TYPE_ARCHER):]:  # 兵营系六兵种
         w_t = act == a_train_unit(t, cfg)
+        w_btr = w_btr | w_t
+        btr_t = jnp.where(w_t, t, btr_t)
+    for t in TRAIN_ORDER_V16:                       # v1.6 投石车/飞艇/龙
+        w_t = act == a_train_v16(t, cfg)
         w_btr = w_btr | w_t
         btr_t = jnp.where(w_t, t, btr_t)
     tco = jnp.asarray(cfg.train_cost_ore_by_type, jnp.int32)
@@ -238,6 +254,24 @@ def paid_orders_pass(state: WorldState, act: jax.Array, cfg: Config,
          jnp.asarray([cfg.fence_iron_cost_ore, cfg.fence_iron_cost_water],
                      jnp.int32),
          cfg.fence_iron_build_time, cfg.fence_iron_hp // 10),
+        (a_build_defense(TYPE_MAGETOWER, cfg), TYPE_MAGETOWER,
+         BTASK_BUILD_MAGETOWER,
+         jnp.asarray([cfg.magetower_cost_ore, cfg.magetower_cost_water],
+                     jnp.int32),
+         cfg.magetower_build_time, cfg.magetower_hp // 10),
+        (a_build_defense(TYPE_LANDMINE, cfg), TYPE_LANDMINE,
+         BTASK_BUILD_LANDMINE,
+         jnp.asarray([cfg.landmine_cost_ore, cfg.landmine_cost_water],
+                     jnp.int32),
+         cfg.landmine_build_time, cfg.landmine_hp // 10),
+        (a_build_defense(TYPE_FLAMER, cfg), TYPE_FLAMER,
+         BTASK_BUILD_FLAMER,
+         jnp.asarray([cfg.flamer_cost_ore, cfg.flamer_cost_water], jnp.int32),
+         cfg.flamer_build_time, cfg.flamer_hp // 10),
+        (a_build_defense(TYPE_LASER, cfg), TYPE_LASER,
+         BTASK_BUILD_LASER,
+         jnp.asarray([cfg.laser_cost_ore, cfg.laser_cost_water], jnp.int32),
+         cfg.laser_build_time, cfg.laser_hp // 10),
     )
     for a_id, stype, btask, camp_cost, build_t, start_hp0 in structs:
       for p in range(cfg.n_players):  # 编译期展开
@@ -289,6 +323,10 @@ def special_tasks_tick(state: WorldState, cfg: Config,
         BTASK_BUILD_FENCE_IRON,
         BTASK_BUILD_FENCE_STONE,
         BTASK_BUILD_FENCE_WOOD,
+        BTASK_BUILD_FLAMER,
+        BTASK_BUILD_LANDMINE,
+        BTASK_BUILD_LASER,
+        BTASK_BUILD_MAGETOWER,
         BTASK_BUILD_MORTAR,
         BTASK_BUILD_TOWER,
         TYPE_TOWER,
@@ -314,6 +352,10 @@ def special_tasks_tick(state: WorldState, cfg: Config,
          cfg.fence_stone_build_time),
         (BTASK_BUILD_FENCE_IRON, int(cfg.fence_iron_hp),
          cfg.fence_iron_build_time),
+        (BTASK_BUILD_MAGETOWER, int(cfg.magetower_hp), cfg.magetower_build_time),
+        (BTASK_BUILD_LANDMINE, int(cfg.landmine_hp), cfg.landmine_build_time),
+        (BTASK_BUILD_FLAMER, int(cfg.flamer_hp), cfg.flamer_build_time),
+        (BTASK_BUILD_LASER, int(cfg.laser_hp), cfg.laser_build_time),
     )
     for btask, full, t_build in grow_specs:  # 编译期展开
         start = full // 10
@@ -435,6 +477,11 @@ def production_tick(state: WorldState, cfg: Config, mapdata: MapData) -> WorldSt
             btype=st.btype.at[slot].set(jnp.where(do, 0, st.btype[slot])),
             btimer=st.btimer.at[slot].set(jnp.where(do, 0, st.btimer[slot])),
             node_id=st.node_id.at[slot].set(jnp.where(do, -1, st.node_id[slot])),
+            # v1.6(critic M-3):复用槽必须清舱位/回艇锁,防「隐形在艇上」幽灵兵
+            aboard=st.aboard.at[slot].set(
+                jnp.where(do, -1, st.aboard[slot]).astype(jnp.int16)),
+            reboard_lock=st.reboard_lock.at[slot].set(
+                jnp.where(do, 0, st.reboard_lock[slot]).astype(jnp.int16)),
         )
         # 生产者收尾:成功清 btype;失败(有产出但落不下)btimer 回 1 顺延
         st = st._replace(

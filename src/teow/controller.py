@@ -159,10 +159,10 @@ def scripted_actions(state: WorldState, cfg: Config, mapdata: MapData,
     worker_act = jnp.where(is_builder, a_build(0) + build_k, worker_act)
     worker_act = jnp.where(idle_worker, worker_act, A_NOOP)
 
-    # ---- 军队:全部战斗兵种(line_of_type≥0)攒够阈值全军 attack-move ----
+    # ---- 军队:全部战斗兵种(v1.6 is_combat 表:八线 ∪ 投石车/龙)----
     from .config import TYPE_DOG
-    is_army = jnp.asarray(cfg.line_of_type, jnp.int32)[
-        jnp.clip(st.etype.astype(jnp.int32), 0, 31)] >= 0
+    is_army = jnp.asarray(cfg.is_combat_by_type, bool)[
+        jnp.clip(st.etype.astype(jnp.int32), 0, 31)]
     n_army = jnp.sum(mine & is_army)
     attack_on = n_army >= cfg.ai_attack_threshold
     inf_act = jnp.where(attack_on, A_ATTACK, A_NOOP)
@@ -211,8 +211,11 @@ def scripted_actions(state: WorldState, cfg: Config, mapdata: MapData,
 
     # ---- 兵营行为(v1.4):落后基地就升级(富余),否则训「己方数量最少的
     # 已解锁兵种」(healer/ram 各封顶 2,防一屋子辅助);成本过 spare 预留门 ----
-    from .actions import a_train_dog
+    # healer 排在 mage 前:argmin 平手取先者,否则「mage 阵亡归零」与 healer
+    # 永远同分,healer 永不入队(覆盖局实测)
+    from .actions import a_train_dog, a_train_v16
     from .actions import a_train_unit as _atu
+    from .config import TYPE_AIRSHIP as _TAS
     from .config import (
         TYPE_ARCHER,
         TYPE_HEALER,
@@ -221,11 +224,11 @@ def scripted_actions(state: WorldState, cfg: Config, mapdata: MapData,
         TYPE_MAGE,
         TYPE_RAM,
     )
-    # healer 排在 mage 前:argmin 平手取先者,否则「mage 阵亡归零」与 healer
-    # 永远同分,healer 永不入队(覆盖局实测)
+    from .config import TYPE_CATAPULT as _TCA
+    from .config import TYPE_DRAGON as _TDR
     bar_types = (TYPE_DOG, TYPE_ARCHER, TYPE_LCAV, TYPE_HEAVY,
-                 TYPE_HEALER, TYPE_MAGE, TYPE_RAM)
-    bar_caps = (99, 99, 99, 99, 2, 99, 2)
+                 TYPE_HEALER, TYPE_MAGE, TYPE_RAM, _TCA, _TAS, _TDR)
+    bar_caps = (99, 99, 99, 99, 2, 99, 2, 2, 1, 1)
     tlv = cfg.train_level_by_type
     counts = jnp.stack([jnp.sum(mine & (st.etype == t)) for t in bar_types])
     counts = counts + jnp.where(
@@ -235,12 +238,13 @@ def scripted_actions(state: WorldState, cfg: Config, mapdata: MapData,
         [lv_vec >= tlv[t] for t in bar_types], axis=1)       # [N, T]
     # 平手偏置(×8 保证计数差主导):高阶兵种优先——狗在乱战里反复归零,
     # 纯 argmin 平手恒取狗,ram(尾位)永不入队(覆盖局实测);healer 先于 mage
-    tie_bias = jnp.asarray((6, 5, 4, 3, 1, 2, 0), jnp.int32)  # 对齐 bar_types
+    tie_bias = jnp.asarray((9, 8, 7, 6, 4, 5, 3, 2, 1, 0), jnp.int32)  # 对齐 bar_types(高阶优先)
     t_score = (counts[None, :] * 8 + tie_bias[None, :]
                + jnp.where(unlocked_t, 0, 9999))
     choice = jnp.argmin(t_score, axis=1)                     # [N] 每兵营选型
     train_ids = jnp.asarray(
-        [a_train_dog(cfg)] + [_atu(t, cfg) for t in bar_types[1:]], jnp.int32)
+        [a_train_dog(cfg)] + [_atu(t, cfg) for t in bar_types[1:7]]
+        + [a_train_v16(t, cfg) for t in bar_types[7:]], jnp.int32)
     tco_v = jnp.asarray(cfg.train_cost_ore_by_type, jnp.int32)
     tcw_v = jnp.asarray(cfg.train_cost_water_by_type, jnp.int32)
     chosen_t = jnp.asarray(bar_types, jnp.int32)[choice]
@@ -291,6 +295,38 @@ def scripted_actions(state: WorldState, cfg: Config, mapdata: MapData,
                      & has_bar & ~has_mortar & mor_afford
                      & ~is_camp_builder & ~is_bar_builder)
 
+    # ---- v1.6 防御建筑链:法师塔 1/地雷到 5/喷火器 1/激光炮 1(解锁即建,
+    # 互斥顺延;每 tick 至多征调一个建造者)----
+    from .actions import a_build_defense
+    from .config import (
+        TYPE_FLAMER as _TFL,
+    )
+    from .config import (
+        TYPE_LANDMINE as _TLM,
+    )
+    from .config import (
+        TYPE_LASER as _TLS,
+    )
+    from .config import (
+        TYPE_MAGETOWER as _TMT,
+    )
+    def_specs = ((_TMT, 1, (cfg.magetower_cost_ore, cfg.magetower_cost_water)),
+                 (_TLM, 5, (cfg.landmine_cost_ore, cfg.landmine_cost_water)),
+                 (_TFL, 1, (cfg.flamer_cost_ore, cfg.flamer_cost_water)),
+                 (_TLS, 1, (cfg.laser_cost_ore, cfg.laser_cost_water)))
+    def_builder = jnp.argmin(pull_score)
+    prev_claim = is_camp_builder | is_bar_builder | is_mr_builder
+    def_act = jnp.full(n, A_NOOP, jnp.int32)
+    is_def_builder = jnp.zeros(n, bool)
+    for dt, cap_d, (co, cw) in def_specs:
+        n_dt = jnp.sum(mine & (st.etype == dt))
+        afford_d = jnp.all(st.resources[player] >= jnp.asarray([co, cw]))
+        pick = ((jnp.arange(n) == def_builder) & jnp.any(can_pull)
+                & (st.level[player * cfg.e_max] >= unlock[dt])
+                & (n_dt < cap_d) & afford_d & ~prev_claim & ~is_def_builder)
+        def_act = jnp.where(pick, a_build_defense(dt, cfg), def_act)
+        is_def_builder = is_def_builder | pick
+
     # ---- 哨塔:有兵营后建到数量上限为止(v1.4 多塔:上限挂基地等级)----
     from .actions import a_build_tower
     from .config import TYPE_TOWER
@@ -303,7 +339,8 @@ def scripted_actions(state: WorldState, cfg: Config, mapdata: MapData,
     is_tw_builder = ((jnp.arange(n) == tw_builder) & jnp.any(can_pull)
                      & (st.level[player * cfg.e_max] >= unlock[TYPE_TOWER])
                      & has_bar & (n_towers < twr_cap) & tower_afford
-                     & ~is_camp_builder & ~is_bar_builder & ~is_mr_builder)
+                     & ~is_camp_builder & ~is_bar_builder & ~is_mr_builder
+                     & ~is_def_builder)
 
     # ---- 驻守/军旗(v1.3):有兵营后,槽号最小的 2 只狗驻守离家最远的已建
     # 矿泵点;第 3 只狗在当前位置插旗(驻守途中/圈内插,位置自然靠前线),
@@ -347,6 +384,7 @@ def scripted_actions(state: WorldState, cfg: Config, mapdata: MapData,
     act = jnp.where(is_bar_builder, a_build_barracks(cfg), act)
     act = jnp.where(is_tw_builder, a_build_tower(cfg), act)
     act = jnp.where(is_mr_builder, a_build_mortar(cfg), act)
+    act = jnp.where(is_def_builder, def_act, act)
     act = jnp.where(mine & (st.etype == TYPE_BARRACKS), bar_act_full, act)
     act = jnp.where(mine & (st.etype == TYPE_CAMP), camp_act, act)
     act = jnp.where(mine & is_node_b, node_act, act)

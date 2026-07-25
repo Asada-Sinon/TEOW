@@ -13,7 +13,10 @@ const TYPE_NAMES = {1: "hq", 2: "mine", 3: "pump", 4: "worker", 5: "infantry",
                     14: "heavy", 15: "mage", 16: "healer", 17: "ram",
                     18: "mortar",
                     // v1.5 栅栏三档(无贴图,矢量)
-                    19: "fence_wood", 20: "fence_stone", 21: "fence_iron"};
+                    19: "fence_wood", 20: "fence_stone", 21: "fence_iron",
+                    // v1.6 防御建筑群+空军(矢量;PNG 槽同名可热替换)
+                    22: "magetower", 23: "landmine", 24: "flamer",
+                    25: "laser", 26: "catapult", 27: "airship", 28: "dragon"};
 const P_COLOR = ["#3b82f6", "#ef4444", "#22c55e", "#f59e0b"];  // 蓝/红/绿/琥珀
 const P_DARK  = ["#1d4ed8", "#b91c1c", "#15803d", "#b45309"];  // (v1.5 四人)
 
@@ -266,6 +269,80 @@ export function drawSprite(ctx, type, owner, x, y, s, opts = {}) {
         ctx.lineTo((dx + 1) * u, -5 * u); ctx.closePath();
         ctx.fillStyle = "#64748b"; ctx.fill();
       }
+      break;
+    }
+    case "magetower": {            // 法师塔:细塔+顶珠
+      ctx.beginPath();
+      ctx.moveTo(-4 * u, 9 * u); ctx.lineTo(-2.5 * u, -6 * u);
+      ctx.lineTo(2.5 * u, -6 * u); ctx.lineTo(4 * u, 9 * u);
+      ctx.closePath(); ctx.fill(); ctx.stroke();
+      ctx.fillStyle = "#a78bfa";
+      ctx.beginPath(); ctx.arc(0, -8.5 * u, 3 * u, 0, 7); ctx.fill(); ctx.stroke();
+      break;
+    }
+    case "landmine": {             // 地雷:半球+触角
+      ctx.beginPath(); ctx.arc(0, 3 * u, 6 * u, Math.PI, 2 * Math.PI);
+      ctx.fill(); ctx.stroke();
+      ctx.fillRect(-6 * u, 3 * u, 12 * u, 1.6 * u);
+      ctx.strokeStyle = D; ctx.lineWidth = 1.4 * u;
+      for (const a of [-0.9, -0.45, 0, 0.45, 0.9]) {
+        ctx.beginPath();
+        ctx.moveTo(Math.sin(a) * 5 * u, 3 * u - Math.cos(a) * 5 * u);
+        ctx.lineTo(Math.sin(a) * 8 * u, 3 * u - Math.cos(a) * 8 * u);
+        ctx.stroke();
+      }
+      break;
+    }
+    case "flamer": {               // 喷火器:罐体+喷口火舌
+      ctx.fillRect(-6 * u, -2 * u, 9 * u, 10 * u);
+      ctx.strokeRect(-6 * u, -2 * u, 9 * u, 10 * u);
+      ctx.fillStyle = "#f97316";
+      ctx.beginPath();
+      ctx.moveTo(3 * u, 0); ctx.lineTo(10 * u, -4 * u);
+      ctx.lineTo(8 * u, 1 * u); ctx.lineTo(11 * u, 3 * u); ctx.lineTo(3 * u, 4 * u);
+      ctx.closePath(); ctx.fill();
+      break;
+    }
+    case "laser": {                // 激光炮:基座+双轨炮管+光束点
+      ctx.fillRect(-8 * u, 3 * u, 16 * u, 5 * u);
+      ctx.strokeRect(-8 * u, 3 * u, 16 * u, 5 * u);
+      ctx.strokeStyle = "#22d3ee"; ctx.lineWidth = 2 * u;
+      ctx.beginPath(); ctx.moveTo(-2 * u, 3 * u); ctx.lineTo(6 * u, -8 * u); ctx.stroke();
+      ctx.beginPath(); ctx.moveTo(-5 * u, 3 * u); ctx.lineTo(3 * u, -8 * u); ctx.stroke();
+      ctx.fillStyle = "#22d3ee";
+      ctx.beginPath(); ctx.arc(5 * u, -8.5 * u, 1.8 * u, 0, 7); ctx.fill();
+      break;
+    }
+    case "catapult": {             // 投石车:框架+抛臂+石弹
+      ctx.fillRect(-8 * u, 2 * u, 16 * u, 5 * u);
+      ctx.strokeRect(-8 * u, 2 * u, 16 * u, 5 * u);
+      ctx.strokeStyle = "#8b5e34"; ctx.lineWidth = 2.2 * u;
+      ctx.beginPath(); ctx.moveTo(-5 * u, 2 * u); ctx.lineTo(6 * u, -8 * u); ctx.stroke();
+      ctx.fillStyle = "#64748b";
+      ctx.beginPath(); ctx.arc(7 * u, -8.5 * u, 2.2 * u, 0, 7); ctx.fill();
+      ctx.fillStyle = "#374151";
+      ctx.beginPath(); ctx.arc(-5 * u, 8 * u, 2.2 * u, 0, 7); ctx.fill();
+      ctx.beginPath(); ctx.arc(5 * u, 8 * u, 2.2 * u, 0, 7); ctx.fill();
+      break;
+    }
+    case "airship": {              // 飞艇:气囊+吊舱(阴影由 render 层画)
+      ctx.beginPath(); ctx.ellipse(0, -2 * u, 9 * u, 4.5 * u, 0, 0, 7);
+      ctx.fill(); ctx.stroke();
+      ctx.fillStyle = D;
+      ctx.fillRect(-3.5 * u, 3.5 * u, 7 * u, 3.5 * u);
+      ctx.beginPath(); ctx.moveTo(-3 * u, 2.5 * u); ctx.lineTo(-3 * u, 3.5 * u);
+      ctx.moveTo(3 * u, 2.5 * u); ctx.lineTo(3 * u, 3.5 * u); ctx.stroke();
+      break;
+    }
+    case "dragon": {               // 龙骑兵:双翼+长身+吐息
+      ctx.beginPath();
+      ctx.moveTo(-9 * u, -1 * u); ctx.lineTo(-2 * u, -5 * u);
+      ctx.lineTo(0, -1 * u); ctx.lineTo(2 * u, -5 * u); ctx.lineTo(9 * u, -1 * u);
+      ctx.lineTo(2 * u, 1 * u); ctx.lineTo(0, 5 * u); ctx.lineTo(-2 * u, 1 * u);
+      ctx.closePath(); ctx.fill(); ctx.stroke();
+      ctx.fillStyle = "#f97316";
+      ctx.beginPath(); ctx.moveTo(0, 5 * u); ctx.lineTo(2 * u, 9 * u);
+      ctx.lineTo(-2 * u, 9 * u); ctx.closePath(); ctx.fill();
       break;
     }
     default: {

@@ -15,19 +15,26 @@ import jax.numpy as jnp
 
 from .config import (
     N_TYPES,
+    TYPE_AIRSHIP,
     TYPE_ARCHER,
     TYPE_BARRACKS,
     TYPE_CAMP,
+    TYPE_CATAPULT,
     TYPE_DOG,
+    TYPE_DRAGON,
     TYPE_FENCE_IRON,
     TYPE_FENCE_STONE,
     TYPE_FENCE_WOOD,
+    TYPE_FLAMER,
     TYPE_HEALER,
     TYPE_HEAVY,
     TYPE_HQ,
     TYPE_INFANTRY,
+    TYPE_LANDMINE,
+    TYPE_LASER,
     TYPE_LCAV,
     TYPE_MAGE,
+    TYPE_MAGETOWER,
     TYPE_MINE,
     TYPE_MORTAR,
     TYPE_PUMP,
@@ -70,6 +77,13 @@ def hp_table(cfg: Config) -> jax.Array:
         TYPE_FENCE_WOOD: _flat(cfg.fence_wood_hp),
         TYPE_FENCE_STONE: _flat(cfg.fence_stone_hp),
         TYPE_FENCE_IRON: _flat(cfg.fence_iron_hp),
+        TYPE_MAGETOWER: _flat(cfg.magetower_hp),
+        TYPE_LANDMINE: _flat(cfg.landmine_hp),
+        TYPE_FLAMER: _flat(cfg.flamer_hp),
+        TYPE_LASER: _flat(cfg.laser_hp),
+        TYPE_CATAPULT: _flat(cfg.catapult_hp),
+        TYPE_AIRSHIP: _flat(cfg.airship_hp),
+        TYPE_DRAGON: _flat(cfg.dragon_hp),
     }
     return jnp.asarray([rows.get(t, (0,) * 8) for t in range(N_TYPES)], jnp.int32)
 
@@ -86,6 +100,12 @@ def atk_table(cfg: Config) -> jax.Array:
         TYPE_MAGE: cfg.mage_atk_by_level,
         TYPE_RAM: cfg.ram_atk_by_level,
         TYPE_MORTAR: _flat(cfg.mortar_atk),
+        TYPE_FLAMER: _flat(cfg.flamer_atk),      # 自心圆取值;rng=0 不进单体路径
+        TYPE_MAGETOWER: _flat(cfg.magetower_atk),
+        TYPE_LANDMINE: _flat(cfg.landmine_atk),   # 爆炸伤害取值;rng=0 不当攻击者
+        TYPE_LASER: _flat(cfg.laser_atk),
+        TYPE_CATAPULT: _flat(cfg.catapult_atk),
+        TYPE_DRAGON: _flat(cfg.dragon_air_atk),   # 单体路径=对空;喷火走自心圆表
     }
     return jnp.asarray([rows.get(t, (0,) * 8) for t in range(N_TYPES)], jnp.int32)
 
@@ -133,7 +153,23 @@ def type_tables(cfg: Config) -> dict:
         period=jnp.asarray(cfg.atk_period_by_type, jnp.int32),
         aoe=jnp.asarray(cfg.aoe_radius_by_type, jnp.float32),
         line=jnp.asarray(cfg.line_of_type, jnp.int32),
+        air=jnp.asarray(cfg.is_air_by_type, bool),
+        hit_air=jnp.asarray(cfg.can_hit_air_by_type, bool),
+        combat=jnp.asarray(cfg.is_combat_by_type, bool),
+        flight=jnp.asarray(cfg.shell_flight_by_type, jnp.int32),
+        self_aoe=jnp.asarray(cfg.self_aoe_radius_by_type, jnp.float32),
     )
+
+
+def can_target(tt: dict, et_att: jax.Array, tgt_is_air: jax.Array,
+               tgt_is_unit: jax.Array) -> jax.Array:
+    """bool [N,N] 目标合法矩阵(行=攻击者 i,列=目标 j)。唯一公式
+    (v1.6 plan D1;combat 选靶与 movement 停步共用,防两处手写漂移):
+    空中目标看 can_hit_air;地面目标按 单位/建筑 查表。"""
+    return jnp.where(tgt_is_air[None, :], tt["hit_air"][et_att][:, None],
+                     jnp.where(tgt_is_unit[None, :],
+                               tt["hit_u"][et_att][:, None],
+                               tt["hit_b"][et_att][:, None]))
 
 
 def etype_idx(state: WorldState) -> jax.Array:

@@ -77,10 +77,13 @@ def _bilinear(field: jax.Array, pos: jax.Array) -> jax.Array:
 
 def building_cells(state: WorldState, cfg: Config) -> jax.Array:
     """bool [H,W]:在场建筑占用格(建筑=硬障碍)。
-    统一判据:speed_by_type>0 即单位,=0 即建筑(新类型进表自动生效)。"""
+    统一判据:speed_by_type>0 即单位,=0 即建筑(新类型进表自动生效)。
+    v1.6 例外:地雷不挡路(规格「只能绕道」=绕开触发圈,不是物理墙——
+    否则 5 枚不可拆的雷就是廉价永久栅栏)。"""
+    from .config import TYPE_LANDMINE
     spd = jnp.asarray(cfg.speed_by_type, jnp.float32)[
         jnp.clip(state.etype.astype(jnp.int32), 0, 31)]
-    b = state.alive & (spd == 0)
+    b = state.alive & (spd == 0) & (state.etype != TYPE_LANDMINE)
     cell = cell_of(state.pos)
     return (jnp.zeros((cfg.grid_h, cfg.grid_w), bool)
             .at[cell[:, 0], cell[:, 1]].max(b))
@@ -98,7 +101,7 @@ def movement_tick(state: WorldState, cfg: Config, mapdata: MapData,
     speed = jnp.asarray(cfg.speed_by_type, jnp.float32)[
         jnp.clip(st.etype.astype(jnp.int32), 0, 31)]
     is_unit = speed > 0
-    on_board = st.alive & ~st.inside
+    on_board = st.alive & ~st.inside & (st.aboard < 0)   # 舱内=离场(v1.6)
     tn = jnp.clip(st.target_node.astype(jnp.int32), 0, cfg.n_nodes - 1)
     own_i = owner.astype(jnp.int32)
 
@@ -148,18 +151,30 @@ def movement_tick(state: WorldState, cfg: Config, mapdata: MapData,
     # attack-move:**我的射程内有我能打的目标**才就地停步(v1.4 plan D14:
     # 弓手/法师在自身射程停,攻城车对打不动的单位视而不见继续压向建筑,
     # 否则攻城车在敌兵旁永久卡死)
-    from .stats import etype_idx, type_tables
+    from .config import TYPE_LANDMINE
+    from .stats import can_target, etype_idx, type_tables
     tt = type_tables(cfg)
     et = etype_idx(st)
-    tgt_is_unit = tt["speed"] [et] > 0
+    tgt_is_unit = tt["speed"][et] > 0
+    tgt_is_air = tt["air"][et]
     my_rng = jnp.where(tt["rng"][et] > 0, tt["rng"][et], cfg.melee_range)
     dmat = jnp.linalg.norm(st.pos[:, None, :] - st.pos[None, :, :], axis=-1)
-    can_hit = ((tgt_is_unit[None, :] & tt["hit_u"][et][:, None])
-               | (~tgt_is_unit[None, :] & tt["hit_b"][et][:, None]))
+    # v1.6:目标合法用与 combat 同一公式(stats.can_target,防两处漂移);
+    # 地雷不可为目标(不可打)→ 不因它停步
+    tgt_ok = (st.alive & ~st.inside & (st.aboard < 0)
+              & (st.etype != TYPE_LANDMINE))
     enemy_near = jnp.any(
         (dmat <= my_rng[:, None]) & (owner[None, :] != owner[:, None])
-        & (st.alive & ~st.inside)[None, :] & can_hit, axis=-1)
-    arrived = arrived | ((st.order == ORDER_ATTACK) & enemy_near)
+        & tgt_ok[None, :] & can_target(tt, et, tgt_is_air, tgt_is_unit),
+        axis=-1)
+    # 龙(critic MINOR-3):hit_u=0 使统一公式对地面永不停步——喷吐半径内有
+    # 敌地面单位也算 arrived
+    sa_r = tt["self_aoe"][et]
+    breath_near = jnp.any(
+        (dmat <= sa_r[:, None]) & (owner[None, :] != owner[:, None])
+        & tgt_ok[None, :] & tgt_is_unit[None, :] & ~tgt_is_air[None, :],
+        axis=-1) & (sa_r > 0)
+    arrived = arrived | ((st.order == ORDER_ATTACK) & (enemy_near | breath_near))
 
     moving_order = ((st.order == ORDER_MOVE) | (st.order == ORDER_ATTACK)
                     | (st.order == ORDER_BUILD) | is_gar
@@ -169,8 +184,9 @@ def movement_tick(state: WorldState, cfg: Config, mapdata: MapData,
     # ---- 动态场(硬障碍:静态+建筑格;软障碍:静止/移动单位)----
     bcells = building_cells(st, cfg)
     cell = cell_of(st.pos)
+    is_air_u = tt["air"][et]
     moving_unit = on_board & is_unit & moving_order & ~arrived
-    stat_unit = on_board & is_unit & ~moving_unit
+    stat_unit = on_board & is_unit & ~moving_unit & ~is_air_u  # 空军不碍地面场
     occ_stat = (jnp.zeros((h, w), bool).at[cell[:, 0], cell[:, 1]].max(stat_unit))
     blocked = ~passable | bcells
     # 只有静止单位计入场代价。**移动单位不计**:它自己的罚分会落在自己脚下的
@@ -207,6 +223,14 @@ def movement_tick(state: WorldState, cfg: Config, mapdata: MapData,
     dnorm = jnp.linalg.norm(dvec, axis=-1, keepdims=True)
     dir_move = jnp.where(dnorm > 1e-6, dvec / jnp.maximum(dnorm, 1e-6), 0.0)
     direction = jnp.where(use_field[:, None], dir_field, dir_move)
+    # 空中单位(v1.6):不走场,直线冲目标点(六边形凸集,连线不出界;
+    # 场型指令直指 goal_center,MOVE 直指 target_cell)
+    gvec_air = goal_center - st.pos
+    gnorm_air = jnp.linalg.norm(gvec_air, axis=-1, keepdims=True)
+    dir_air_field = jnp.where(gnorm_air > 1e-6,
+                              gvec_air / jnp.maximum(gnorm_air, 1e-6), 0.0)
+    dir_air = jnp.where(use_field[:, None], dir_air_field, dir_move)
+    direction = jnp.where(is_air_u[:, None], dir_air, direction)
 
     # 步长截断:驻守对 target_cell(锚点)截,不吃 goal_center
     step_len = jnp.minimum(
@@ -222,11 +246,22 @@ def movement_tick(state: WorldState, cfg: Config, mapdata: MapData,
                & (p[:, 1] >= -0.4) & (p[:, 1] <= w - 0.6))
         return blocked[cc[:, 0], cc[:, 1]] | ~inb
 
+    def blocked_air_at(p):
+        cc = cell_of(p)
+        cc = jnp.clip(cc, 0, jnp.asarray([h - 1, w - 1]))
+        inb = ((p[:, 0] >= -0.4) & (p[:, 0] <= h - 0.6)
+               & (p[:, 1] >= -0.4) & (p[:, 1] <= w - 0.6))
+        return ~passable[cc[:, 0], cc[:, 1]] | ~inb
+
+    def blocked_for(p):
+        """分域硬障碍:地面=静态+建筑格;空军=仅静态六边形边界(v1.6)。"""
+        return jnp.where(is_air_u, blocked_air_at(p), blocked_at(p))
+
     cand_r = jnp.stack([cand[:, 0], st.pos[:, 1]], axis=-1)  # 仅动 r
     cand_c = jnp.stack([st.pos[:, 0], cand[:, 1]], axis=-1)  # 仅动 c
-    ok_full = ~blocked_at(cand)
-    ok_r = ~blocked_at(cand_r)
-    ok_c = ~blocked_at(cand_c)
+    ok_full = ~blocked_for(cand)
+    ok_r = ~blocked_for(cand_r)
+    ok_c = ~blocked_for(cand_c)
     new_pos = jnp.where(ok_full[:, None], cand,
                         jnp.where(ok_r[:, None], cand_r,
                                   jnp.where(ok_c[:, None], cand_c, st.pos)))
@@ -236,6 +271,7 @@ def movement_tick(state: WorldState, cfg: Config, mapdata: MapData,
     diff = new_pos[:, None, :] - new_pos[None, :, :]        # [N,N,2] i-j
     dist = jnp.linalg.norm(diff, axis=-1)
     pair = (active[:, None] & active[None, :]
+            & (is_air_u[:, None] == is_air_u[None, :])   # 空地零碰撞(v1.6)
             & ~jnp.eye(cfg.n_total, dtype=bool))
     overlap = jnp.maximum(0.0, 2 * cfg.unit_radius - dist) * pair
     # 共线退化兜底:距离≈0 时用槽号定向的确定性单位向量;并给推力加按槽号
@@ -256,8 +292,11 @@ def movement_tick(state: WorldState, cfg: Config, mapdata: MapData,
     pushed = new_pos + push
 
     # ---- 硬约束殿后:互推挤进硬障碍格则回退到推前位置 ----
-    final = jnp.where(blocked_at(pushed)[:, None], new_pos, pushed)
+    final = jnp.where(blocked_for(pushed)[:, None], new_pos, pushed)
     final = jnp.where((on_board & is_unit)[:, None], final, st.pos)
+    # 舱内乘员 snap 到载具位(v1.6:空降落点=艇当前位置)
+    carrier = jnp.clip(st.aboard.astype(jnp.int32), 0, cfg.n_total - 1)
+    final = jnp.where((st.aboard >= 0)[:, None], final[carrier], final)
 
     # MOVE 到达 → 转 IDLE
     l2_after = jnp.linalg.norm(final - st.target_cell, axis=-1)

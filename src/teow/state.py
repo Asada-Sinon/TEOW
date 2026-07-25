@@ -61,8 +61,12 @@ class WorldState(NamedTuple):
     #                                     Phase 4)。消费方必须门控 order==GARRISON。
     atk_cd: jax.Array       # int16 [N]  攻击冷却(v1.4;atk_period>1 的类型开火后
     #                                     置 period-1,每 tick 递减;普通攻击者恒 0)
-    shell_timer: jax.Array  # int16 [N]  在途炮弹剩余飞行 tick(v1.4 迫击炮;0=无弹)
+    shell_timer: jax.Array  # int16 [N]  在途炮弹剩余飞行 tick(弹道类;0=无弹)
     shell_target: jax.Array  # f32  [N,2] 炮弹锁定落点(开火拍的目标位置)
+    aboard: jax.Array       # int16 [N]  所乘飞艇槽号(v1.6;-1=不在艇上。
+    #                                     舱内=离场:不可被打/不攻击/不移动/不占格;
+    #                                     与 inside 平行的第二种离场态,不混用)
+    reboard_lock: jax.Array  # int16 [N] 开火后回艇锁倒计时(v1.6;==0 才可上艇)
     # ---- 军旗表 [P, max_flags](v1.3;旗不是实体:无血量、不可拆)----
     flag_pos: jax.Array     # f32  [P,F,2] 旗所在格心;未激活 -1
     flag_active: jax.Array  # bool [P,F]
@@ -140,6 +144,8 @@ def init_state(cfg: Config, mapdata: MapData) -> WorldState:
         atk_cd=jnp.zeros(n, jnp.int16),
         shell_timer=jnp.zeros(n, jnp.int16),
         shell_target=jnp.zeros((n, 2), jnp.float32),
+        aboard=jnp.full(n, -1, jnp.int16),
+        reboard_lock=jnp.zeros(n, jnp.int16),
         flag_pos=jnp.full((cfg.n_players, cfg.max_flags, 2), -1.0, jnp.float32),
         flag_active=jnp.zeros((cfg.n_players, cfg.max_flags), bool),
         node_owner=jnp.full(nn, -1, jnp.int8),

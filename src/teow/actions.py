@@ -44,17 +44,24 @@ import jax.numpy as jnp
 from .config import (
     N_LINES,
     RES_WATER,
+    TYPE_AIRSHIP,
     TYPE_ARCHER,
     TYPE_CAMP,
+    TYPE_CATAPULT,
+    TYPE_DRAGON,
     TYPE_FENCE_IRON,
     TYPE_FENCE_STONE,
     TYPE_FENCE_WOOD,
+    TYPE_FLAMER,
     TYPE_HEALER,
     TYPE_HEAVY,
     TYPE_HQ,
     TYPE_INFANTRY,
+    TYPE_LANDMINE,
+    TYPE_LASER,
     TYPE_LCAV,
     TYPE_MAGE,
+    TYPE_MAGETOWER,
     TYPE_MINE,
     TYPE_OF_LINE,
     TYPE_PUMP,
@@ -200,8 +207,39 @@ def a_build_fence(t: int, cfg: Config) -> int:
     return _v15_base(cfg) + FENCE_ORDER.index(t)
 
 
-def n_actions(cfg: Config) -> int:
+# ---- v1.6 追加块(B3 = v1.5 块末尾)----
+TRAIN_ORDER_V16 = (TYPE_CATAPULT, TYPE_AIRSHIP, TYPE_DRAGON)
+BUILD_ORDER_V16 = (TYPE_MAGETOWER, TYPE_LANDMINE, TYPE_FLAMER, TYPE_LASER)
+
+
+def _v16_base(cfg: Config) -> int:
     return _v15_base(cfg) + len(FENCE_ORDER)
+
+
+def a_train_v16(t: int, cfg: Config) -> int:
+    """兵营训练 v1.6 兵种(投石车/飞艇=兵营6,龙骑兵=兵营7)。"""
+    return _v16_base(cfg) + TRAIN_ORDER_V16.index(t)
+
+
+def a_build_defense(t: int, cfg: Config) -> int:
+    """采集单位起 v1.6 防御建筑(法师塔 HQ3/地雷 HQ4/喷火器 HQ6/激光炮 HQ7;
+    除地雷限 5 外每种限 1,机制同迫击炮)。"""
+    return _v16_base(cfg) + 3 + BUILD_ORDER_V16.index(t)
+
+
+def a_board(cfg: Config) -> int:
+    """上艇(v1.6):地面战斗单位登上 reach 半径内最近的己方有空位飞艇,
+    即时;敌方攻击范围内禁止,开火后 reboard_lockout 内禁止。"""
+    return _v16_base(cfg) + 7
+
+
+def a_drop_all(cfg: Config) -> int:
+    """空降(v1.6):飞艇全体乘员落到艇当前位置(暂时叠格互推散开)。"""
+    return _v16_base(cfg) + 8
+
+
+def n_actions(cfg: Config) -> int:
+    return _v16_base(cfg) + 9
 
 
 def unit_costs(cfg: Config) -> jax.Array:
@@ -236,13 +274,16 @@ def legality_mask(state: WorldState, cfg: Config, mapdata: MapData,
                     | (state.etype == TYPE_STRONGMAN)
                     | (state.etype == TYPE_WAGON))
     is_worker = is_harvester
-    is_inf = jnp.asarray(cfg.line_of_type, jnp.int32)[et] >= 0  # 战斗单位
+    # 战斗单位判据(v1.6 D7:八线 ∪ {投石车,龙};飞艇不算——无攻击)
+    is_inf = jnp.asarray(cfg.is_combat_by_type, bool)[et]
+    is_airship = state.etype == TYPE_AIRSHIP
     is_hq = state.etype == TYPE_HQ
-    actable = state.alive & ~state.inside  # 矿内工人只许 NOOP
+    # 矿内/舱内只许 NOOP(v1.6:舱内=离场)
+    actable = state.alive & ~state.inside & (state.aboard < 0)
 
     mask = jnp.zeros((n, n_actions(cfg)), bool)
     mask = mask.at[:, A_NOOP].set(True)  # 死槽也「合法 NOOP」,apply 处再兜底
-    mask = mask.at[:, A_STOP].set(actable & (is_worker | is_inf))
+    mask = mask.at[:, A_STOP].set(actable & (is_worker | is_inf | is_airship))
     mask = mask.at[:, A_ATTACK].set(actable & is_inf)
 
     # 移动:目标格在界内且静态可通行(v1.2 连续坐标,经 cell_of 归格)
@@ -253,7 +294,8 @@ def legality_mask(state: WorldState, cfg: Config, mapdata: MapData,
         ok = ((nc[:, 0] >= 0) & (nc[:, 0] < h) & (nc[:, 1] >= 0) & (nc[:, 1] < w))
         nc = jnp.clip(nc, 0, jnp.asarray([h - 1, w - 1]))
         ok = ok & passable[nc[:, 0], nc[:, 1]]
-        mask = mask.at[:, A_MOVE0 + d].set(actable & (is_worker | is_inf) & ok)
+        mask = mask.at[:, A_MOVE0 + d].set(
+            actable & (is_worker | is_inf | is_airship) & ok)
 
     # 建造/采集:逐点([Nn,N] 小矩阵,Nn=8)
     from .economy import assigned_counts  # 名额口径唯一定义处,避免双真源
@@ -368,6 +410,21 @@ def legality_mask(state: WorldState, cfg: Config, mapdata: MapData,
         can_f = (actable & is_worker & (hq_lv >= unlock[ft]) & free_in_half
                  & jnp.all(stock >= fc, axis=-1))
         mask = mask.at[:, a_build_fence(ft, cfg)].set(can_f)
+    # v1.6 防御建筑四种(cap:法师塔/喷火器/激光炮 1,地雷 5;机制同迫击炮)
+    def_costs = {
+        TYPE_MAGETOWER: (cfg.magetower_cost_ore, cfg.magetower_cost_water),
+        TYPE_LANDMINE: (cfg.landmine_cost_ore, cfg.landmine_cost_water),
+        TYPE_FLAMER: (cfg.flamer_cost_ore, cfg.flamer_cost_water),
+        TYPE_LASER: (cfg.laser_cost_ore, cfg.laser_cost_water),
+    }
+    cap_tbl = jnp.asarray(cfg.build_cap_by_type, jnp.int32)
+    for dt in BUILD_ORDER_V16:
+        dc = jnp.asarray(def_costs[dt], jnp.int32)
+        n_dt = _pcount(state.alive & (state.etype == dt))
+        can_d = (actable & is_worker & (hq_lv >= unlock[dt])
+                 & (n_dt < cap_tbl[dt]) & free_in_half
+                 & jnp.all(stock >= dc, axis=-1))
+        mask = mask.at[:, a_build_defense(dt, cfg)].set(can_d)
 
     # 训狗(v1.2):建成兵营空闲 + 半区有空槽 + 付得起
     is_bar = state.etype == TYPE_BARRACKS
@@ -383,6 +440,12 @@ def legality_mask(state: WorldState, cfg: Config, mapdata: MapData,
                          cfg.train_cost_water_by_type[t]], jnp.int32)
         ok_t = bar_idle & (lv >= tl[t]) & jnp.all(stock >= c, axis=-1)
         mask = mask.at[:, a_train_unit(t, cfg)].set(ok_t)
+    # 兵营 v1.6 兵种(投石车/飞艇 6 级,龙 7 级)
+    for t in TRAIN_ORDER_V16:
+        c = jnp.asarray([cfg.train_cost_ore_by_type[t],
+                         cfg.train_cost_water_by_type[t]], jnp.int32)
+        ok_t = bar_idle & (lv >= tl[t]) & jnp.all(stock >= c, axis=-1)
+        mask = mask.at[:, a_train_v16(t, cfg)].set(ok_t)
 
     # 研发(v1.4 八线):建成的营(level>=2)空闲 + 线级<营级 + 付得起
     # + 本玩家没有别的营在研同一条线(防同线并研双倍跳级)
@@ -421,14 +484,52 @@ def legality_mask(state: WorldState, cfg: Config, mapdata: MapData,
     from .movement import building_cells
     bcells = building_cells(state, cfg)
     mycell = jnp.clip(cell_of(state.pos), 0, jnp.asarray([h - 1, w - 1]))
+    # 雷格不可插旗(critic MINOR-2:地雷已从 building_cells 排除,单列检查)
+    is_mine_e = state.alive & (state.etype == TYPE_LANDMINE)
+    mine_cells = (jnp.zeros((h, w), bool)
+                  .at[mycell[:, 0], mycell[:, 1]].max(is_mine_e))
     cell_free = (passable[mycell[:, 0], mycell[:, 1]]
-                 & ~bcells[mycell[:, 0], mycell[:, 1]])
+                 & ~bcells[mycell[:, 0], mycell[:, 1]]
+                 & ~mine_cells[mycell[:, 0], mycell[:, 1]])
     mask = mask.at[:, a_plant_flag(cfg)].set(
         actable & is_inf & has_bar & (my_flags < cfg.max_flags) & cell_free)
     for j in range(cfg.max_flags):
         fj = state.flag_active[half, j]
         mask = mask.at[:, a_garrison_flag(j, cfg)].set(actable & is_inf & fj)
         mask = mask.at[:, a_recall_flag(j, cfg)].set(actable & bar_built & fj)
+
+    # ---- 上艇/空降(v1.6)----
+    is_air_e = jnp.asarray(cfg.is_air_by_type, bool)[et]
+    pos_d = jnp.linalg.norm(state.pos[:, None, :] - state.pos[None, :, :],
+                            axis=-1)
+    # 己方建成飞艇的现载员数(scatter 到载具槽)
+    carrier = jnp.clip(state.aboard.astype(jnp.int32), 0, n - 1)
+    pax = (jnp.zeros(n, jnp.int32)
+           .at[carrier].add((state.aboard >= 0).astype(jnp.int32)))
+    ship_ok = (state.alive & is_airship & (state.btype >= 0)
+               & (pax < cfg.airship_capacity))                 # [N] 可载的艇
+    near_ship = jnp.any(ship_ok[None, :] & (owner[:, None] == owner[None, :])
+                        & (pos_d <= cfg.reach_radius), axis=1)
+    # 威胁禁区(critic M-2:与 combat 攻击者门同源——(atk>0 & rng>0) 的
+    # 射程圆 ∪ 喷火器/龙的自心圈;奶妈治疗射程不算威胁)
+    from .stats import atk_of, type_tables
+    tt_l = type_tables(cfg)
+    atk_l = atk_of(state, cfg, owner)
+    rng_l = tt_l["rng"][et]
+    sa_l = tt_l["self_aoe"][et]
+    threat_r = jnp.maximum(jnp.where((atk_l > 0) & (rng_l > 0), rng_l, 0.0),
+                           sa_l)
+    threat_src = (state.alive & ~state.inside & (state.aboard < 0)
+                  & (threat_r > 0))
+    in_threat = jnp.any(threat_src[None, :]
+                        & (owner[:, None] != owner[None, :])
+                        & (pos_d <= threat_r[None, :]), axis=1)
+    can_board = (actable & is_inf & ~is_air_e & (state.reboard_lock == 0)
+                 & near_ship & ~in_threat)
+    mask = mask.at[:, a_board(cfg)].set(can_board)
+    # 空降:建成飞艇 + 舱内有人
+    mask = mask.at[:, a_drop_all(cfg)].set(
+        actable & is_airship & (state.btype >= 0) & (pax > 0))
     return mask
 
 
@@ -602,12 +703,47 @@ def apply_orders(state: WorldState, actions: jax.Array, cfg: Config,
                 jnp.where(do, True, flag_active[p, free_j]))
             cand = cand & (slots_p != widx)
 
+    # ---- 空降/上艇(v1.6;先 DROP 后 BOARD——腾位同拍可用,与撤旗先于
+    # 插旗同哲学,记 DECISIONS)----
+    is_drop = act == a_drop_all(cfg)
+    carrier_i = jnp.clip(state.aboard.astype(jnp.int32), 0, cfg.n_total - 1)
+    dropped = (state.aboard >= 0) & is_drop[carrier_i]
+    aboard = jnp.where(dropped, -1, state.aboard).astype(jnp.int16)
+    # 上艇:目标=reach 内最近己方建成可载艇;同拍超发按槽号 rank 裁到剩余容量
+    is_board2 = act == a_board(cfg)
+    is_airship_e = (state.alive & (state.etype == TYPE_AIRSHIP)
+                    & (state.btype >= 0))
+    pos_d2 = jnp.linalg.norm(state.pos[:, None, :] - state.pos[None, :, :],
+                             axis=-1)
+    own_eq = owner[:, None] == owner[None, :]
+    ship_d = jnp.where(is_airship_e[None, :] & own_eq
+                       & (pos_d2 <= cfg.reach_radius), pos_d2, 1e9)
+    my_ship = jnp.argmin(ship_d, axis=1)
+    has_ship = jnp.any(ship_d < 1e9, axis=1)
+    pax_now = (jnp.zeros(cfg.n_total, jnp.int32)
+               .at[jnp.clip(aboard.astype(jnp.int32), 0, cfg.n_total - 1)]
+               .add((aboard >= 0).astype(jnp.int32)))
+    cand_b = is_board2 & has_ship
+    tri = jnp.tril(jnp.ones((cfg.n_total, cfg.n_total), bool), k=-1)
+    same_ship = (cand_b[:, None] & cand_b[None, :]
+                 & (my_ship[:, None] == my_ship[None, :]))
+    rank_b = jnp.sum(same_ship & tri, axis=1)      # 槽号序内名次
+    free_cap = cfg.airship_capacity - pax_now[my_ship]
+    ok_board = cand_b & (rank_b < free_cap)
+    aboard = jnp.where(ok_board, my_ship, aboard).astype(jnp.int16)
+    # 登艇卫生:清常驻指令与锚点(防舱内悬空引用/名额吊死)
+    order = jnp.where(ok_board, ORDER_IDLE, order)
+    target_node = jnp.where(ok_board, -1, target_node).astype(jnp.int8)
+    garrison_id = jnp.where(ok_board, -1, garrison_id).astype(jnp.int8)
+    phase = jnp.where(ok_board, PH_TO_NODE, phase).astype(jnp.int8)
+
     return state._replace(
         order=order.astype(jnp.int8),
         phase=phase,
         target_node=target_node,
         target_cell=target_cell,
         garrison_id=garrison_id,
+        aboard=aboard,
         flag_pos=flag_pos,
         flag_active=flag_active,
         btype=btype,

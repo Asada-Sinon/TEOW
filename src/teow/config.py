@@ -35,7 +35,14 @@ TYPE_MORTAR = 18     # 迫击炮(v1.4;防御建筑,HQ3 解锁,限1,弹道+盲区
 TYPE_FENCE_WOOD = 19   # 木栅栏(v1.5;HQ2,占格挡路可被打,无攻击无上限)
 TYPE_FENCE_STONE = 20  # 石栅栏(v1.5;HQ3)
 TYPE_FENCE_IRON = 21   # 铁栅栏(v1.5;HQ5;三档独立建筑,高级解锁后低级仍可造)
-N_TYPES = 32  # per-type 表长(22..31 留给 v1.6 防御建筑与空军)
+TYPE_MAGETOWER = 22    # 法师塔(v1.6;HQ3,限1,单体魔法,可对空)
+TYPE_LANDMINE = 23     # 地雷(v1.6;HQ4,限5,触发即爆一次性;不可被打不挡路)
+TYPE_FLAMER = 24       # 喷火器(v1.6;HQ6,限1,自心小半径持续物理,只对地)
+TYPE_LASER = 25        # 激光炮(v1.6;HQ7,限1,单体高持续魔法,可对空)
+TYPE_CATAPULT = 26     # 投石车(v1.6;兵营6,远程范围物理,射程<迫击炮,不可对空)
+TYPE_AIRSHIP = 27      # 飞艇(v1.6;兵营6,空中运输载7,无攻击,飞跃地面障碍)
+TYPE_DRAGON = 28       # 龙骑兵(v1.6;兵营7,空军:对地喷火AoE+对空单体,共享CD)
+N_TYPES = 32  # per-type 表长(29..31 留给后续版本)
 
 # 资源类型编码(state.resources 的第二维;与资源点 node_type 一致)
 RES_ORE = 0
@@ -66,7 +73,11 @@ BTASK_BUILD_MORTAR = -7    # 在建迫击炮(v1.4 Phase 3)
 BTASK_BUILD_FENCE_WOOD = -8   # 在建木栅栏(v1.5)
 BTASK_BUILD_FENCE_STONE = -9  # 在建石栅栏(v1.5)
 BTASK_BUILD_FENCE_IRON = -10  # 在建铁栅栏(v1.5)
-# −11..−15 留给 v1.6 在建建筑
+BTASK_BUILD_MAGETOWER = -11   # 在建法师塔(v1.6)
+BTASK_BUILD_LANDMINE = -12    # 在建地雷(v1.6)
+BTASK_BUILD_FLAMER = -13      # 在建喷火器(v1.6)
+BTASK_BUILD_LASER = -14       # 在建激光炮(v1.6)
+# −15 留给后续版本
 BTASK_RESEARCH_BASE = -16  # 研发线 l 的任务码 = -(16+l),l∈[0,8) → −16..−23
 
 
@@ -112,6 +123,9 @@ class Config:
     mage_speed: float = 0.45
     healer_speed: float = 0.45
     ram_speed: float = 0.3
+    catapult_speed: float = 0.3
+    airship_speed: float = 0.7   # 空中单位(v1.6):无视地面障碍直线飞
+    dragon_speed: float = 0.8
 
     # ---- 起始条件 ----
     start_ore: int = 100
@@ -152,6 +166,15 @@ class Config:
     ram_cost_ore: int = 80
     ram_cost_water: int = 40
     ram_time: int = 120
+    catapult_cost_ore: int = 90
+    catapult_cost_water: int = 50
+    catapult_time: int = 130
+    airship_cost_ore: int = 120
+    airship_cost_water: int = 80
+    airship_time: int = 150
+    dragon_cost_ore: int = 180
+    dragon_cost_water: int = 140
+    dragon_time: int = 220
 
     # ---- 建筑成本与耗时 ----
     mine_cost_ore: int = 40
@@ -218,6 +241,55 @@ class Config:
     fence_iron_build_time: int = 50
     fence_iron_hp: int = 400
     fence_iron_armor: int = 40
+
+    # ---- v1.6 防御建筑群(除哨塔/地雷外每种限 1;数值 [AI-DRAFT])----
+    magetower_cost_ore: int = 70
+    magetower_cost_water: int = 50
+    magetower_build_time: int = 100
+    magetower_hp: int = 140
+    magetower_range: float = 4.5
+    magetower_atk: int = 14
+    magetower_period: int = 5
+    landmine_cost_ore: int = 30
+    landmine_cost_water: int = 10
+    landmine_build_time: int = 25
+    landmine_hp: int = 30          # 名义血量(不可被打;自爆用 incoming 加满)
+    landmine_trigger_radius: float = 1.0
+    landmine_aoe_radius: float = 2.0
+    landmine_atk: int = 50
+    flamer_cost_ore: int = 80
+    flamer_cost_water: int = 50
+    flamer_build_time: int = 100
+    flamer_hp: int = 160
+    flamer_armor: int = 20
+    flamer_radius: float = 2.0     # 自心圆持续物理(period 1,平坦无衰减)
+    flamer_atk: int = 3
+    laser_cost_ore: int = 120
+    laser_cost_water: int = 90
+    laser_build_time: int = 130
+    laser_hp: int = 150
+    laser_armor: int = 20
+    laser_range: float = 5.0
+    laser_atk: int = 5             # 每 tick 魔法(period 1=「高持续」)
+    # ---- v1.6 兵营 6/7 级兵种 ----
+    catapult_hp: int = 100
+    catapult_armor: int = 30
+    catapult_range: float = 5.0    # 明显短于迫击炮 7.0(规格「不能太远程」)
+    catapult_aoe_radius: float = 1.2
+    catapult_atk: int = 24
+    catapult_period: int = 30
+    catapult_flight_time: int = 4
+    airship_hp: int = 140
+    airship_armor: int = 10
+    airship_capacity: int = 7      # 载员上限(用户定案)
+    reboard_lockout: int = 60      # 空降部队开火后多少 tick 内不可回艇
+    dragon_hp: int = 220
+    dragon_armor: int = 30
+    dragon_air_atk: int = 45       # 对空单体高物理
+    dragon_air_range: float = 3.0
+    dragon_breath_atk: int = 12    # 对地喷火(自心圆平坦持续)
+    dragon_breath_radius: float = 2.5
+    dragon_period: int = 10        # 两种攻击共享 CD
 
     # ---- 等级体系 ----
     # 约定:所有 *_by_level 表长 8,直接用等级 1..7 下标(0 位是废位填 0);
@@ -330,14 +402,18 @@ class Config:
             TYPE_WAGON: self.wagon_speed, TYPE_ARCHER: self.archer_speed,
             TYPE_LCAV: self.lcav_speed, TYPE_HEAVY: self.heavy_speed,
             TYPE_MAGE: self.mage_speed, TYPE_HEALER: self.healer_speed,
-            TYPE_RAM: self.ram_speed}, default=0.0)
+            TYPE_RAM: self.ram_speed, TYPE_CATAPULT: self.catapult_speed,
+            TYPE_AIRSHIP: self.airship_speed,
+            TYPE_DRAGON: self.dragon_speed}, default=0.0)
 
     @property
     def unlock_level_by_type(self) -> tuple:
         """基地几级解锁该**建筑**的建造;0=不受限(单位走 train_level_by_type)。"""
         return self._t32({TYPE_CAMP: 2, TYPE_BARRACKS: 2, TYPE_TOWER: 2,
                           TYPE_MORTAR: 3, TYPE_FENCE_WOOD: 2,
-                          TYPE_FENCE_STONE: 3, TYPE_FENCE_IRON: 5})
+                          TYPE_FENCE_STONE: 3, TYPE_FENCE_IRON: 5,
+                          TYPE_MAGETOWER: 3, TYPE_LANDMINE: 4,
+                          TYPE_FLAMER: 6, TYPE_LASER: 7})
 
     @property
     def train_level_by_type(self) -> tuple:
@@ -346,7 +422,8 @@ class Config:
         return self._t32({
             TYPE_WORKER: 1, TYPE_INFANTRY: 1, TYPE_STRONGMAN: 3, TYPE_WAGON: 5,
             TYPE_DOG: 1, TYPE_ARCHER: 2, TYPE_LCAV: 3, TYPE_HEAVY: 3,
-            TYPE_MAGE: 4, TYPE_HEALER: 4, TYPE_RAM: 5})
+            TYPE_MAGE: 4, TYPE_HEALER: 4, TYPE_RAM: 5,
+            TYPE_CATAPULT: 6, TYPE_AIRSHIP: 6, TYPE_DRAGON: 7})
 
     @property
     def train_cost_ore_by_type(self) -> tuple:
@@ -356,7 +433,9 @@ class Config:
             TYPE_WAGON: self.wagon_cost_ore, TYPE_ARCHER: self.archer_cost_ore,
             TYPE_LCAV: self.lcav_cost_ore, TYPE_HEAVY: self.heavy_cost_ore,
             TYPE_MAGE: self.mage_cost_ore, TYPE_HEALER: self.healer_cost_ore,
-            TYPE_RAM: self.ram_cost_ore})
+            TYPE_RAM: self.ram_cost_ore, TYPE_CATAPULT: self.catapult_cost_ore,
+            TYPE_AIRSHIP: self.airship_cost_ore,
+            TYPE_DRAGON: self.dragon_cost_ore})
 
     @property
     def train_cost_water_by_type(self) -> tuple:
@@ -367,7 +446,10 @@ class Config:
             TYPE_WAGON: self.wagon_cost_water, TYPE_ARCHER: self.archer_cost_water,
             TYPE_LCAV: self.lcav_cost_water, TYPE_HEAVY: self.heavy_cost_water,
             TYPE_MAGE: self.mage_cost_water, TYPE_HEALER: self.healer_cost_water,
-            TYPE_RAM: self.ram_cost_water})
+            TYPE_RAM: self.ram_cost_water,
+            TYPE_CATAPULT: self.catapult_cost_water,
+            TYPE_AIRSHIP: self.airship_cost_water,
+            TYPE_DRAGON: self.dragon_cost_water})
 
     @property
     def train_time_by_type(self) -> tuple:
@@ -377,7 +459,8 @@ class Config:
             TYPE_WAGON: self.wagon_time, TYPE_ARCHER: self.archer_time,
             TYPE_LCAV: self.lcav_time, TYPE_HEAVY: self.heavy_time,
             TYPE_MAGE: self.mage_time, TYPE_HEALER: self.healer_time,
-            TYPE_RAM: self.ram_time})
+            TYPE_RAM: self.ram_time, TYPE_CATAPULT: self.catapult_time,
+            TYPE_AIRSHIP: self.airship_time, TYPE_DRAGON: self.dragon_time})
 
     @property
     def carry_by_type(self) -> tuple:
@@ -400,12 +483,15 @@ class Config:
             TYPE_LCAV: self.lcav_armor, TYPE_HEAVY: self.heavy_armor,
             TYPE_RAM: self.ram_armor, TYPE_MORTAR: self.mortar_armor,
             TYPE_FENCE_STONE: self.fence_stone_armor,
-            TYPE_FENCE_IRON: self.fence_iron_armor})
+            TYPE_FENCE_IRON: self.fence_iron_armor,
+            TYPE_FLAMER: self.flamer_armor, TYPE_LASER: self.laser_armor,
+            TYPE_CATAPULT: self.catapult_armor,
+            TYPE_AIRSHIP: self.airship_armor, TYPE_DRAGON: self.dragon_armor})
 
     @property
     def dmg_magic_by_type(self) -> tuple:
-        """该类型攻击是否魔法(1=魔法,无视护甲)。v1.6 法师塔/激光炮加入。"""
-        return self._t32({TYPE_MAGE: 1})
+        """该类型攻击是否魔法(1=魔法,无视护甲)。"""
+        return self._t32({TYPE_MAGE: 1, TYPE_MAGETOWER: 1, TYPE_LASER: 1})
 
     @property
     def atk_range_by_type(self) -> tuple:
@@ -415,7 +501,10 @@ class Config:
             TYPE_INFANTRY: m, TYPE_DOG: m, TYPE_LCAV: m, TYPE_HEAVY: m,
             TYPE_RAM: m, TYPE_TOWER: self.tower_range,
             TYPE_ARCHER: self.archer_range, TYPE_MAGE: self.mage_range,
-            TYPE_HEALER: self.healer_range, TYPE_MORTAR: self.mortar_range},
+            TYPE_HEALER: self.healer_range, TYPE_MORTAR: self.mortar_range,
+            TYPE_MAGETOWER: self.magetower_range, TYPE_LASER: self.laser_range,
+            TYPE_CATAPULT: self.catapult_range,
+            TYPE_DRAGON: self.dragon_air_range},
             default=0.0)
 
     @property
@@ -425,9 +514,11 @@ class Config:
 
     @property
     def can_hit_units_by_type(self) -> tuple:
+        """可打**地面**单位(v1.6 起语义收窄;空中目标看 can_hit_air)。"""
         return self._t32({TYPE_INFANTRY: 1, TYPE_DOG: 1, TYPE_ARCHER: 1,
                           TYPE_LCAV: 1, TYPE_HEAVY: 1, TYPE_MAGE: 1,
-                          TYPE_TOWER: 1, TYPE_MORTAR: 1})
+                          TYPE_TOWER: 1, TYPE_MORTAR: 1, TYPE_MAGETOWER: 1,
+                          TYPE_LASER: 1, TYPE_CATAPULT: 1})
 
     @property
     def can_hit_buildings_by_type(self) -> tuple:
@@ -438,20 +529,60 @@ class Config:
 
     @property
     def atk_period_by_type(self) -> tuple:
-        """攻击间隔 tick(1=每 tick);迫击炮为长间隔炮击。"""
-        return self._t32({TYPE_MORTAR: self.mortar_atk_period}, default=1)
+        """攻击间隔 tick(1=每 tick);炮击类为长间隔。"""
+        return self._t32({TYPE_MORTAR: self.mortar_atk_period,
+                          TYPE_MAGETOWER: self.magetower_period,
+                          TYPE_CATAPULT: self.catapult_period,
+                          TYPE_DRAGON: self.dragon_period}, default=1)
 
     @property
     def aoe_radius_by_type(self) -> tuple:
-        """范围伤害半径(0=单体);仅迫击炮(v1.6 投石车等加入)。"""
-        return self._t32({TYPE_MORTAR: self.mortar_aoe_radius}, default=0.0)
+        """弹着点范围伤害半径(0=单体);迫击炮/投石车(自心圆另见
+        self_aoe_radius_by_type)。"""
+        return self._t32({TYPE_MORTAR: self.mortar_aoe_radius,
+                          TYPE_CATAPULT: self.catapult_aoe_radius}, default=0.0)
 
     @property
     def build_cap_by_type(self) -> tuple:
         """每玩家该类型建筑数量上限;0=本表不设限(哨塔另查 tower_cap_by_hq_level,
         兵营沿用 max_barracks)。迫击炮限 1(规格:除哨塔/地雷外每种防御建筑限 1;
         v1.6 防御建筑与地雷=5 直接进此表)。"""
-        return self._t32({TYPE_MORTAR: 1})
+        return self._t32({TYPE_MORTAR: 1, TYPE_MAGETOWER: 1, TYPE_FLAMER: 1,
+                          TYPE_LASER: 1, TYPE_LANDMINE: 5})
+
+    @property
+    def is_air_by_type(self) -> tuple:
+        """空中单位(v1.6):无视地面障碍直线飞,只被可对空者攻击。"""
+        return self._t32({TYPE_AIRSHIP: 1, TYPE_DRAGON: 1})
+
+    @property
+    def can_hit_air_by_type(self) -> tuple:
+        """可攻击空中单位(规格对空表):弓/法师/哨塔/法师塔/激光炮/龙。"""
+        return self._t32({TYPE_ARCHER: 1, TYPE_MAGE: 1, TYPE_TOWER: 1,
+                          TYPE_MAGETOWER: 1, TYPE_LASER: 1, TYPE_DRAGON: 1})
+
+    @property
+    def is_combat_by_type(self) -> tuple:
+        """战斗单位判据(v1.6 拆分,plan D0/D7):八线兵种 ∪ {投石车,龙};
+        飞艇不算(无攻击,只许 MOVE/STOP/空降)。"""
+        m = {t: 1 for t in TYPE_OF_LINE}
+        m[TYPE_CATAPULT] = 1
+        m[TYPE_DRAGON] = 1
+        return self._t32(m)
+
+    @property
+    def shell_flight_by_type(self) -> tuple:
+        """弹道飞行 tick(>0 即弹道攻击者:锁点-飞行-落点 AoE);
+        迫击炮/投石车。"""
+        return self._t32({TYPE_MORTAR: self.mortar_flight_time,
+                          TYPE_CATAPULT: self.catapult_flight_time})
+
+    @property
+    def self_aoe_radius_by_type(self) -> tuple:
+        """自心圆持续 AoE 半径(平坦无衰减,period 节拍):喷火器/龙喷火,
+        只伤敌方地面单位。"""
+        return self._t32({TYPE_FLAMER: self.flamer_radius,
+                          TYPE_DRAGON: self.dragon_breath_radius}, default=0.0)
 
     @property
     def line_of_type(self) -> tuple:

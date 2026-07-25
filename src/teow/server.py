@@ -61,10 +61,16 @@ def load_replay(run_dir: pathlib.Path) -> dict:
     }
 
     has_flags = "flag_active" in data  # v1.3 起才录;旧 run 目录发空表
+    has_aboard = "aboard" in data      # v1.6 起才录
     frames = []
     for i in range(n_frames):
         alive = data["alive"][i]
         idx = np.flatnonzero(alive)
+        if has_aboard:
+            ab_i = data["aboard"][i]
+            pax_i = np.zeros(alive.shape[0], np.int32)
+            np.add.at(pax_i, np.clip(ab_i, 0, alive.shape[0] - 1),
+                      (ab_i >= 0).astype(np.int32))
         frames.append({
             "kind": "frame",
             "i": i,
@@ -91,6 +97,8 @@ def load_replay(run_dir: pathlib.Path) -> dict:
                     "in": bool(data["inside"][i][j]),
                     "cg": int(data["cargo"][i][j]),
                     "bt": int(data["btype"][i][j]),
+                    "ab": int(ab_i[j]) if has_aboard else -1,
+                    "px": int(pax_i[j]) if has_aboard else 0,
                     # 满血:战斗单位查线级,建筑/采集单位查自身级(等价 stats
                     # effective_level;采集单位行内各级同值,级取什么都一样)
                     "mx": int(htab[min(t, 31),
