@@ -343,7 +343,8 @@ def apply_orders(state: WorldState, actions: jax.Array, cfg: Config,
     # 立即释放;HARVEST 改派(A 点 → k 点)可能被下方仲裁按 rank 拒绝,旧名额
     # 保守持有——「新指派成功才释放」,否则同 tick「改派被拒 + 空位被新人抢走」
     # 会把 A 点顶到 cap+1 且两名持有者都不动就一直超额(v1.3 终审 P1-1)。
-    # 代价:满员点之间同 tick 对换互卡一拍(下 tick 掩码即放行)。
+    # 代价:「A 满、B 有空位」的单向让位多卡一拍(下 tick 掩码即放行);
+    # 满-满对换本就被掩码挡住(需 STOP 中转),与本修复无关。
     hold = (state.alive & (state.order == ORDER_HARVEST)
             & (state.target_node >= 0) & (~new_cmd_a | is_harv_a))
     tn_a = jnp.clip(state.target_node.astype(jnp.int32), 0, cfg.n_nodes - 1)

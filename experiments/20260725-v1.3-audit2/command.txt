@@ -1,0 +1,1 @@
+src/run.py play --p0 scripted --p1 scripted --seed 7 --record --slug v1.3-audit2
