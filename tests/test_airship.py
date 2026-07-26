@@ -31,7 +31,7 @@ def test_board_capacity_and_harvester_ban():
     cfg = Config()
     state, _, step_fn, m = new_world(cfg)
     owner = owner_of_slots(cfg)
-    st, ship = spawn(state, cfg, 0, 20, TYPE_AIRSHIP, cfg.airship_hp,
+    st, ship = spawn(state, cfg, 0, 20, TYPE_AIRSHIP, cfg.airship_hp_by_level[1],
                      (31.0, 31.0))
     troops = []
     for i in range(8):
@@ -63,7 +63,7 @@ def test_board_capacity_and_harvester_ban():
 def test_drop_all_and_fight_and_shootdown():
     cfg = Config()
     state, _, step_fn, m = new_world(cfg)
-    st, ship = spawn(state, cfg, 0, 20, TYPE_AIRSHIP, cfg.airship_hp,
+    st, ship = spawn(state, cfg, 0, 20, TYPE_AIRSHIP, cfg.airship_hp_by_level[1],
                      (31.0, 31.0))
     st, inf = spawn(st, cfg, 0, 21, TYPE_INFANTRY, cfg.inf_hp_by_level[1],
                     (31.0, 31.5))
@@ -87,7 +87,7 @@ def test_threat_zone_blocks_boarding():
     cfg = Config()
     state, _, step_fn, m = new_world(cfg)
     owner = owner_of_slots(cfg)
-    st, ship = spawn(state, cfg, 0, 20, TYPE_AIRSHIP, cfg.airship_hp,
+    st, ship = spawn(state, cfg, 0, 20, TYPE_AIRSHIP, cfg.airship_hp_by_level[1],
                      (31.0, 31.0))
     st, inf = spawn(st, cfg, 0, 21, TYPE_INFANTRY, cfg.inf_hp_by_level[1],
                     (31.0, 31.5))
@@ -106,7 +106,7 @@ def test_reboard_lockout_after_firing():
     cfg = Config()
     state, _, step_fn, m = new_world(cfg)
     owner = owner_of_slots(cfg)
-    st, ship = spawn(state, cfg, 0, 20, TYPE_AIRSHIP, cfg.airship_hp,
+    st, ship = spawn(state, cfg, 0, 20, TYPE_AIRSHIP, cfg.airship_hp_by_level[1],
                      (31.0, 31.0))
     st, inf = spawn(st, cfg, 0, 21, TYPE_INFANTRY, cfg.inf_hp_by_level[1],
                     (31.0, 31.5))

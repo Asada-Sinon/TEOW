@@ -1,0 +1,1 @@
+src/run.py play --record --slug v16r-audit-cover --seed 0 --set start_ore=8000 start_water=8000 ai_base_level_target=7 ai_worker_target=6 ai_attack_threshold=25

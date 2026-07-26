@@ -61,7 +61,7 @@ def test_untargetable_and_nonblocking_and_air_immune():
     assert float(st2.pos[walker, 1]) > 32.0, "己方单位必须能直穿雷格(不挡路)"
     assert bool(st2.alive[mine]), "己方走过不触发"
     # 敌空军悬停雷上:不触发
-    st3, ship = spawn(st, cfg, 1, 22, TYPE_AIRSHIP, cfg.airship_hp, (31.0, 31.0))
+    st3, ship = spawn(st, cfg, 1, 22, TYPE_AIRSHIP, cfg.airship_hp_by_level[1], (31.0, 31.0))
     st3 = st3._replace(pos=st3.pos.at[foe].set(jnp.asarray([25.0, 25.0])))
     st3 = one_tick(st3, cfg, step_fn, seed=9)
     assert bool(st3.alive[mine]), "空军不触发地雷"

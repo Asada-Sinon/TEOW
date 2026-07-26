@@ -125,11 +125,23 @@ def combat_tick(state: WorldState, cfg: Config, owner: jax.Array) -> WorldState:
                  & ~is_air[None, :] & (sa_dmg > 0)[:, None]
                  & (owner[:, None] != owner[None, :])
                  & (eu <= sa_r[:, None]))
-    sa_fire = jnp.any(sa_victim, axis=1)
     sa_splash = jnp.where(sa_victim,
                           physical_damage(sa_dmg[:, None],
                                           tt["armor"][et][None, :]), 0)
     incoming = incoming + jnp.sum(sa_splash, axis=0)
+    # 龙喷火对**建筑**打折伤害(用户 2026-07-26 修订;喷火器仍只对地面单位;
+    # 地雷不可被打照旧排除)
+    bld_base = jnp.maximum(
+        1, cfg.dragon_breath_atk * cfg.dragon_breath_bld_percent // 100)
+    sa_victim_b = ((sa_ready & is_dragon)[:, None] & on_board[None, :]
+                   & ~is_unit[None, :] & ~is_landmine[None, :]
+                   & (owner[:, None] != owner[None, :])
+                   & (eu <= sa_r[:, None]))
+    sa_splash_b = jnp.where(sa_victim_b,
+                            physical_damage(bld_base, tt["armor"][et][None, :]),
+                            0)
+    incoming = incoming + jnp.sum(sa_splash_b, axis=0)
+    sa_fire = jnp.any(sa_victim | sa_victim_b, axis=1)
 
     # ---- 地雷(v1.6 D4):建成雷,敌方地面单位进触发圈 → 当拍爆炸+自毁。
     # 爆炸=以雷为圆心线性衰减,只伤敌方地面单位;多雷独立叠加;在建不触发 ----

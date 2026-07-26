@@ -168,11 +168,11 @@ def movement_tick(state: WorldState, cfg: Config, mapdata: MapData,
         & tgt_ok[None, :] & can_target(tt, et, tgt_is_air, tgt_is_unit),
         axis=-1)
     # 龙(critic MINOR-3):hit_u=0 使统一公式对地面永不停步——喷吐半径内有
-    # 敌地面单位也算 arrived
+    # 敌地面单位**或建筑**(v1.6 修订:喷火伤建筑打折)也算 arrived
     sa_r = tt["self_aoe"][et]
     breath_near = jnp.any(
         (dmat <= sa_r[:, None]) & (owner[None, :] != owner[:, None])
-        & tgt_ok[None, :] & tgt_is_unit[None, :] & ~tgt_is_air[None, :],
+        & tgt_ok[None, :] & ~tgt_is_air[None, :],
         axis=-1) & (sa_r > 0)
     arrived = arrived | ((st.order == ORDER_ATTACK) & (enemy_near | breath_near))
 

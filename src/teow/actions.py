@@ -43,6 +43,7 @@ import jax.numpy as jnp
 
 from .config import (
     N_LINES,
+    N_LINES_LEGACY,
     RES_WATER,
     TYPE_AIRSHIP,
     TYPE_ARCHER,
@@ -189,8 +190,11 @@ def a_build_mortar(cfg: Config) -> int:
 
 
 def a_research_line(line: int, cfg: Config) -> int:
-    """训练营研发第 line 条兵种线(v1.4;line=0..7,兵种见 TYPE_OF_LINE)。"""
-    return _v14_base(cfg) + 9 + line
+    """训练营研发第 line 条兵种线(兵种见 TYPE_OF_LINE)。
+    线 0..7 用 v1.4 原 id;线 8..10(v1.6 修订新增)追加在动作表尾部。"""
+    if line < N_LINES_LEGACY:
+        return _v14_base(cfg) + 9 + line
+    return _v16_base(cfg) + 9 + (line - N_LINES_LEGACY)
 
 
 # ---- v1.5 追加块(栅栏三档;B2 = v1.4 块末尾)----
@@ -198,7 +202,8 @@ FENCE_ORDER = (TYPE_FENCE_WOOD, TYPE_FENCE_STONE, TYPE_FENCE_IRON)
 
 
 def _v15_base(cfg: Config) -> int:
-    return _v14_base(cfg) + 9 + N_LINES
+    # N_LINES_LEGACY 冻结:v1.6 扩线(8→11)不得位移 v1.5 栅栏 id(保号契约)
+    return _v14_base(cfg) + 9 + N_LINES_LEGACY
 
 
 def a_build_fence(t: int, cfg: Config) -> int:
@@ -239,7 +244,7 @@ def a_drop_all(cfg: Config) -> int:
 
 
 def n_actions(cfg: Config) -> int:
-    return _v16_base(cfg) + 9
+    return _v16_base(cfg) + 9 + (N_LINES - N_LINES_LEGACY)
 
 
 def unit_costs(cfg: Config) -> jax.Array:
@@ -469,7 +474,8 @@ def legality_mask(state: WorldState, cfg: Config, mapdata: MapData,
         else:
             unlocked = _pcount(bar_built_lv >= tl[t]) > 0
         ok = (actable & is_camp & (lv >= 2) & (state.btimer == 0)
-              & (cur < lv) & ~busy_same & unlocked
+              & (cur < lv) & (cur < cfg.line_cap_by_line[line])
+              & ~busy_same & unlocked
               & jnp.all(stock >= rcost, axis=-1))
         mask = mask.at[:, a_research_line(line, cfg)].set(ok)
 

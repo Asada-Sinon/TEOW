@@ -57,10 +57,15 @@ LINE_HEAVY = 4
 LINE_MAGE = 5
 LINE_HEALER = 6
 LINE_RAM = 7
-N_LINES = 8
+LINE_CATAPULT = 8   # v1.6 修订:三兵种开线,上限 3 级(用户 2026-07-26 复核)
+LINE_AIRSHIP = 9
+LINE_DRAGON = 10
+N_LINES = 11
+N_LINES_LEGACY = 8  # v1.5 动作 id 公式冻结值(扩线不得位移旧 id,保号契约)
 # 线 → 兵种(研发解锁门用:该兵种可训练则线可研)
 TYPE_OF_LINE = (TYPE_INFANTRY, TYPE_DOG, TYPE_ARCHER, TYPE_LCAV,
-                TYPE_HEAVY, TYPE_MAGE, TYPE_HEALER, TYPE_RAM)
+                TYPE_HEAVY, TYPE_MAGE, TYPE_HEALER, TYPE_RAM,
+                TYPE_CATAPULT, TYPE_AIRSHIP, TYPE_DRAGON)
 
 # btype 任务码:正数=在训单位类型;负数=特殊任务。
 # 解码必须集中在 economy 单处;完成分支必须 btype←0(否则下 tick 重复触发)。
@@ -272,22 +277,23 @@ class Config:
     laser_range: float = 5.0
     laser_atk: int = 5             # 每 tick 魔法(period 1=「高持续」)
     # ---- v1.6 兵营 6/7 级兵种 ----
-    catapult_hp: int = 100
+    catapult_hp_by_level: tuple = (0, 100, 115, 132, 132, 132, 132, 132)
+    catapult_atk_by_level: tuple = (0, 24, 28, 33, 33, 33, 33, 33)
     catapult_armor: int = 30
     catapult_range: float = 5.0    # 明显短于迫击炮 7.0(规格「不能太远程」)
     catapult_aoe_radius: float = 1.2
-    catapult_atk: int = 24
     catapult_period: int = 30
     catapult_flight_time: int = 4
-    airship_hp: int = 140
+    airship_hp_by_level: tuple = (0, 140, 165, 195, 195, 195, 195, 195)
     airship_armor: int = 10
     airship_capacity: int = 7      # 载员上限(用户定案)
     reboard_lockout: int = 60      # 空降部队开火后多少 tick 内不可回艇
-    dragon_hp: int = 220
+    dragon_hp_by_level: tuple = (0, 220, 255, 295, 295, 295, 295, 295)
     dragon_armor: int = 30
-    dragon_air_atk: int = 45       # 对空单体高物理
+    dragon_air_atk_by_level: tuple = (0, 45, 52, 60, 60, 60, 60, 60)  # 对空单体
     dragon_air_range: float = 3.0
     dragon_breath_atk: int = 12    # 对地喷火(自心圆平坦持续)
+    dragon_breath_bld_percent: int = 50  # 喷火对建筑打折(用户修订;[AI-DRAFT])
     dragon_breath_radius: float = 2.5
     dragon_period: int = 10        # 两种攻击共享 CD
 
@@ -583,6 +589,12 @@ class Config:
         只伤敌方地面单位。"""
         return self._t32({TYPE_FLAMER: self.flamer_radius,
                           TYPE_DRAGON: self.dragon_breath_radius}, default=0.0)
+
+    @property
+    def line_cap_by_line(self) -> tuple:
+        """各线等级硬上限(v1.6 修订:投石车/飞艇/龙线压到 3 防数值膨胀,
+        其余 7;实际上限 = min(此值, 训练营等级))。"""
+        return (7,) * N_LINES_LEGACY + (3,) * (N_LINES - N_LINES_LEGACY)
 
     @property
     def line_of_type(self) -> tuple:

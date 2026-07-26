@@ -1,0 +1,584 @@
+diff --git a/README.md b/README.md
+index f91e005..59675cd 100644
+--- a/README.md
++++ b/README.md
+@@ -105,14 +105,15 @@ JAX_PLATFORMS=cpu .venv/bin/python src/run.py play --p0 scripted --p1 scripted -
+ | 5 级 | 攻城车 | 近战,**只能攻击建筑**(对单位视而不见),拆家利器 |
+ | 6 级 | 投石车 | 远程范围物理(射程 5,短于迫击炮),弹道制,不可对空 |
+ | 6 级 | 飞艇 | **空中运输**:载 7 名地面战斗单位,无攻击,飞跃一切地面障碍 |
+-| 7 级 | 龙骑兵 | **空军**:对地喷火(自心 2.5 圈平坦持续)+对空单体高物理,两模式共享 CD |
++| 7 级 | 龙骑兵 | **空军**:对地喷火(自心 2.5 圈平坦持续,**伤建筑打 5 折**)+对空单体高物理,两模式共享 CD |
+ 
+ 近战步兵在**大本营**训练(1 级即有),不占兵营位。
+ 
+ ### 技能训练营(2→7 级,基地 2 级解锁,建成即 2 级)
+ 
+-**按兵种研发升级线**(v1.4 起八条线:步兵/狗/弓箭手/轻骑/重甲/法师/奶妈/
+-攻城车,各一条),每级提升该兵种血量与攻击(奶妈提升治疗量)。规则:
++**按兵种研发升级线**(十一条线:步兵/狗/弓箭手/轻骑/重甲/法师/奶妈/攻城车
++各一条上限 7;**投石车/飞艇/龙骑兵各一条上限 3**),每级提升该兵种血量与攻击
++(奶妈提升治疗量,飞艇只提血量)。规则:
+ 
+ - 兵种解锁了(其生产建筑达到对应等级)才能研它的线;
+ - **线等级 ≤ 训练营等级 ≤ 基地等级**;
+@@ -183,7 +184,7 @@ JAX_PLATFORMS=cpu .venv/bin/python src/run.py play --p0 scripted --p1 scripted -
+ ## 数值表
+ 
+ > 数值真源 `src/teow/config.py`,本表对应 **v1.6**(新增数值多为 [AI-DRAFT]
+-> 初值,v1.7 统一复核;投石车/飞艇/龙骑兵为固定属性无升级线)。表内等级
++> 初值,v1.7 统一复核;投石车/飞艇/龙骑兵升级线上限 3)。表内等级
+ > 下标 1..7,升级成本为「从当前级升到下一级」。
+ 
+ ### 单位(1 级基准)
+diff --git a/docs/DECISIONS.md b/docs/DECISIONS.md
+index c0002fa..ca14546 100644
+--- a/docs/DECISIONS.md
++++ b/docs/DECISIONS.md
+@@ -180,3 +180,10 @@
+   喷火器/激光炮,互斥顺延);投石车/飞艇/龙入兵营「最少已解锁兵种」选型
+   (cap 99/1/1);登艇/空降 scripted 不使用(状态手术单测覆盖,AI 层战术
+   编排留 v2 RL)。
++- 2026-07-26 **v1.6 用户复核修订三条(用户在线拍板,覆盖此前 [AI-DRAFT])**:
++  ①投石车/飞艇/龙**开升级线,上限 3 级**(推翻「不开线」决策;保号约束用
++  N_LINES_LEGACY=8 冻结 v1.5 动作 id 公式解决,新研发 id 追加动作表尾部
++  113-115,N_LINES 8→11、upgrades [P,11]);②**龙喷火伤建筑但打折**,
++  折扣初值 50% [AI-DRAFT] 待 v1.7 复核(推翻「不伤建筑」解释);③地雷
++  「炸了就没、重新部署」语义经用户确认与现实现一致(一次性自毁,cap 按
++  存活数计,炸后名额释放),无改动。
+diff --git a/docs/changelog/v1.6.md b/docs/changelog/v1.6.md
+index c2a2b9e..7e1f7da 100644
+--- a/docs/changelog/v1.6.md
++++ b/docs/changelog/v1.6.md
+@@ -50,3 +50,9 @@
+   对掩码)——当前两局结果不受影响,下版扩脚本前改名
+ - v1.4/v1.5 遗留:训练营升级不补血差/研发门升级窗口/迫击炮样本薄/
+   JAX_PLATFORMS=cpu 必带,均挂 v1.7
++
++## 追记(tag 后用户复核修订,2026-07-26)
++- 投石车/飞艇/龙骑兵开升级线,**上限 3 级**(线 8-10;动作 id 保号靠
++  N_LINES_LEGACY 冻结,栅栏/登艇等旧 id 不变;各线 L2/L3 数值 [AI-DRAFT])
++- 龙喷火对**建筑**造成打折伤害(dragon_breath_bld_percent=50 [AI-DRAFT]);
++  地雷一次性/可重部署语义经用户确认,无改动
+diff --git a/src/teow/actions.py b/src/teow/actions.py
+index f8c9e00..f3c0da8 100644
+--- a/src/teow/actions.py
++++ b/src/teow/actions.py
+@@ -43,6 +43,7 @@ import jax.numpy as jnp
+ 
+ from .config import (
+     N_LINES,
++    N_LINES_LEGACY,
+     RES_WATER,
+     TYPE_AIRSHIP,
+     TYPE_ARCHER,
+@@ -189,8 +190,11 @@ def a_build_mortar(cfg: Config) -> int:
+ 
+ 
+ def a_research_line(line: int, cfg: Config) -> int:
+-    """训练营研发第 line 条兵种线(v1.4;line=0..7,兵种见 TYPE_OF_LINE)。"""
+-    return _v14_base(cfg) + 9 + line
++    """训练营研发第 line 条兵种线(兵种见 TYPE_OF_LINE)。
++    线 0..7 用 v1.4 原 id;线 8..10(v1.6 修订新增)追加在动作表尾部。"""
++    if line < N_LINES_LEGACY:
++        return _v14_base(cfg) + 9 + line
++    return _v16_base(cfg) + 9 + (line - N_LINES_LEGACY)
+ 
+ 
+ # ---- v1.5 追加块(栅栏三档;B2 = v1.4 块末尾)----
+@@ -198,7 +202,8 @@ FENCE_ORDER = (TYPE_FENCE_WOOD, TYPE_FENCE_STONE, TYPE_FENCE_IRON)
+ 
+ 
+ def _v15_base(cfg: Config) -> int:
+-    return _v14_base(cfg) + 9 + N_LINES
++    # N_LINES_LEGACY 冻结:v1.6 扩线(8→11)不得位移 v1.5 栅栏 id(保号契约)
++    return _v14_base(cfg) + 9 + N_LINES_LEGACY
+ 
+ 
+ def a_build_fence(t: int, cfg: Config) -> int:
+@@ -239,7 +244,7 @@ def a_drop_all(cfg: Config) -> int:
+ 
+ 
+ def n_actions(cfg: Config) -> int:
+-    return _v16_base(cfg) + 9
++    return _v16_base(cfg) + 9 + (N_LINES - N_LINES_LEGACY)
+ 
+ 
+ def unit_costs(cfg: Config) -> jax.Array:
+@@ -469,7 +474,8 @@ def legality_mask(state: WorldState, cfg: Config, mapdata: MapData,
+         else:
+             unlocked = _pcount(bar_built_lv >= tl[t]) > 0
+         ok = (actable & is_camp & (lv >= 2) & (state.btimer == 0)
+-              & (cur < lv) & ~busy_same & unlocked
++              & (cur < lv) & (cur < cfg.line_cap_by_line[line])
++              & ~busy_same & unlocked
+               & jnp.all(stock >= rcost, axis=-1))
+         mask = mask.at[:, a_research_line(line, cfg)].set(ok)
+ 
+diff --git a/src/teow/combat.py b/src/teow/combat.py
+index 44a5542..8ec7d7d 100644
+--- a/src/teow/combat.py
++++ b/src/teow/combat.py
+@@ -125,11 +125,23 @@ def combat_tick(state: WorldState, cfg: Config, owner: jax.Array) -> WorldState:
+                  & ~is_air[None, :] & (sa_dmg > 0)[:, None]
+                  & (owner[:, None] != owner[None, :])
+                  & (eu <= sa_r[:, None]))
+-    sa_fire = jnp.any(sa_victim, axis=1)
+     sa_splash = jnp.where(sa_victim,
+                           physical_damage(sa_dmg[:, None],
+                                           tt["armor"][et][None, :]), 0)
+     incoming = incoming + jnp.sum(sa_splash, axis=0)
++    # 龙喷火对**建筑**打折伤害(用户 2026-07-26 修订;喷火器仍只对地面单位;
++    # 地雷不可被打照旧排除)
++    bld_base = jnp.maximum(
++        1, cfg.dragon_breath_atk * cfg.dragon_breath_bld_percent // 100)
++    sa_victim_b = ((sa_ready & is_dragon)[:, None] & on_board[None, :]
++                   & ~is_unit[None, :] & ~is_landmine[None, :]
++                   & (owner[:, None] != owner[None, :])
++                   & (eu <= sa_r[:, None]))
++    sa_splash_b = jnp.where(sa_victim_b,
++                            physical_damage(bld_base, tt["armor"][et][None, :]),
++                            0)
++    incoming = incoming + jnp.sum(sa_splash_b, axis=0)
++    sa_fire = jnp.any(sa_victim | sa_victim_b, axis=1)
+ 
+     # ---- 地雷(v1.6 D4):建成雷,敌方地面单位进触发圈 → 当拍爆炸+自毁。
+     # 爆炸=以雷为圆心线性衰减,只伤敌方地面单位;多雷独立叠加;在建不触发 ----
+diff --git a/src/teow/config.py b/src/teow/config.py
+index 8d0ff7f..220c73d 100644
+--- a/src/teow/config.py
++++ b/src/teow/config.py
+@@ -57,10 +57,15 @@ LINE_HEAVY = 4
+ LINE_MAGE = 5
+ LINE_HEALER = 6
+ LINE_RAM = 7
+-N_LINES = 8
++LINE_CATAPULT = 8   # v1.6 修订:三兵种开线,上限 3 级(用户 2026-07-26 复核)
++LINE_AIRSHIP = 9
++LINE_DRAGON = 10
++N_LINES = 11
++N_LINES_LEGACY = 8  # v1.5 动作 id 公式冻结值(扩线不得位移旧 id,保号契约)
+ # 线 → 兵种(研发解锁门用:该兵种可训练则线可研)
+ TYPE_OF_LINE = (TYPE_INFANTRY, TYPE_DOG, TYPE_ARCHER, TYPE_LCAV,
+-                TYPE_HEAVY, TYPE_MAGE, TYPE_HEALER, TYPE_RAM)
++                TYPE_HEAVY, TYPE_MAGE, TYPE_HEALER, TYPE_RAM,
++                TYPE_CATAPULT, TYPE_AIRSHIP, TYPE_DRAGON)
+ 
+ # btype 任务码:正数=在训单位类型;负数=特殊任务。
+ # 解码必须集中在 economy 单处;完成分支必须 btype←0(否则下 tick 重复触发)。
+@@ -272,22 +277,23 @@ class Config:
+     laser_range: float = 5.0
+     laser_atk: int = 5             # 每 tick 魔法(period 1=「高持续」)
+     # ---- v1.6 兵营 6/7 级兵种 ----
+-    catapult_hp: int = 100
++    catapult_hp_by_level: tuple = (0, 100, 115, 132, 132, 132, 132, 132)
++    catapult_atk_by_level: tuple = (0, 24, 28, 33, 33, 33, 33, 33)
+     catapult_armor: int = 30
+     catapult_range: float = 5.0    # 明显短于迫击炮 7.0(规格「不能太远程」)
+     catapult_aoe_radius: float = 1.2
+-    catapult_atk: int = 24
+     catapult_period: int = 30
+     catapult_flight_time: int = 4
+-    airship_hp: int = 140
++    airship_hp_by_level: tuple = (0, 140, 165, 195, 195, 195, 195, 195)
+     airship_armor: int = 10
+     airship_capacity: int = 7      # 载员上限(用户定案)
+     reboard_lockout: int = 60      # 空降部队开火后多少 tick 内不可回艇
+-    dragon_hp: int = 220
++    dragon_hp_by_level: tuple = (0, 220, 255, 295, 295, 295, 295, 295)
+     dragon_armor: int = 30
+-    dragon_air_atk: int = 45       # 对空单体高物理
++    dragon_air_atk_by_level: tuple = (0, 45, 52, 60, 60, 60, 60, 60)  # 对空单体
+     dragon_air_range: float = 3.0
+     dragon_breath_atk: int = 12    # 对地喷火(自心圆平坦持续)
++    dragon_breath_bld_percent: int = 50  # 喷火对建筑打折(用户修订;[AI-DRAFT])
+     dragon_breath_radius: float = 2.5
+     dragon_period: int = 10        # 两种攻击共享 CD
+ 
+@@ -584,6 +590,12 @@ class Config:
+         return self._t32({TYPE_FLAMER: self.flamer_radius,
+                           TYPE_DRAGON: self.dragon_breath_radius}, default=0.0)
+ 
++    @property
++    def line_cap_by_line(self) -> tuple:
++        """各线等级硬上限(v1.6 修订:投石车/飞艇/龙线压到 3 防数值膨胀,
++        其余 7;实际上限 = min(此值, 训练营等级))。"""
++        return (7,) * N_LINES_LEGACY + (3,) * (N_LINES - N_LINES_LEGACY)
++
+     @property
+     def line_of_type(self) -> tuple:
+         """TYPE → 升级线;-1=无线(采集单位/建筑)。同时充当 is_combat 判据。"""
+diff --git a/src/teow/controller.py b/src/teow/controller.py
+index fd2b13a..03d3467 100644
+--- a/src/teow/controller.py
++++ b/src/teow/controller.py
+@@ -178,12 +178,17 @@ def scripted_actions(state: WorldState, cfg: Config, mapdata: MapData,
+     bar_lv_max = jnp.max(jnp.where(
+         mine & (st.etype == _TB2) & (st.btype >= 0),
+         st.level.astype(jnp.int32), 0))
+-    line_unlocked = (tol == _TI) | (bar_lv_max >= tl[tol])   # [N_LINES]
++    line_cap = jnp.asarray(cfg.line_cap_by_line, jnp.int32)
++    line_unlocked = (((tol == _TI) | (bar_lv_max >= tl[tol]))
++                     & (line_lv < line_cap))               # 满上限的线退出选型
+     line_score = jnp.where(line_unlocked, line_lv, 99)
+     low_line = jnp.argmin(line_score).astype(jnp.int32)
++    # v1.6 修订:线 8..10 的 id 不与 0..7 连续,查表取 id
++    rid_tbl = jnp.asarray([a_research_line(li, cfg) for li in range(len(tol))],
++                          jnp.int32)
+     camp_act = jnp.where(
+         line_score[low_line] < st.level.astype(jnp.int32),
+-        a_research_line(0, cfg) + low_line,
++        rid_tbl[low_line],
+         a_upgrade(cfg))                                    # [N](逐营取自身 level 比较)
+ 
+     # ---- 科技优先预留(v1.3):研发在排队(有营且低线未及营级)时,练兵先给
+diff --git a/src/teow/movement.py b/src/teow/movement.py
+index 67d0be7..9b1e355 100644
+--- a/src/teow/movement.py
++++ b/src/teow/movement.py
+@@ -168,11 +168,11 @@ def movement_tick(state: WorldState, cfg: Config, mapdata: MapData,
+         & tgt_ok[None, :] & can_target(tt, et, tgt_is_air, tgt_is_unit),
+         axis=-1)
+     # 龙(critic MINOR-3):hit_u=0 使统一公式对地面永不停步——喷吐半径内有
+-    # 敌地面单位也算 arrived
++    # 敌地面单位**或建筑**(v1.6 修订:喷火伤建筑打折)也算 arrived
+     sa_r = tt["self_aoe"][et]
+     breath_near = jnp.any(
+         (dmat <= sa_r[:, None]) & (owner[None, :] != owner[:, None])
+-        & tgt_ok[None, :] & tgt_is_unit[None, :] & ~tgt_is_air[None, :],
++        & tgt_ok[None, :] & ~tgt_is_air[None, :],
+         axis=-1) & (sa_r > 0)
+     arrived = arrived | ((st.order == ORDER_ATTACK) & (enemy_near | breath_near))
+ 
+diff --git a/src/teow/stats.py b/src/teow/stats.py
+index 6232e71..517c9d3 100644
+--- a/src/teow/stats.py
++++ b/src/teow/stats.py
+@@ -81,9 +81,9 @@ def hp_table(cfg: Config) -> jax.Array:
+         TYPE_LANDMINE: _flat(cfg.landmine_hp),
+         TYPE_FLAMER: _flat(cfg.flamer_hp),
+         TYPE_LASER: _flat(cfg.laser_hp),
+-        TYPE_CATAPULT: _flat(cfg.catapult_hp),
+-        TYPE_AIRSHIP: _flat(cfg.airship_hp),
+-        TYPE_DRAGON: _flat(cfg.dragon_hp),
++        TYPE_CATAPULT: cfg.catapult_hp_by_level,
++        TYPE_AIRSHIP: cfg.airship_hp_by_level,
++        TYPE_DRAGON: cfg.dragon_hp_by_level,
+     }
+     return jnp.asarray([rows.get(t, (0,) * 8) for t in range(N_TYPES)], jnp.int32)
+ 
+@@ -104,8 +104,8 @@ def atk_table(cfg: Config) -> jax.Array:
+         TYPE_MAGETOWER: _flat(cfg.magetower_atk),
+         TYPE_LANDMINE: _flat(cfg.landmine_atk),   # 爆炸伤害取值;rng=0 不当攻击者
+         TYPE_LASER: _flat(cfg.laser_atk),
+-        TYPE_CATAPULT: _flat(cfg.catapult_atk),
+-        TYPE_DRAGON: _flat(cfg.dragon_air_atk),   # 单体路径=对空;喷火走自心圆表
++        TYPE_CATAPULT: cfg.catapult_atk_by_level,
++        TYPE_DRAGON: cfg.dragon_air_atk_by_level,  # 单体路径=对空;喷火走自心圆表
+     }
+     return jnp.asarray([rows.get(t, (0,) * 8) for t in range(N_TYPES)], jnp.int32)
+ 
+diff --git a/tests/test_air_domain.py b/tests/test_air_domain.py
+index 0e38183..e858627 100644
+--- a/tests/test_air_domain.py
++++ b/tests/test_air_domain.py
+@@ -30,7 +30,7 @@ def test_airship_flies_over_fence_wall():
+     for i, r in enumerate(range(28, 35)):
+         st, _ = spawn(st, cfg, 1, 30 + i, TYPE_FENCE_IRON, cfg.fence_iron_hp,
+                       (float(r), 31.0))
+-    st, ship = spawn(st, cfg, 0, 20, TYPE_AIRSHIP, cfg.airship_hp, (31.0, 27.0))
++    st, ship = spawn(st, cfg, 0, 20, TYPE_AIRSHIP, cfg.airship_hp_by_level[1], (31.0, 27.0))
+     st, inf = spawn(st, cfg, 0, 21, TYPE_INFANTRY, cfg.inf_hp_by_level[1],
+                     (31.0, 27.0))
+     st = _move(st, ship, (31.0, 35.0))
+@@ -44,7 +44,7 @@ def test_airship_flies_over_fence_wall():
+ def test_air_stays_inside_hex():
+     cfg = Config()
+     state, _, step_fn, m = new_world(cfg)
+-    st, ship = spawn(state, cfg, 0, 20, TYPE_AIRSHIP, cfg.airship_hp,
++    st, ship = spawn(state, cfg, 0, 20, TYPE_AIRSHIP, cfg.airship_hp_by_level[1],
+                      (31.0, 55.0))
+     st = _move(st, ship, (31.0, 63.0))   # 目标在六边形外
+     for t in range(20):
+@@ -58,23 +58,23 @@ def test_anti_air_table():
+     cfg = Config()
+     state, _, step_fn, m = new_world(cfg)
+     # 敌飞艇悬停;近战步兵贴脸打不到,弓手打得到,迫击炮环内不开火
+-    st, ship = spawn(state, cfg, 1, 20, TYPE_AIRSHIP, cfg.airship_hp,
++    st, ship = spawn(state, cfg, 1, 20, TYPE_AIRSHIP, cfg.airship_hp_by_level[1],
+                      (31.0, 31.0))
+     st, inf = spawn(st, cfg, 0, 20, TYPE_INFANTRY, cfg.inf_hp_by_level[1],
+                     (31.0, 32.0))
+     st1 = one_tick(st, cfg, step_fn)
+-    assert int(st1.hp[ship]) == cfg.airship_hp, "近战不可对空"
++    assert int(st1.hp[ship]) == cfg.airship_hp_by_level[1], "近战不可对空"
+     st, arc = spawn(st, cfg, 0, 21, TYPE_ARCHER, cfg.archer_hp_by_level[1],
+                     (31.0, 28.0))
+     st2 = one_tick(st, cfg, step_fn, seed=2)
+     expect = int(physical_damage(jnp.asarray(cfg.archer_atk_by_level[1]),
+                                  jnp.asarray(cfg.airship_armor)))
+-    assert cfg.airship_hp - int(st2.hp[ship]) == expect, "弓手必须可对空"
++    assert cfg.airship_hp_by_level[1] - int(st2.hp[ship]) == expect, "弓手必须可对空"
+ 
+     # 迫击炮环内只有空军:不开火;弹落点也炸不到空军(M-1)
+     state2, _, _, _ = new_world(cfg)
+     st3, mor = spawn(state2, cfg, 0, 30, TYPE_MORTAR, cfg.mortar_hp, (31.0, 26.0))
+-    st3, ship2 = spawn(st3, cfg, 1, 30, TYPE_AIRSHIP, cfg.airship_hp,
++    st3, ship2 = spawn(st3, cfg, 1, 30, TYPE_AIRSHIP, cfg.airship_hp_by_level[1],
+                        (31.0, 31.0))
+     st3 = one_tick(st3, cfg, step_fn, seed=3)
+     assert int(st3.shell_timer[mor]) == 0, "迫击炮不可对空(不该开火)"
+@@ -84,7 +84,7 @@ def test_air_ground_no_collision():
+     cfg = Config()
+     state, _, step_fn, m = new_world(cfg)
+     # 空地同格悬停:互不推挤(不同高度)
+-    st, ship = spawn(state, cfg, 0, 20, TYPE_AIRSHIP, cfg.airship_hp,
++    st, ship = spawn(state, cfg, 0, 20, TYPE_AIRSHIP, cfg.airship_hp_by_level[1],
+                      (31.0, 31.0))
+     st, wk = spawn(st, cfg, 0, 21, TYPE_INFANTRY, cfg.inf_hp_by_level[1],
+                    (31.0, 31.0))
+diff --git a/tests/test_airship.py b/tests/test_airship.py
+index 7fb3a73..e7e37b8 100644
+--- a/tests/test_airship.py
++++ b/tests/test_airship.py
+@@ -31,7 +31,7 @@ def test_board_capacity_and_harvester_ban():
+     cfg = Config()
+     state, _, step_fn, m = new_world(cfg)
+     owner = owner_of_slots(cfg)
+-    st, ship = spawn(state, cfg, 0, 20, TYPE_AIRSHIP, cfg.airship_hp,
++    st, ship = spawn(state, cfg, 0, 20, TYPE_AIRSHIP, cfg.airship_hp_by_level[1],
+                      (31.0, 31.0))
+     troops = []
+     for i in range(8):
+@@ -63,7 +63,7 @@ def test_board_capacity_and_harvester_ban():
+ def test_drop_all_and_fight_and_shootdown():
+     cfg = Config()
+     state, _, step_fn, m = new_world(cfg)
+-    st, ship = spawn(state, cfg, 0, 20, TYPE_AIRSHIP, cfg.airship_hp,
++    st, ship = spawn(state, cfg, 0, 20, TYPE_AIRSHIP, cfg.airship_hp_by_level[1],
+                      (31.0, 31.0))
+     st, inf = spawn(st, cfg, 0, 21, TYPE_INFANTRY, cfg.inf_hp_by_level[1],
+                     (31.0, 31.5))
+@@ -87,7 +87,7 @@ def test_threat_zone_blocks_boarding():
+     cfg = Config()
+     state, _, step_fn, m = new_world(cfg)
+     owner = owner_of_slots(cfg)
+-    st, ship = spawn(state, cfg, 0, 20, TYPE_AIRSHIP, cfg.airship_hp,
++    st, ship = spawn(state, cfg, 0, 20, TYPE_AIRSHIP, cfg.airship_hp_by_level[1],
+                      (31.0, 31.0))
+     st, inf = spawn(st, cfg, 0, 21, TYPE_INFANTRY, cfg.inf_hp_by_level[1],
+                     (31.0, 31.5))
+@@ -106,7 +106,7 @@ def test_reboard_lockout_after_firing():
+     cfg = Config()
+     state, _, step_fn, m = new_world(cfg)
+     owner = owner_of_slots(cfg)
+-    st, ship = spawn(state, cfg, 0, 20, TYPE_AIRSHIP, cfg.airship_hp,
++    st, ship = spawn(state, cfg, 0, 20, TYPE_AIRSHIP, cfg.airship_hp_by_level[1],
+                      (31.0, 31.0))
+     st, inf = spawn(st, cfg, 0, 21, TYPE_INFANTRY, cfg.inf_hp_by_level[1],
+                     (31.0, 31.5))
+diff --git a/tests/test_catapult.py b/tests/test_catapult.py
+index da66d09..3ab6d31 100644
+--- a/tests/test_catapult.py
++++ b/tests/test_catapult.py
+@@ -21,7 +21,7 @@ def test_range_shorter_than_mortar_and_flight():
+     cfg = Config()
+     assert cfg.catapult_range < cfg.mortar_range, "规格:不能太远程"
+     state, _, step_fn, m = new_world(cfg)
+-    st, cat = spawn(state, cfg, 0, 20, TYPE_CATAPULT, cfg.catapult_hp,
++    st, cat = spawn(state, cfg, 0, 20, TYPE_CATAPULT, cfg.catapult_hp_by_level[1],
+                     (31.0, 27.0))
+     st, inf = spawn(st, cfg, 1, 20, TYPE_INFANTRY, cfg.inf_hp_by_level[1],
+                     (31.0, 31.0))
+@@ -36,7 +36,7 @@ def test_range_shorter_than_mortar_and_flight():
+     assert int(st.hp[inf]) == hp0
+     st = one_tick(st, cfg, step_fn, seed=9)
+     expect = int(physical_damage(
+-        jnp.asarray(int(jnp.ceil(cfg.catapult_atk * 1.0))),
++        jnp.asarray(int(jnp.ceil(cfg.catapult_atk_by_level[1] * 1.0))),
+         jnp.asarray(cfg.infantry_armor)))
+     assert hp0 - int(st.hp[inf]) == expect, "落点中心满额(站桩目标)"
+ 
+@@ -44,16 +44,16 @@ def test_range_shorter_than_mortar_and_flight():
+ def test_cannot_hit_air_but_melee_hits_it():
+     cfg = Config()
+     state, _, step_fn, m = new_world(cfg)
+-    st, cat = spawn(state, cfg, 0, 20, TYPE_CATAPULT, cfg.catapult_hp,
++    st, cat = spawn(state, cfg, 0, 20, TYPE_CATAPULT, cfg.catapult_hp_by_level[1],
+                     (31.0, 28.0))
+-    st, ship = spawn(st, cfg, 1, 20, TYPE_AIRSHIP, cfg.airship_hp, (31.0, 31.0))
++    st, ship = spawn(st, cfg, 1, 20, TYPE_AIRSHIP, cfg.airship_hp_by_level[1], (31.0, 31.0))
+     st = one_tick(st, cfg, step_fn)
+     assert int(st.shell_timer[cat]) == 0, "投石车不可对空"
+     # 敌近战贴脸:投石车是地面单位,可被打
+     st, inf = spawn(st, cfg, 1, 21, TYPE_INFANTRY, cfg.inf_hp_by_level[1],
+                     (31.0, 27.0))
+     st = one_tick(st, cfg, step_fn, seed=2)
+-    taken = cfg.catapult_hp - int(st.hp[cat])
++    taken = cfg.catapult_hp_by_level[1] - int(st.hp[cat])
+     assert taken == int(physical_damage(jnp.asarray(cfg.inf_atk_by_level[1]),
+                                         jnp.asarray(cfg.catapult_armor)))
+ 
+diff --git a/tests/test_defense_buildings.py b/tests/test_defense_buildings.py
+index 16316f8..feba578 100644
+--- a/tests/test_defense_buildings.py
++++ b/tests/test_defense_buildings.py
+@@ -35,20 +35,20 @@ def test_magetower_magic_ignores_armor_and_hits_air():
+     # 对空
+     stA, mt2 = spawn(state, cfg, 0, 21, TYPE_MAGETOWER, cfg.magetower_hp,
+                      (31.0, 34.0))
+-    stA, ship = spawn(stA, cfg, 1, 21, TYPE_AIRSHIP, cfg.airship_hp,
++    stA, ship = spawn(stA, cfg, 1, 21, TYPE_AIRSHIP, cfg.airship_hp_by_level[1],
+                       (31.0, 36.0))
+     stA = one_tick(stA, cfg, step_fn, seed=3)
+-    assert cfg.airship_hp - int(stA.hp[ship]) == cfg.magetower_atk, "法师塔可对空"
++    assert cfg.airship_hp_by_level[1] - int(stA.hp[ship]) == cfg.magetower_atk, "法师塔可对空"
+ 
+ 
+ def test_laser_continuous_magic_hits_air():
+     cfg = Config()
+     state, _, step_fn, m = new_world(cfg)
+     st, lz = spawn(state, cfg, 0, 20, TYPE_LASER, cfg.laser_hp, (31.0, 28.0))
+-    st, ship = spawn(st, cfg, 1, 20, TYPE_AIRSHIP, cfg.airship_hp, (31.0, 32.0))
++    st, ship = spawn(st, cfg, 1, 20, TYPE_AIRSHIP, cfg.airship_hp_by_level[1], (31.0, 32.0))
+     st = one_tick(st, cfg, step_fn)
+     st = one_tick(st, cfg, step_fn, seed=2)
+-    assert cfg.airship_hp - int(st.hp[ship]) == 2 * cfg.laser_atk, \
++    assert cfg.airship_hp_by_level[1] - int(st.hp[ship]) == 2 * cfg.laser_atk, \
+         "激光每 tick 结算(period 1)且魔法无视护甲"
+ 
+ 
+@@ -60,7 +60,7 @@ def test_flamer_flat_aoe_ground_only_and_inbuild_silent():
+                   (31.0, 32.5))
+     st, b = spawn(st, cfg, 1, 21, TYPE_INFANTRY, cfg.inf_hp_by_level[1],
+                   (30.0, 30.0))
+-    st, ship = spawn(st, cfg, 1, 22, TYPE_AIRSHIP, cfg.airship_hp, (31.0, 31.5))
++    st, ship = spawn(st, cfg, 1, 22, TYPE_AIRSHIP, cfg.airship_hp_by_level[1], (31.0, 31.5))
+     # own 在喷火圈内(1.58)但在两敌近战圈外(1.8/2.9),不互殴污染断言
+     st, own = spawn(st, cfg, 0, 21, TYPE_INFANTRY, cfg.inf_hp_by_level[1],
+                     (32.5, 31.5))
+@@ -70,7 +70,7 @@ def test_flamer_flat_aoe_ground_only_and_inbuild_silent():
+                                  jnp.asarray(cfg.infantry_armor)))
+     assert cfg.inf_hp_by_level[1] - int(st1.hp[a]) == expect, "圈内敌 A 同伤"
+     assert cfg.inf_hp_by_level[1] - int(st1.hp[b]) == expect, "圈内敌 B 同伤(平坦)"
+-    assert int(st1.hp[ship]) == cfg.airship_hp, "喷火器只对地"
++    assert int(st1.hp[ship]) == cfg.airship_hp_by_level[1], "喷火器只对地"
+     assert int(st1.hp[own]) == cfg.inf_hp_by_level[1], "无友伤"
+     # 在建不喷:btype<0
+     from teow.config import BTASK_BUILD_FLAMER
+diff --git a/tests/test_dragon.py b/tests/test_dragon.py
+index baf59d7..6602f1b 100644
+--- a/tests/test_dragon.py
++++ b/tests/test_dragon.py
+@@ -18,15 +18,15 @@ from teow.step import new_world
+ def test_air_priority_and_shared_cd():
+     cfg = Config()
+     state, _, step_fn, m = new_world(cfg)
+-    st, drg = spawn(state, cfg, 0, 20, TYPE_DRAGON, cfg.dragon_hp, (31.0, 31.0))
++    st, drg = spawn(state, cfg, 0, 20, TYPE_DRAGON, cfg.dragon_hp_by_level[1], (31.0, 31.0))
+     # 敌空艇(射程内)+ 敌地面兵(喷吐圈内)同现:优先打空,地面无伤
+-    st, ship = spawn(st, cfg, 1, 20, TYPE_AIRSHIP, cfg.airship_hp, (31.0, 33.0))
++    st, ship = spawn(st, cfg, 1, 20, TYPE_AIRSHIP, cfg.airship_hp_by_level[1], (31.0, 33.0))
+     st, inf = spawn(st, cfg, 1, 21, TYPE_INFANTRY, cfg.inf_hp_by_level[1],
+                     (31.0, 29.5))
+     st1 = one_tick(st, cfg, step_fn)
+-    expect_air = int(physical_damage(jnp.asarray(cfg.dragon_air_atk),
++    expect_air = int(physical_damage(jnp.asarray(cfg.dragon_air_atk_by_level[1]),
+                                      jnp.asarray(cfg.airship_armor)))
+-    assert cfg.airship_hp - int(st1.hp[ship]) == expect_air, "空中优先"
++    assert cfg.airship_hp_by_level[1] - int(st1.hp[ship]) == expect_air, "空中优先"
+     assert int(st1.hp[inf]) == cfg.inf_hp_by_level[1], "打空拍不得同时喷火"
+     assert int(st1.atk_cd[drg]) == cfg.dragon_period - 1, "共享 CD 置位"
+     # CD 期内地面目标也不挨喷
+@@ -34,10 +34,10 @@ def test_air_priority_and_shared_cd():
+     assert int(st2.hp[inf]) == cfg.inf_hp_by_level[1], "CD 期不得插队喷火"
+ 
+ 
+-def test_breath_flat_aoe_ground_only_no_buildings():
++def test_breath_flat_aoe_units_full_buildings_discounted():
+     cfg = Config()
+     state, _, step_fn, m = new_world(cfg)
+-    st, drg = spawn(state, cfg, 0, 20, TYPE_DRAGON, cfg.dragon_hp, (31.0, 31.0))
++    st, drg = spawn(state, cfg, 0, 20, TYPE_DRAGON, cfg.dragon_hp_by_level[1], (31.0, 31.0))
+     st, a = spawn(st, cfg, 1, 20, TYPE_INFANTRY, cfg.inf_hp_by_level[1],
+                   (31.0, 33.0))
+     st, b = spawn(st, cfg, 1, 21, TYPE_INFANTRY, cfg.inf_hp_by_level[1],
+@@ -49,15 +49,19 @@ def test_breath_flat_aoe_ground_only_no_buildings():
+                                  jnp.asarray(cfg.infantry_armor)))
+     assert cfg.inf_hp_by_level[1] - int(st1.hp[a]) == expect, "圈内敌 A"
+     assert cfg.inf_hp_by_level[1] - int(st1.hp[b]) == expect, "圈内敌 B 平坦同伤"
+-    # 塔挨的伤只可能来自它自身反击?塔打不到龙——断言塔满血且龙掉塔血为 0
+-    assert int(st1.hp[twr]) == cfg.tower_hp_by_level[1], "喷火不伤建筑"
++    # v1.6 修订(用户复核):喷火伤建筑但打折;塔打不到龙,伤害只来自喷火
++    bld_base = max(1, cfg.dragon_breath_atk * cfg.dragon_breath_bld_percent // 100)
++    expect_b = int(physical_damage(jnp.asarray(bld_base),
++                                   jnp.asarray(cfg.tower_armor)))
++    assert cfg.tower_hp_by_level[1] - int(st1.hp[twr]) == expect_b, \
++        "喷火对建筑=打折伤害"
+     assert int(st1.atk_cd[drg]) == cfg.dragon_period - 1
+ 
+ 
+ def test_dragon_targetable_matrix():
+     cfg = Config()
+     state, _, step_fn, m = new_world(cfg)
+-    st, drg = spawn(state, cfg, 0, 20, TYPE_DRAGON, cfg.dragon_hp, (31.0, 31.0))
++    st, drg = spawn(state, cfg, 0, 20, TYPE_DRAGON, cfg.dragon_hp_by_level[1], (31.0, 31.0))
+     # 敌近战贴脸打不到龙;敌弓手打得到
+     st, inf = spawn(st, cfg, 1, 20, TYPE_INFANTRY, cfg.inf_hp_by_level[1],
+                     (31.0, 31.9))
+@@ -66,5 +70,42 @@ def test_dragon_targetable_matrix():
+     st1 = one_tick(st, cfg, step_fn)
+     expect = int(physical_damage(jnp.asarray(cfg.archer_atk_by_level[1]),
+                                  jnp.asarray(cfg.dragon_armor)))
+-    taken = cfg.dragon_hp - int(st1.hp[drg])
++    taken = cfg.dragon_hp_by_level[1] - int(st1.hp[drg])
+     assert taken == expect, f"只有弓手的伤(近战不可对空);实收 {taken}"
++
++
++def test_v16_lines_capped_at_three():
++    """v1.6 修订:投石车/飞艇/龙有升级线,上限 3(线级<3 可研,==3 掩死)。"""
++    from teow.actions import a_research_line, legality_mask
++    from teow.config import LINE_CATAPULT, LINE_DRAGON, N_LINES, TYPE_CAMP
++    from teow.state import hq_slot, owner_of_slots
++
++    cfg = Config(start_ore=5000, start_water=5000)
++    state, _, step_fn, m = new_world(cfg)
++    owner = owner_of_slots(cfg)
++    hq = hq_slot(0, cfg)
++    # 手术台:基地 7、一座 7 级兵营、一座 7 级训练营(直接摆,免长途经济)
++    from teow.config import TYPE_BARRACKS
++    st, bar = spawn(state, cfg, 0, 30, TYPE_BARRACKS, cfg.barracks_hp_by_level[7],
++                    (25.0, 20.0))
++    st, camp = spawn(st, cfg, 0, 31, TYPE_CAMP, cfg.camp_hp_by_level[7],
++                     (27.0, 20.0))
++    st = st._replace(level=st.level.at[hq].set(7).at[bar].set(7)
++                            .at[camp].set(7))
++    legal = legality_mask(st, cfg, m, owner)
++    assert bool(legal[camp, a_research_line(LINE_CATAPULT, cfg)]), "线1<3 可研"
++    assert bool(legal[camp, a_research_line(LINE_DRAGON, cfg)])
++    # 线级顶到 3:掩死(营 7 级也没用)
++    up = st.upgrades
++    for li in (LINE_CATAPULT, LINE_DRAGON):
++        up = up.at[0, li].set(3)
++    st3 = st._replace(upgrades=up)
++    legal = legality_mask(st3, cfg, m, owner)
++    assert not bool(legal[camp, a_research_line(LINE_CATAPULT, cfg)]), "上限 3"
++    assert not bool(legal[camp, a_research_line(LINE_DRAGON, cfg)]), "上限 3"
++    # 旧八线不受影响(线2<7 可研)
++    from teow.config import LINE_ARCHER
++    st_a = st._replace(upgrades=st.upgrades.at[0, LINE_ARCHER].set(4))
++    legal = legality_mask(st_a, cfg, m, owner)
++    assert bool(legal[camp, a_research_line(LINE_ARCHER, cfg)])
++    assert st.upgrades.shape[1] == N_LINES == 11
+diff --git a/tests/test_landmine.py b/tests/test_landmine.py
+index d9f14c5..1481c5a 100644
+--- a/tests/test_landmine.py
++++ b/tests/test_landmine.py
+@@ -61,7 +61,7 @@ def test_untargetable_and_nonblocking_and_air_immune():
+     assert float(st2.pos[walker, 1]) > 32.0, "己方单位必须能直穿雷格(不挡路)"
+     assert bool(st2.alive[mine]), "己方走过不触发"
+     # 敌空军悬停雷上:不触发
+-    st3, ship = spawn(st, cfg, 1, 22, TYPE_AIRSHIP, cfg.airship_hp, (31.0, 31.0))
++    st3, ship = spawn(st, cfg, 1, 22, TYPE_AIRSHIP, cfg.airship_hp_by_level[1], (31.0, 31.0))
+     st3 = st3._replace(pos=st3.pos.at[foe].set(jnp.asarray([25.0, 25.0])))
+     st3 = one_tick(st3, cfg, step_fn, seed=9)
+     assert bool(st3.alive[mine]), "空军不触发地雷"

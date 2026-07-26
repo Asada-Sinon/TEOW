@@ -30,7 +30,7 @@ def test_airship_flies_over_fence_wall():
     for i, r in enumerate(range(28, 35)):
         st, _ = spawn(st, cfg, 1, 30 + i, TYPE_FENCE_IRON, cfg.fence_iron_hp,
                       (float(r), 31.0))
-    st, ship = spawn(st, cfg, 0, 20, TYPE_AIRSHIP, cfg.airship_hp, (31.0, 27.0))
+    st, ship = spawn(st, cfg, 0, 20, TYPE_AIRSHIP, cfg.airship_hp_by_level[1], (31.0, 27.0))
     st, inf = spawn(st, cfg, 0, 21, TYPE_INFANTRY, cfg.inf_hp_by_level[1],
                     (31.0, 27.0))
     st = _move(st, ship, (31.0, 35.0))
@@ -44,7 +44,7 @@ def test_airship_flies_over_fence_wall():
 def test_air_stays_inside_hex():
     cfg = Config()
     state, _, step_fn, m = new_world(cfg)
-    st, ship = spawn(state, cfg, 0, 20, TYPE_AIRSHIP, cfg.airship_hp,
+    st, ship = spawn(state, cfg, 0, 20, TYPE_AIRSHIP, cfg.airship_hp_by_level[1],
                      (31.0, 55.0))
     st = _move(st, ship, (31.0, 63.0))   # 目标在六边形外
     for t in range(20):
@@ -58,23 +58,23 @@ def test_anti_air_table():
     cfg = Config()
     state, _, step_fn, m = new_world(cfg)
     # 敌飞艇悬停;近战步兵贴脸打不到,弓手打得到,迫击炮环内不开火
-    st, ship = spawn(state, cfg, 1, 20, TYPE_AIRSHIP, cfg.airship_hp,
+    st, ship = spawn(state, cfg, 1, 20, TYPE_AIRSHIP, cfg.airship_hp_by_level[1],
                      (31.0, 31.0))
     st, inf = spawn(st, cfg, 0, 20, TYPE_INFANTRY, cfg.inf_hp_by_level[1],
                     (31.0, 32.0))
     st1 = one_tick(st, cfg, step_fn)
-    assert int(st1.hp[ship]) == cfg.airship_hp, "近战不可对空"
+    assert int(st1.hp[ship]) == cfg.airship_hp_by_level[1], "近战不可对空"
     st, arc = spawn(st, cfg, 0, 21, TYPE_ARCHER, cfg.archer_hp_by_level[1],
                     (31.0, 28.0))
     st2 = one_tick(st, cfg, step_fn, seed=2)
     expect = int(physical_damage(jnp.asarray(cfg.archer_atk_by_level[1]),
                                  jnp.asarray(cfg.airship_armor)))
-    assert cfg.airship_hp - int(st2.hp[ship]) == expect, "弓手必须可对空"
+    assert cfg.airship_hp_by_level[1] - int(st2.hp[ship]) == expect, "弓手必须可对空"
 
     # 迫击炮环内只有空军:不开火;弹落点也炸不到空军(M-1)
     state2, _, _, _ = new_world(cfg)
     st3, mor = spawn(state2, cfg, 0, 30, TYPE_MORTAR, cfg.mortar_hp, (31.0, 26.0))
-    st3, ship2 = spawn(st3, cfg, 1, 30, TYPE_AIRSHIP, cfg.airship_hp,
+    st3, ship2 = spawn(st3, cfg, 1, 30, TYPE_AIRSHIP, cfg.airship_hp_by_level[1],
                        (31.0, 31.0))
     st3 = one_tick(st3, cfg, step_fn, seed=3)
     assert int(st3.shell_timer[mor]) == 0, "迫击炮不可对空(不该开火)"
@@ -84,7 +84,7 @@ def test_air_ground_no_collision():
     cfg = Config()
     state, _, step_fn, m = new_world(cfg)
     # 空地同格悬停:互不推挤(不同高度)
-    st, ship = spawn(state, cfg, 0, 20, TYPE_AIRSHIP, cfg.airship_hp,
+    st, ship = spawn(state, cfg, 0, 20, TYPE_AIRSHIP, cfg.airship_hp_by_level[1],
                      (31.0, 31.0))
     st, wk = spawn(st, cfg, 0, 21, TYPE_INFANTRY, cfg.inf_hp_by_level[1],
                    (31.0, 31.0))

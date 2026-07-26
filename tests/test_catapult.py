@@ -21,7 +21,7 @@ def test_range_shorter_than_mortar_and_flight():
     cfg = Config()
     assert cfg.catapult_range < cfg.mortar_range, "规格:不能太远程"
     state, _, step_fn, m = new_world(cfg)
-    st, cat = spawn(state, cfg, 0, 20, TYPE_CATAPULT, cfg.catapult_hp,
+    st, cat = spawn(state, cfg, 0, 20, TYPE_CATAPULT, cfg.catapult_hp_by_level[1],
                     (31.0, 27.0))
     st, inf = spawn(st, cfg, 1, 20, TYPE_INFANTRY, cfg.inf_hp_by_level[1],
                     (31.0, 31.0))
@@ -36,7 +36,7 @@ def test_range_shorter_than_mortar_and_flight():
     assert int(st.hp[inf]) == hp0
     st = one_tick(st, cfg, step_fn, seed=9)
     expect = int(physical_damage(
-        jnp.asarray(int(jnp.ceil(cfg.catapult_atk * 1.0))),
+        jnp.asarray(int(jnp.ceil(cfg.catapult_atk_by_level[1] * 1.0))),
         jnp.asarray(cfg.infantry_armor)))
     assert hp0 - int(st.hp[inf]) == expect, "落点中心满额(站桩目标)"
 
@@ -44,16 +44,16 @@ def test_range_shorter_than_mortar_and_flight():
 def test_cannot_hit_air_but_melee_hits_it():
     cfg = Config()
     state, _, step_fn, m = new_world(cfg)
-    st, cat = spawn(state, cfg, 0, 20, TYPE_CATAPULT, cfg.catapult_hp,
+    st, cat = spawn(state, cfg, 0, 20, TYPE_CATAPULT, cfg.catapult_hp_by_level[1],
                     (31.0, 28.0))
-    st, ship = spawn(st, cfg, 1, 20, TYPE_AIRSHIP, cfg.airship_hp, (31.0, 31.0))
+    st, ship = spawn(st, cfg, 1, 20, TYPE_AIRSHIP, cfg.airship_hp_by_level[1], (31.0, 31.0))
     st = one_tick(st, cfg, step_fn)
     assert int(st.shell_timer[cat]) == 0, "投石车不可对空"
     # 敌近战贴脸:投石车是地面单位,可被打
     st, inf = spawn(st, cfg, 1, 21, TYPE_INFANTRY, cfg.inf_hp_by_level[1],
                     (31.0, 27.0))
     st = one_tick(st, cfg, step_fn, seed=2)
-    taken = cfg.catapult_hp - int(st.hp[cat])
+    taken = cfg.catapult_hp_by_level[1] - int(st.hp[cat])
     assert taken == int(physical_damage(jnp.asarray(cfg.inf_atk_by_level[1]),
                                         jnp.asarray(cfg.catapult_armor)))
 

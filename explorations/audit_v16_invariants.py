@@ -292,10 +292,17 @@ for t in range(cfg.episode_len):
     dd = np.linalg.norm(cur["pos"][:, None, :].astype(np.float64)
                         - cur["pos"][None, :, :], axis=-1)
     et_prev = np.clip(prev["etype"].astype(int), 0, N_TYPES - 1)
+    # v1.6 修订:龙喷火伤建筑(打折)——自心圈也算有效攻击来源
+    sa_t = np.asarray(cfg.self_aoe_radius_by_type)
+    breath_src = ((prev["etype"] == 28)
+                  & (sa_t[np.clip(prev["etype"].astype(int), 0, 31)] > 0))
+    src_rng = np.where(breath_src, sa_t[np.clip(prev["etype"].astype(int),
+                                                0, 31)],
+                       rng_t[et_prev])
     can_hit_me = (prev["alive"][None, :] & ~prev["inside"][None, :]
-                  & (hit_b_t[et_prev] > 0)[None, :]
+                  & ((hit_b_t[et_prev] > 0) | breath_src)[None, :]
                   & (owner[:, None] != owner[None, :])
-                  & (dd <= rng_t[et_prev][None, :] + 0.75))  # 双方各动一步的余量
+                  & (dd <= src_rng[None, :] + 0.75))  # 双方各动一步的余量
     no_src = bld_hit & ~can_hit_me.any(axis=1)
     if no_src.any():
         V["建筑掉血无有效攻击者"] += 1

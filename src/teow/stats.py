@@ -81,9 +81,9 @@ def hp_table(cfg: Config) -> jax.Array:
         TYPE_LANDMINE: _flat(cfg.landmine_hp),
         TYPE_FLAMER: _flat(cfg.flamer_hp),
         TYPE_LASER: _flat(cfg.laser_hp),
-        TYPE_CATAPULT: _flat(cfg.catapult_hp),
-        TYPE_AIRSHIP: _flat(cfg.airship_hp),
-        TYPE_DRAGON: _flat(cfg.dragon_hp),
+        TYPE_CATAPULT: cfg.catapult_hp_by_level,
+        TYPE_AIRSHIP: cfg.airship_hp_by_level,
+        TYPE_DRAGON: cfg.dragon_hp_by_level,
     }
     return jnp.asarray([rows.get(t, (0,) * 8) for t in range(N_TYPES)], jnp.int32)
 
@@ -104,8 +104,8 @@ def atk_table(cfg: Config) -> jax.Array:
         TYPE_MAGETOWER: _flat(cfg.magetower_atk),
         TYPE_LANDMINE: _flat(cfg.landmine_atk),   # 爆炸伤害取值;rng=0 不当攻击者
         TYPE_LASER: _flat(cfg.laser_atk),
-        TYPE_CATAPULT: _flat(cfg.catapult_atk),
-        TYPE_DRAGON: _flat(cfg.dragon_air_atk),   # 单体路径=对空;喷火走自心圆表
+        TYPE_CATAPULT: cfg.catapult_atk_by_level,
+        TYPE_DRAGON: cfg.dragon_air_atk_by_level,  # 单体路径=对空;喷火走自心圆表
     }
     return jnp.asarray([rows.get(t, (0,) * 8) for t in range(N_TYPES)], jnp.int32)
 

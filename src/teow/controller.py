@@ -178,12 +178,17 @@ def scripted_actions(state: WorldState, cfg: Config, mapdata: MapData,
     bar_lv_max = jnp.max(jnp.where(
         mine & (st.etype == _TB2) & (st.btype >= 0),
         st.level.astype(jnp.int32), 0))
-    line_unlocked = (tol == _TI) | (bar_lv_max >= tl[tol])   # [N_LINES]
+    line_cap = jnp.asarray(cfg.line_cap_by_line, jnp.int32)
+    line_unlocked = (((tol == _TI) | (bar_lv_max >= tl[tol]))
+                     & (line_lv < line_cap))               # 满上限的线退出选型
     line_score = jnp.where(line_unlocked, line_lv, 99)
     low_line = jnp.argmin(line_score).astype(jnp.int32)
+    # v1.6 修订:线 8..10 的 id 不与 0..7 连续,查表取 id
+    rid_tbl = jnp.asarray([a_research_line(li, cfg) for li in range(len(tol))],
+                          jnp.int32)
     camp_act = jnp.where(
         line_score[low_line] < st.level.astype(jnp.int32),
-        a_research_line(0, cfg) + low_line,
+        rid_tbl[low_line],
         a_upgrade(cfg))                                    # [N](逐营取自身 level 比较)
 
     # ---- 科技优先预留(v1.3):研发在排队(有营且低线未及营级)时,练兵先给

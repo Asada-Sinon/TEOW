@@ -1,0 +1,18 @@
+2173487355dcae1a65d42cbd439d0ded53210d99
+dirty: True
+ M README.md
+ M docs/DECISIONS.md
+ M docs/changelog/v1.6.md
+ M src/teow/actions.py
+ M src/teow/combat.py
+ M src/teow/config.py
+ M src/teow/controller.py
+ M src/teow/movement.py
+ M src/teow/stats.py
+ M tests/test_air_domain.py
+ M tests/test_airship.py
+ M tests/test_catapult.py
+ M tests/test_defense_buildings.py
+ M tests/test_dragon.py
+ M tests/test_landmine.py
+?? experiments/20260726-v16r-audit-default/

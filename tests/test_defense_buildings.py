@@ -35,20 +35,20 @@ def test_magetower_magic_ignores_armor_and_hits_air():
     # 对空
     stA, mt2 = spawn(state, cfg, 0, 21, TYPE_MAGETOWER, cfg.magetower_hp,
                      (31.0, 34.0))
-    stA, ship = spawn(stA, cfg, 1, 21, TYPE_AIRSHIP, cfg.airship_hp,
+    stA, ship = spawn(stA, cfg, 1, 21, TYPE_AIRSHIP, cfg.airship_hp_by_level[1],
                       (31.0, 36.0))
     stA = one_tick(stA, cfg, step_fn, seed=3)
-    assert cfg.airship_hp - int(stA.hp[ship]) == cfg.magetower_atk, "法师塔可对空"
+    assert cfg.airship_hp_by_level[1] - int(stA.hp[ship]) == cfg.magetower_atk, "法师塔可对空"
 
 
 def test_laser_continuous_magic_hits_air():
     cfg = Config()
     state, _, step_fn, m = new_world(cfg)
     st, lz = spawn(state, cfg, 0, 20, TYPE_LASER, cfg.laser_hp, (31.0, 28.0))
-    st, ship = spawn(st, cfg, 1, 20, TYPE_AIRSHIP, cfg.airship_hp, (31.0, 32.0))
+    st, ship = spawn(st, cfg, 1, 20, TYPE_AIRSHIP, cfg.airship_hp_by_level[1], (31.0, 32.0))
     st = one_tick(st, cfg, step_fn)
     st = one_tick(st, cfg, step_fn, seed=2)
-    assert cfg.airship_hp - int(st.hp[ship]) == 2 * cfg.laser_atk, \
+    assert cfg.airship_hp_by_level[1] - int(st.hp[ship]) == 2 * cfg.laser_atk, \
         "激光每 tick 结算(period 1)且魔法无视护甲"
 
 
@@ -60,7 +60,7 @@ def test_flamer_flat_aoe_ground_only_and_inbuild_silent():
                   (31.0, 32.5))
     st, b = spawn(st, cfg, 1, 21, TYPE_INFANTRY, cfg.inf_hp_by_level[1],
                   (30.0, 30.0))
-    st, ship = spawn(st, cfg, 1, 22, TYPE_AIRSHIP, cfg.airship_hp, (31.0, 31.5))
+    st, ship = spawn(st, cfg, 1, 22, TYPE_AIRSHIP, cfg.airship_hp_by_level[1], (31.0, 31.5))
     # own 在喷火圈内(1.58)但在两敌近战圈外(1.8/2.9),不互殴污染断言
     st, own = spawn(st, cfg, 0, 21, TYPE_INFANTRY, cfg.inf_hp_by_level[1],
                     (32.5, 31.5))
@@ -70,7 +70,7 @@ def test_flamer_flat_aoe_ground_only_and_inbuild_silent():
                                  jnp.asarray(cfg.infantry_armor)))
     assert cfg.inf_hp_by_level[1] - int(st1.hp[a]) == expect, "圈内敌 A 同伤"
     assert cfg.inf_hp_by_level[1] - int(st1.hp[b]) == expect, "圈内敌 B 同伤(平坦)"
-    assert int(st1.hp[ship]) == cfg.airship_hp, "喷火器只对地"
+    assert int(st1.hp[ship]) == cfg.airship_hp_by_level[1], "喷火器只对地"
     assert int(st1.hp[own]) == cfg.inf_hp_by_level[1], "无友伤"
     # 在建不喷:btype<0
     from teow.config import BTASK_BUILD_FLAMER
