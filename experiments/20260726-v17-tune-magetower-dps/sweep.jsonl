@@ -1,0 +1,4 @@
+{"building": "magetower", "cand": "base", "override": {}, "x1_outcome": "B_win", "x1_hp": 0.0, "x1_Aleft": 0, "x1_Bleft": 2, "x2_outcome": "B_win", "x2_hp": 0.0, "x2_Aleft": 0, "x2_Bleft": 6, "meets": false}
+{"building": "magetower", "cand": "atk20_p5", "override": {"magetower_atk": 20}, "x1_outcome": "A_win", "x1_hp": 0.171, "x1_Aleft": 1, "x1_Bleft": 0, "x2_outcome": "A_win", "x2_hp": 0.086, "x2_Aleft": 1, "x2_Bleft": 0, "meets": false}
+{"building": "magetower", "cand": "atk20_p4", "override": {"magetower_atk": 20, "magetower_period": 4}, "x1_outcome": "A_win", "x1_hp": 0.429, "x1_Aleft": 1, "x1_Bleft": 0, "x2_outcome": "A_win", "x2_hp": 0.314, "x2_Aleft": 1, "x2_Bleft": 0, "meets": false}
+{"building": "magetower", "cand": "atk20_p3", "override": {"magetower_atk": 20, "magetower_period": 3}, "x1_outcome": "A_win", "x1_hp": 0.771, "x1_Aleft": 1, "x1_Bleft": 0, "x2_outcome": "A_win", "x2_hp": 0.429, "x2_Aleft": 1, "x2_Bleft": 0, "meets": false}

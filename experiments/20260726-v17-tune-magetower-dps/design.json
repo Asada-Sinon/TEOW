@@ -1,0 +1,45 @@
+{
+  "mortar_cands": {
+    "base": {},
+    "aoe2.5_period25": {
+      "mortar_aoe_radius": 2.5,
+      "mortar_atk_period": 25
+    },
+    "aoe3.0_period25": {
+      "mortar_aoe_radius": 3.0,
+      "mortar_atk_period": 25
+    },
+    "aoe3.5_period20": {
+      "mortar_aoe_radius": 3.5,
+      "mortar_atk_period": 20
+    },
+    "aoe3.0_period20_minr1.5": {
+      "mortar_aoe_radius": 3.0,
+      "mortar_atk_period": 20,
+      "mortar_min_range": 1.5
+    },
+    "aoe2.5_period15": {
+      "mortar_aoe_radius": 2.5,
+      "mortar_atk_period": 15
+    },
+    "aoe4.0_period30": {
+      "mortar_aoe_radius": 4.0,
+      "mortar_atk_period": 30
+    }
+  },
+  "magetower_cands": {
+    "base": {},
+    "atk20_p5": {
+      "magetower_atk": 20
+    },
+    "atk20_p4": {
+      "magetower_atk": 20,
+      "magetower_period": 4
+    },
+    "atk20_p3": {
+      "magetower_atk": 20,
+      "magetower_period": 3
+    }
+  },
+  "criterion": "1x A_win & 2x B_win"
+}

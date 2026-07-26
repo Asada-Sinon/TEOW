@@ -1,0 +1,8 @@
+36b4a2fcc29dcb9b15f3a035ee00f686ce2b9f20
+dirty: True
+ M issue.md
+ M research-log.md
+?? experiments/20260726-v17-duel-matrix/
+?? experiments/20260726-v17-duel-v2/
+?? experiments/20260726-v17-duel-v3/
+?? experiments/20260726-v17-tune/

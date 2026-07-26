@@ -1,0 +1,26 @@
+diff --git a/research-log.md b/research-log.md
+index f686743..bfcd5b3 100644
+--- a/research-log.md
++++ b/research-log.md
+@@ -82,3 +82,21 @@
+ - 定案(2026-07-25 追记,用户授权 agent 决策): 采 atk3 变体——
+   `tower_atk_by_level` L1 6→3,其余杠杆不动;理由与不采项见 docs/DECISIONS.md
+   同日条目。[AI-DRAFT] [source: 20260725-tower-balance-atk3]
++
++## 2026-07-26  run_id: 20260726-v17-duel-matrix
++- 假设: v1.4–v1.6 离线期拍的 [AI-DRAFT] 数值(护甲表/九兵种血攻/迫击炮/栅栏/四
++  防御建筑/投石车-飞艇-龙及L2L3线/龙喷火折扣)中,存在个别单位或建筑「超模」——
++  即在等资源投入(成本归一)的手工无菌对决里,单方压倒性获胜或违反设计意图克制
++  关系(魔法应克重甲heavy_armor=60、攻城应高效拆建筑、等投入同类近战应互有胜负、
++  奶妈不应让同投入步兵线性翻盘)。
++- 成功判据: exp_v17_duel.py 的 22 个 MATCHUP 全跑完并落 summary.md;每对决记录
++  成本归一count/实际投入/胜负/余兵/余血比;标出「疑似超模」项(全灭对方且余兵
++  ≥50%,或余血比差>0.7);人工核对上述设计意图克制方向是否成立,方向不符=数值
++  bug候选。run目录三件套(git hash/resolved config/seed)+design.json(MATCHUPS
++  与water_weight/budget常量)齐。
++- 失败判据: 若几乎所有对决都被判「疑似超模」或方向全乱,说明对决脚手架的摆位/
++  预算/早停设计有系统偏差(而非真超模),需先修脚手架再重跑。
++- 对照 baseline: 无(v1.7 首次系统性对决;哨塔历史见 20260725-tower-balance)。
++- git hash: 15bb1dd(工作区跑前干净)
++- 结果: (待填)
++- 结论: (待填)[AI-DRAFT] [source: 20260726-v17-duel-matrix]

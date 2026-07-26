@@ -1,0 +1,382 @@
+{
+  "water_weight": 1.0,
+  "budget": 240,
+  "max_ticks": 800,
+  "base_override": {},
+  "matchups": [
+    {
+      "name": "melee_inf_vs_dog",
+      "A": {
+        "type": "infantry",
+        "level": 1,
+        "count": null
+      },
+      "B": {
+        "type": "dog",
+        "level": 1,
+        "count": null
+      }
+    },
+    {
+      "name": "melee_heavy_vs_lcav",
+      "A": {
+        "type": "heavy",
+        "level": 1,
+        "count": null
+      },
+      "B": {
+        "type": "lcav",
+        "level": 1,
+        "count": null
+      }
+    },
+    {
+      "name": "melee_heavy_vs_inf",
+      "A": {
+        "type": "heavy",
+        "level": 1,
+        "count": null
+      },
+      "B": {
+        "type": "infantry",
+        "level": 1,
+        "count": null
+      }
+    },
+    {
+      "name": "melee_lcav_vs_dog",
+      "A": {
+        "type": "lcav",
+        "level": 1,
+        "count": null
+      },
+      "B": {
+        "type": "dog",
+        "level": 1,
+        "count": null
+      }
+    },
+    {
+      "name": "melee_inf_vs_lcav",
+      "A": {
+        "type": "infantry",
+        "level": 1,
+        "count": null
+      },
+      "B": {
+        "type": "lcav",
+        "level": 1,
+        "count": null
+      }
+    },
+    {
+      "name": "ranged_archer_vs_inf",
+      "A": {
+        "type": "archer",
+        "level": 1,
+        "count": null
+      },
+      "B": {
+        "type": "infantry",
+        "level": 1,
+        "count": null
+      }
+    },
+    {
+      "name": "ranged_archer_vs_dog",
+      "A": {
+        "type": "archer",
+        "level": 1,
+        "count": null
+      },
+      "B": {
+        "type": "dog",
+        "level": 1,
+        "count": null
+      }
+    },
+    {
+      "name": "ranged_mage_vs_heavy",
+      "A": {
+        "type": "mage",
+        "level": 1,
+        "count": null
+      },
+      "B": {
+        "type": "heavy",
+        "level": 1,
+        "count": null
+      }
+    },
+    {
+      "name": "ranged_mage_vs_inf",
+      "A": {
+        "type": "mage",
+        "level": 1,
+        "count": null
+      },
+      "B": {
+        "type": "infantry",
+        "level": 1,
+        "count": null
+      }
+    },
+    {
+      "name": "siege_ram_vs_tower",
+      "A": {
+        "type": "ram",
+        "level": 1,
+        "count": null
+      },
+      "B": {
+        "type": "tower",
+        "level": 1,
+        "count": 1
+      },
+      "budget": 80
+    },
+    {
+      "name": "siege_ram_vs_barracks",
+      "A": {
+        "type": "ram",
+        "level": 1,
+        "count": null
+      },
+      "B": {
+        "type": "barracks",
+        "level": 1,
+        "count": 1
+      },
+      "budget": 120
+    },
+    {
+      "name": "siege_ram_vs_hq",
+      "A": {
+        "type": "ram",
+        "level": 1,
+        "count": 2
+      },
+      "B": {
+        "type": "hq",
+        "level": 1,
+        "count": 1
+      }
+    },
+    {
+      "name": "def_tower_vs_dog_1x",
+      "A": {
+        "type": "tower",
+        "level": 1,
+        "count": 1
+      },
+      "B": {
+        "type": "dog",
+        "level": 1,
+        "count": null
+      },
+      "budget": 80
+    },
+    {
+      "name": "def_tower_vs_dog_2x",
+      "A": {
+        "type": "tower",
+        "level": 1,
+        "count": 1
+      },
+      "B": {
+        "type": "dog",
+        "level": 1,
+        "count": null
+      },
+      "budget": 160
+    },
+    {
+      "name": "def_mortar_vs_inf_1x",
+      "A": {
+        "type": "mortar",
+        "level": 1,
+        "count": 1
+      },
+      "B": {
+        "type": "infantry",
+        "level": 1,
+        "count": null
+      },
+      "budget": 140
+    },
+    {
+      "name": "def_mortar_vs_inf_2x",
+      "A": {
+        "type": "mortar",
+        "level": 1,
+        "count": 1
+      },
+      "B": {
+        "type": "infantry",
+        "level": 1,
+        "count": null
+      },
+      "budget": 280
+    },
+    {
+      "name": "def_magetower_vs_inf_1x",
+      "A": {
+        "type": "magetower",
+        "level": 1,
+        "count": 1
+      },
+      "B": {
+        "type": "infantry",
+        "level": 1,
+        "count": null
+      },
+      "budget": 120
+    },
+    {
+      "name": "def_magetower_vs_inf_2x",
+      "A": {
+        "type": "magetower",
+        "level": 1,
+        "count": 1
+      },
+      "B": {
+        "type": "infantry",
+        "level": 1,
+        "count": null
+      },
+      "budget": 240
+    },
+    {
+      "name": "def_flamer_vs_dog_1x",
+      "A": {
+        "type": "flamer",
+        "level": 1,
+        "count": 1
+      },
+      "B": {
+        "type": "dog",
+        "level": 1,
+        "count": null
+      },
+      "budget": 130
+    },
+    {
+      "name": "def_flamer_vs_dog_2x",
+      "A": {
+        "type": "flamer",
+        "level": 1,
+        "count": 1
+      },
+      "B": {
+        "type": "dog",
+        "level": 1,
+        "count": null
+      },
+      "budget": 260
+    },
+    {
+      "name": "def_laser_vs_heavy_1x",
+      "A": {
+        "type": "laser",
+        "level": 1,
+        "count": 1
+      },
+      "B": {
+        "type": "heavy",
+        "level": 1,
+        "count": null
+      },
+      "budget": 210
+    },
+    {
+      "name": "def_laser_vs_heavy_2x",
+      "A": {
+        "type": "laser",
+        "level": 1,
+        "count": 1
+      },
+      "B": {
+        "type": "heavy",
+        "level": 1,
+        "count": null
+      },
+      "budget": 420
+    },
+    {
+      "name": "dragon_vs_airship",
+      "A": {
+        "type": "dragon",
+        "level": 1,
+        "count": null
+      },
+      "B": {
+        "type": "airship",
+        "level": 1,
+        "count": null
+      },
+      "budget": 640
+    },
+    {
+      "name": "dragon_vs_infwave",
+      "A": {
+        "type": "dragon",
+        "level": 1,
+        "count": null
+      },
+      "B": {
+        "type": "infantry",
+        "level": 1,
+        "count": null
+      },
+      "budget": 320
+    },
+    {
+      "name": "dragon_vs_tower",
+      "A": {
+        "type": "dragon",
+        "level": 1,
+        "count": null
+      },
+      "B": {
+        "type": "tower",
+        "level": 1,
+        "count": 1
+      },
+      "budget": 80
+    },
+    {
+      "name": "dragon_vs_barracks",
+      "A": {
+        "type": "dragon",
+        "level": 1,
+        "count": null
+      },
+      "B": {
+        "type": "barracks",
+        "level": 1,
+        "count": 1
+      },
+      "budget": 120
+    },
+    {
+      "name": "support_infhealer_vs_inf",
+      "A": [
+        {
+          "type": "infantry",
+          "level": 1,
+          "count": null
+        },
+        {
+          "type": "healer",
+          "level": 1,
+          "count": null
+        }
+      ],
+      "B": {
+        "type": "infantry",
+        "level": 1,
+        "count": null
+      }
+    }
+  ]
+}

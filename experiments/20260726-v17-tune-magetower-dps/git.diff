@@ -1,0 +1,139 @@
+diff --git a/explorations/exp_v17_tune.py b/explorations/exp_v17_tune.py
+index 6062fb5..84353e6 100644
+--- a/explorations/exp_v17_tune.py
++++ b/explorations/exp_v17_tune.py
+@@ -33,21 +33,26 @@ from teow.config import Config  # noqa: E402
+ from teow.step import new_world  # noqa: E402
+ 
+ # 候选 override(每项一个 dict);base={} 作对照(应两档皆 B_win=守不住)
++# 迫击炮是炮弹武器(flight 8、打开火瞬位不预判)→ 对行进目标炮弹落身后。关键杠杆
++# 是爆炸半径 aoe_radius(现 1.5):调大让炮弹瞄旧位也能覆盖移动后的步兵。配合更快
++# period(更多炮)。
+ MORTAR_CANDS = {
+     "base": {},
+-    "period25": dict(mortar_atk_period=25),
+-    "period15": dict(mortar_atk_period=15),
+-    "minr1.0": dict(mortar_min_range=1.0),
+-    "minr1.0_period25": dict(mortar_min_range=1.0, mortar_atk_period=25),
+-    "hp250_period25": dict(mortar_hp=250, mortar_atk_period=25),
+-    "atk50_period20": dict(mortar_atk=50, mortar_atk_period=20),
++    "aoe2.5_period25": dict(mortar_aoe_radius=2.5, mortar_atk_period=25),
++    "aoe3.0_period25": dict(mortar_aoe_radius=3.0, mortar_atk_period=25),
++    "aoe3.5_period20": dict(mortar_aoe_radius=3.5, mortar_atk_period=20),
++    "aoe3.0_period20_minr1.5": dict(mortar_aoe_radius=3.0, mortar_atk_period=20,
++                                    mortar_min_range=1.5),
++    "aoe2.5_period15": dict(mortar_aoe_radius=2.5, mortar_atk_period=15),
++    "aoe4.0_period30": dict(mortar_aoe_radius=4.0, mortar_atk_period=30),
+ }
++# 用户 2026-07-26 定:atk→20 且 dps 再高一点(降 period 提 dps)。现值 atk14/period5
++# =2.8dps;候选把 atk 定 20、降 period 抬 dps(20/5=4、20/4=5、20/3=6.67)。
+ MAGETOWER_CANDS = {
+     "base": {},
+-    "atk18": dict(magetower_atk=18),
+-    "atk20": dict(magetower_atk=20),
+-    "atk24": dict(magetower_atk=24),
+-    "atk28": dict(magetower_atk=28),
++    "atk20_p5": dict(magetower_atk=20),                       # dps 4.0
++    "atk20_p4": dict(magetower_atk=20, magetower_period=4),   # dps 5.0
++    "atk20_p3": dict(magetower_atk=20, magetower_period=3),   # dps 6.67
+ }
+ # 龙对地面=大范围火海(用户 2026-07-26:火海范围可给大)。dragon_breath_radius
+ # 现 2.5;龙对纯地面无敌(步兵打不到空军),调大半径只让清场更快更广、不失衡
+@@ -132,23 +137,27 @@ def main():
+     ap.add_argument("--out-root", default=str(ROOT / "experiments"))
+     ap.add_argument("--slug", default="v17-tune")
+     ap.add_argument("--smoke", action="store_true")
++    ap.add_argument("--only", default="", help="只跑 mortar/magetower/dragon 之一")
+     ap.add_argument("--max-ticks", type=int, default=800)
+     args = ap.parse_args()
+ 
+     t0 = time.time()
+-    mc = ({"base": {}, "period25": MORTAR_CANDS["period25"]} if args.smoke
++    mc = ({"base": {}, "period25": MORTAR_CANDS["aoe2.5_period25"]} if args.smoke
+           else MORTAR_CANDS)
+     gc = ({"base": {}, "atk20": MAGETOWER_CANDS["atk20"]} if args.smoke
+           else MAGETOWER_CANDS)
+     rows = []
+-    print("== 迫击炮扫参(1×=140/4步兵,2×=280/7步兵)", flush=True)
+-    rows += sweep("mortar", mc, "mortar", 140, 280, args.max_ticks)
+-    print("== 法师塔扫参(1×=120/3步兵,2×=240/6步兵)", flush=True)
+-    rows += sweep("magetower", gc, "magetower", 120, 240, args.max_ticks)
+-    dc = ({"base": {}, "r4.0": DRAGON_CANDS["r4.0"]} if args.smoke
+-          else DRAGON_CANDS)
+-    print("== 龙火海半径扫参(1 龙 vs 8 步兵 @320,目标 A_win 清场)", flush=True)
+-    rows += sweep_dragon(dc, 320, args.max_ticks)
++    if args.only in ("", "mortar"):
++        print("== 迫击炮扫参(1×=140/4步兵,2×=280/7步兵)", flush=True)
++        rows += sweep("mortar", mc, "mortar", 140, 280, args.max_ticks)
++    if args.only in ("", "magetower"):
++        print("== 法师塔扫参(1×=120/3步兵,2×=240/6步兵)", flush=True)
++        rows += sweep("magetower", gc, "magetower", 120, 240, args.max_ticks)
++    if args.only in ("", "dragon"):
++        dc = ({"base": {}, "r4.0": DRAGON_CANDS["r4.0"]} if args.smoke
++              else DRAGON_CANDS)
++        print("== 龙火海半径扫参(1 龙 vs 8 步兵 @320,目标 A_win 清场)", flush=True)
++        rows += sweep_dragon(dc, 320, args.max_ticks)
+ 
+     run_dir = new_run_dir(pathlib.Path(args.out_root), args.slug)
+     write_provenance(run_dir, Config(), (0,), extra=dict(
+diff --git a/issue.md b/issue.md
+index 3e07d92..d96515a 100644
+--- a/issue.md
++++ b/issue.md
+@@ -245,6 +245,11 @@
+ 
+ - 专心测试数据,统一复核 v1.4–v1.6 的 [AI-DRAFT] 数值,避免单个单位或建筑超模。
+ 
++
++v1.8构建不同风格的脚本指挥官，用于后面训练智能体做对手，然后尽量覆盖不同的战术风格，形成一个多样化的训练环境。可以构建很多。这种脚本智能体有上帝视角，可以写那种条件判据，就是尽量不要写那种按照时间序列索引的死板式脚本，可以用很多多样的，什么启发式、什么随机性、什么概率性、什么博弈论、什么强化学习的启发式等等。
++v1.9，测试1.8构建的不同的指挥官，避免智能体在训练的时候对手的数据很差，就是要筛选高质量对手，有能力的话可以把数据差的尝试修改好，避免战术风格缺失，但是改完之后还是要测试，确保不会有低质量数据用于训练，如果实在改不好就删了低质量指挥官
++v2.0先调研算法用什么ppo还是amp还是什么？找一个最合适的，然后用jax自研。然后调研一下奖励项和惩罚项还有那些训练参数怎么设计？或者说不用rl，用前面的多风格指挥官直接做训练？我不知道怎么做会更好，你可以调研一下这个版本不要开始训练，把所有的方案调研清楚，有一版最优的方案。还有就是rl训练的对手是刚开始容易还是难度曲线怎么样？然后可以再按照训练曲线构建一下合适的数据集并测试
++v2.1整体测试调研，训练前的最终准备，游戏引擎，机制，训练的各个参数，数据集，训练方式，指挥官，做全量测试和小范围试训，后面开训不说完美，至少别出太大问题，至少别训练出来一个什么都不会的指挥官或者执行奇奇怪怪指令的指挥官
+ ## v2+(远期,未细化,勿实现)
+ 
+ - **RL 指挥官**(封存方案:实体共享策略网+中心化 critic 的纯 JAX 自研 PPO;
+diff --git a/research-log.md b/research-log.md
+index f686743..72855d0 100644
+--- a/research-log.md
++++ b/research-log.md
+@@ -82,3 +82,40 @@
+ - 定案(2026-07-25 追记,用户授权 agent 决策): 采 atk3 变体——
+   `tower_atk_by_level` L1 6→3,其余杠杆不动;理由与不采项见 docs/DECISIONS.md
+   同日条目。[AI-DRAFT] [source: 20260725-tower-balance-atk3]
++
++## 2026-07-26  run_id: 20260726-v17-duel-matrix
++- 假设: v1.4–v1.6 离线期拍的 [AI-DRAFT] 数值(护甲表/九兵种血攻/迫击炮/栅栏/四
++  防御建筑/投石车-飞艇-龙及L2L3线/龙喷火折扣)中,存在个别单位或建筑「超模」——
++  即在等资源投入(成本归一)的手工无菌对决里,单方压倒性获胜或违反设计意图克制
++  关系(魔法应克重甲heavy_armor=60、攻城应高效拆建筑、等投入同类近战应互有胜负、
++  奶妈不应让同投入步兵线性翻盘)。
++- 成功判据: exp_v17_duel.py 的 22 个 MATCHUP 全跑完并落 summary.md;每对决记录
++  成本归一count/实际投入/胜负/余兵/余血比;标出「疑似超模」项(全灭对方且余兵
++  ≥50%,或余血比差>0.7);人工核对上述设计意图克制方向是否成立,方向不符=数值
++  bug候选。run目录三件套(git hash/resolved config/seed)+design.json(MATCHUPS
++  与water_weight/budget常量)齐。
++- 失败判据: 若几乎所有对决都被判「疑似超模」或方向全乱,说明对决脚手架的摆位/
++  预算/早停设计有系统偏差(而非真超模),需先修脚手架再重跑。
++- 对照 baseline: 无(v1.7 首次系统性对决;哨塔历史见 20260725-tower-balance)。
++- git hash: 15bb1dd(工作区跑前干净)
++- 结果(experiments/20260726-v17-duel-matrix/summary.md,22 对决):22 中 20 被自动标
++  「疑似超模」——触发预登记的失败判据(几乎全标=脚手架系统偏差而非真超模)。逐条查
++  duel.jsonl 投入数据发现三类偏差:①单位对决用 ORDER_ATTACK 向敌 HQ 行军,远程/空军
++  受「行军送死 vs 完全风筝」影响极大(法师零伤亡全歼重甲、龙被围殴);②混合兵种侧
++  (6步兵+3奶妈)成本归一时各子兵种各吃满 budget → A 投入[270,180] 对 B[180,60],超投
++  近一倍;③防御建筑 vs 波的 budget 与建筑造价不匹配(迫击炮140 对 6步兵240,建筑被
++  少投入)。设计意图方向本身成立(魔法克重甲/攻城拆建筑/远程压近战)。
++- 结论: 首版脚手架机制正确(交战/不变量/喷火折扣端到端对)但对决经济学有系统偏差,
++  自动超模判定不可信;按用户 2026-07-26 口径重做(原地接战 + 攻防局 + 混合兵种均分
++  预算),见下条 v2。本 run 仅作方法学定位,数值不引用。[AI-DRAFT]
++  [source: 20260726-v17-duel-matrix]
++
++## 2026-07-26  run_id: 20260726-v17-duel-v2(脚手架按用户口径重做后)
++- 假设: 同上(找超模);口径按用户定案——①单位vs单位=原地接战(交错摆位IDLE,纯
++  血量/攻击交换);②防御建筑=攻防局,同等造价该赢、~2倍造价该被攻破;③water=矿同重。
++- 成功判据: 27 对决(含防御建筑 1×/2× 两档)全跑完;设计意图方向成立;防御建筑满足
++  「1× 守住、2× 被破」;标出真正偏离(某单位/建筑在等投入原地接战里压倒,或防御建筑
++  1× 就守不住 / 2× 仍无法攻破)。run 目录三件套 + design.json 齐。
++- git hash: df7b13d(跑前干净)
++- 结果: (待填)
++- 结论: (待填)[AI-DRAFT] [source: 20260726-v17-duel-v2]

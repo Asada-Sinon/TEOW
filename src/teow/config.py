@@ -253,8 +253,9 @@ class Config:
     magetower_build_time: int = 100
     magetower_hp: int = 140
     magetower_range: float = 4.5
-    magetower_atk: int = 14
-    magetower_period: int = 5
+    magetower_atk: int = 20        # v1.7 用户定案 14→20(现值守不住等价近战超弱)
+    magetower_period: int = 4      # v1.7 用户定案 5→4 提 dps 2.8→5.0
+    # [source: 20260726-v17-tune-magetower-dps]
     landmine_cost_ore: int = 30
     landmine_cost_water: int = 10
     landmine_build_time: int = 25
@@ -294,7 +295,8 @@ class Config:
     dragon_air_range: float = 3.0
     dragon_breath_atk: int = 12    # 对地喷火(自心圆平坦持续)
     dragon_breath_bld_percent: int = 50  # 喷火对建筑打折(用户修订;[AI-DRAFT])
-    dragon_breath_radius: float = 2.5
+    dragon_breath_radius: float = 4.5   # v1.7 用户定案 2.5→4.5 大范围火海(对地AoE)
+    # [source: 20260726-v17-tune]
     dragon_period: int = 10        # 两种攻击共享 CD
 
     # ---- 等级体系 ----

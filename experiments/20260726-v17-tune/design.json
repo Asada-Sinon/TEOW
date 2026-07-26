@@ -1,0 +1,42 @@
+{
+  "mortar_cands": {
+    "base": {},
+    "period25": {
+      "mortar_atk_period": 25
+    },
+    "period15": {
+      "mortar_atk_period": 15
+    },
+    "minr1.0": {
+      "mortar_min_range": 1.0
+    },
+    "minr1.0_period25": {
+      "mortar_min_range": 1.0,
+      "mortar_atk_period": 25
+    },
+    "hp250_period25": {
+      "mortar_hp": 250,
+      "mortar_atk_period": 25
+    },
+    "atk50_period20": {
+      "mortar_atk": 50,
+      "mortar_atk_period": 20
+    }
+  },
+  "magetower_cands": {
+    "base": {},
+    "atk18": {
+      "magetower_atk": 18
+    },
+    "atk20": {
+      "magetower_atk": 20
+    },
+    "atk24": {
+      "magetower_atk": 24
+    },
+    "atk28": {
+      "magetower_atk": 28
+    }
+  },
+  "criterion": "1x A_win & 2x B_win"
+}
