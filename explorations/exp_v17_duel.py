@@ -333,7 +333,13 @@ def build_state(cfg, mapdata, state0, mtc, budget: float):
         axis = xhq - dhq
         axis = axis / (float(np.linalg.norm(axis)) + 1e-6)
         d_center = dhq + 4.0 * axis            # 建筑摆自家 HQ 前 4 格
-        x_center = d_center + 6.0 * axis        # 攻方在建筑前 6 格,ATTACK 收拢聚火
+        # 攻方起步距离随防御方射程缩放:让攻方从防御建筑火力圈外起步、穿过火力
+        # 覆盖区推进(公平对待长射程炮台:迫击炮 range7 不能只从贴脸测)。
+        rng_t = cfg.atk_range_by_type
+        sa_t = cfg.self_aoe_radius_by_type
+        d_reach = max(max(float(rng_t[t]), float(sa_t[t])) for t, _ in du)
+        standoff = max(6.0, d_reach + 2.5)
+        x_center = d_center + standoff * axis
         d_cells = _pick_cells(passable, forbidden, d_center, len(du), claimed)
         x_cells = _pick_cells(passable, forbidden, x_center, len(xu), claimed)
         d_slots = place(du, d_cells, ORDER_IDLE, dc)
