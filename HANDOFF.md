@@ -39,6 +39,31 @@
 
 <!-- 真实的 session 记录从这一行下面开始写，最新的一节永远插在紧挨本行的下面。 -->
 
+## Session 2026-07-26(v1.7 数值平衡收官)
+- 完成: v1.7 五件套收官(tag 待打)。修训练营升级不补血差 bug(economy.py 自升级
+  完成分支加 camp 补血,与哨塔/兵营同构;挂 v1.4-v1.6 四版静默 bug;6498fe2)。
+  建通用对决脚手架 explorations/exp_v17_duel.py(用户 2026-07-26 定口径:①单位vs
+  单位=原地接战交错摆位纯 stat 交换;②防御建筑=攻防局,同价该守住/~2倍造价该被破,
+  攻方起步距离随防御方射程缩放;③water=矿同重)+ audit_v17_invariants.py(加⑪离场
+  inside/aboard 血量护栏、⑫龙喷火对建筑折扣量级上界,修 v1.6 已知问题 #35 ab 变量
+  遮蔽;d62d61d/36b4a2f)。数值复核结论:近战/哨塔/喷火/激光/攻城/龙对空/奶妈**全
+  平衡不动**,仅三处偏离——**法师塔 magetower_atk 14→20 + magetower_period 5→4、
+  龙火海 dragon_breath_radius 2.5→4.5**(用户 2026-07-26 在线定案,8408a7b);迫击炮
+  数值无解(扫13候选全守不住1×,机制限制:盲区2.5+单发慢炮弹不预判,用户定案接受
+  为炮击/攻城支援非点防,记 changelog 已知)。覆盖局 experiments/20260726-v17-audit-
+  cover 用新 config 重录(4361tick,7种高阶实体全出场):audit_v17 决定论 2181帧逐位
+  一致0失配+25不变量全零;engine-auditor P0/P1零;终门禁 111 pytest+ruff 绿。
+- PENDING: ①打 tag v1.7 并 push(本条落盘后立即执行);②用户已在 issue.md 加
+  v1.8-v2.1 路线图草稿(v1.8 多风格脚本指挥官/上帝视角条件判据/启发式+随机+概率+
+  博弈论;v1.9 筛选高质量对手数据、改不好就删;v2.0 调研RL算法 PPO/AMP 或直接用脚本
+  指挥官训练+奖惩项/难度曲线,**只调研不训练**;v2.1 训练前全量测试+小范围试训)——
+  工作区 issue.md 故意留脏没提交,**下个 session 第一件事走草稿协议吃透 v1.8 搬进
+  规格区**;③用户复核 v1.7 DECISIONS 的 [AI-DRAFT] 三条。
+- 坑: JAX 门禁(pytest)别和其它重 CPU 任务并行——本次和覆盖局录制/engine-auditor
+  审计重放并行,被拖到 40min(独占约 9min)。GPU 对「每 Config 不同+单环境逐 tick」
+  这类负载**慢 12 倍**(实测单对决 GPU 6:57 vs CPU 35s),提速靠多 CPU 进程分片,GPU
+  要等 v2 vmap 批量 rollout 才有意义。
+
 ## Session 2026-07-25(深夜,v1.3 收尾)
 - 完成: v1.3 五件套收官打 tag——哨塔定案 tower_atk L1 6→3(c99e03f,用户授权
   agent 决策,依据 experiments/20260725-tower-balance-*);/validate 零必须修;
