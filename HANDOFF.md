@@ -50,15 +50,17 @@
   零;P2 当场修两处(对怪开火进 cd / 离场清怪血,8a5d2e1);终门禁 117 pytest(`-n 8` 并行~8min)+
   ruff 绿;覆盖局 experiments/20260727-v18-audit-cover(airtech/turtle/boomer/counter,tick5860
   winner0 经异界之门;决定论+隔离+守恒全过)。
-- PENDING: **v1.9 第一件事**——用 `eval_commanders_v18.py` 跑全 10 风格**综合评测**(更多 seed +
-  座位排列 + round-robin),按质量判据(胜率分布/非退化/风格覆盖/自适应/碾压 random/gate 到达率)
-  筛选;改不好就删;**验证后把脚手架提升进 `src/teow/eval.py`**(供 v2.0)。**注意**:v1.9 评测前确认
-  「防御建筑对怪进 cd」的修保留(已修,否则龟缩/空军抗怪虚高);gate_open_tick 对 rush-vs-develop
-  平衡敏感(短门利被动/长门利速攻),按需扫。
-- v2.0(已 front-load 调研):`notes/papers/` 19 篇 + lit-log;**推荐=自研 JAX PPO + v1.9 脚本课程
-  (易→难)+ BC 暖启(脚本是可查询 oracle)+ 势函数塑形(Ng1999 防 reward hacking);自对弈后置;
-  临摹 PureJaxRL+JaxMARL**。「AMP」对离散 RTS≈GAIL。**待做**:v2.0 设计文档(docs/plans/)+ obs/
-  reward/PPO 骨架(explorations/,空跑一步不训练)+ 按课程分档 v1.9 roster。
+- 完成(续): **v1.9 收官**——评测脚手架核心 `matchup_runner` 提升进 `src/teow/eval.py` + test_eval;
+  综合评测(experiments/20260727-v19-roundrobin,80 局):10 指挥官全碾压 random、无统治风格、非退化
+  (无秒杀/硬帽/和局);难度分层 HARD rusher / MEDIUM 6 / EASY turtle·timing·airtech;**全留不删**
+  (弱尾风格独立 + eval 非均衡噪声)。changelog v1.9 + tag。**v2.0 设计文档**已落
+  docs/plans/20260727-v2-rl-approach/research.md(9 节)。
+- PENDING: **v2.0 第一件事**——按设计文档写 `explorations/rl_skeleton_v20.py`:obs 编码(WorldState→
+  每实体 token[256,~40] + 全局向量,自我中心)+ reward(FFA rank 终局 + 退火 PBRS,Φ=投入价值差)+
+  小 shared actor-critic + vmap rollout(扩 `teow.eval.matchup_runner` 收 obs/logp/value/rew/done)+
+  PPO/GAE loss + **空跑一步验证 shape/loss 有限,不训练**,再走 v2.0 五件套。
+- v1.9 followup(v2.1 前):均衡 round-robin(每对覆盖、≥8 seed)复核弱尾真实强度;定向调 turtle/
+  airtech「0-军被动 gate 胜」;确认 22/80 局固定落 length4182 不诱导 RL「摆烂等门」。
 - 坑: ①异界之门令 step 编译变慢,**串行全套 pytest >40min**;已装 pytest-xdist(uv pip,未进
   pyproject),**用 `pytest -n 8`**~8min。②GPU 单环境编译极慢(分钟级)但 vmap 批量 run 快;eval/
   bench 用 GPU 批量,单环境/门禁用 CPU。③指挥官策略参数是代码常量(StrategyProfile)非 config;

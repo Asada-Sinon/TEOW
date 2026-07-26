@@ -191,3 +191,27 @@
   rush-vs-develop 平衡(短门利被动、长门利速攻);roster 精细平衡 + 训练效率取舍留 v1.9 校准**;
   boomer 经济锁死 degeneracy 已在 P2 修复(tick 兜底)。[source: 20260727-v18-eval-p3]
   [source: 20260727-v18-p4-gate]
+
+## 2026-07-27  run_id: 20260727-v19-roundrobin(v1.9 综合评测;criteria 先写,结果待 result-analyst)
+- 假设: v1.8 的 10 风格指挥官在默认 gate=4000 下均高质量(碾压 random、round-robin 无单一风格
+  通吃/无 always-输、非退化),可直接作 RL 对手池;round-robin 胜率给 v2.0 课程难度排序。
+- 成功判据: 每指挥官 vs random 胜率 ≥0.9;round-robin 无某风格对全场胜率 >0.85 或 <0.10;
+  对局时长分布非畸形(无大量秒杀 <100 拍、无大量撞 6000 硬帽)。
+- 失败判据: 有指挥官 round-robin 胜率 <0.10(太弱→修或删)或某风格通吃(平衡问题→记 v2.0 待调)。
+- 对照: random 基线 + P3(gate=1800)/P4(部分 gate=4000)。
+- git hash: a3ddadf(跑前干净;含 P2 对怪 cd 修)。
+- 结果(experiments/20260727-v19-roundrobin/games.jsonl,80 局;result-analyst 用
+  explorations/agg_v19_*.py 聚合,非手算):
+  - Phase A:10 指挥官 vs random 胜率全 **1.00**(4/4),无一 <0.90。
+  - Phase B round-robin(**非均衡**:出场 4–24 不等、4 seed/局 → 尾部噪声大):rr_wr 强→弱=
+    rusher 0.75、balanced 0.38、harasser/boomer/tempo 0.25、chaos 0.20、counter 0.17、
+    turtle/timing/airtech 0.00(round-robin 零胜)。**无风格 >0.85**(无统治,满足判据)。
+  - 非退化:80 局 length min1068/median4022/max4589;**秒杀<100=0、撞硬帽6000=0、和局=0**;
+    但 22/80 局精确落 length4182(宏观局固定 gate 结算点);turtle/airtech vsRandom 为
+    0-军被动 gate 胜(全 seed 4182/army0,非战斗决胜)。
+- 结论: [AI-DRAFT] 假设大体成立——10 指挥官全功能(碾压 random)、风格清晰二分(速攻 rusher/
+  balanced/harasser vs 宏观 boomer/tempo/counter/chaos vs 弱尾 turtle/timing/airtech)、无统治、
+  非退化(无秒杀/硬帽/和局)。**弱尾 rr 零胜受非均衡 eval 噪声 + 被动 gate 依赖影响**;按分层留用
+  (HARD rusher / MEDIUM balanced·harasser·boomer·chaos·counter·tempo / EASY turtle·timing·airtech),
+  **不删任一(弱者仍风格独立,对多样对手池有价值)**;弱尾被动性 + 均衡 round-robin(≥8 seed 全对
+  covering)+ 弱尾定向调参留 v1.9-followup / v2.1 前处理。[source: 20260727-v19-roundrobin]

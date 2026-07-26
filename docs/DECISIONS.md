@@ -252,3 +252,18 @@
 - 2026-07-27 [AI-DRAFT] **装 pytest-xdist(`uv pip install`)加速门禁**:异界之门令 step 编译变慢,
   串行全套 >40min(25min 只跑到 61%);`-n 8` 并行 ~8min(117 passed)。dev 工具非数值依赖,未写进
   pyproject(uv sync 会移除),v1.9+ 沿用。
+
+### v1.9 评测 / 筛选(2026-07-27,用户离线)
+- 2026-07-27 [AI-DRAFT] **v1.9 筛选结论:10 指挥官全留、按强度分层,不删任一**。综合评测
+  (experiments/20260727-v19-roundrobin,result-analyst 分析):全 vs random 1.00、无统治风格
+  (max rusher 0.75)、非退化(80 局无秒杀/无撞硬帽/无和局)、风格清晰二分。弱尾(turtle/timing/
+  airtech round-robin 零胜)受**非均衡 eval 噪声**影响(出场 4–24 不等、4 seed 薄),且弱者风格仍
+  独立→对「多样对手池」有价值,**不删**(用户「改不好才删」;此处非「改不好」而是「样本不足未定」)。
+  难度分层供 v2.0 课程:HARD rusher / MEDIUM balanced·harasser·boomer·chaos·counter·tempo /
+  EASY turtle·timing·airtech。
+- 2026-07-27 [AI-DRAFT] **v1.9 followup(下个 session / v2.1 前)**:①**均衡** round-robin(每 2-
+  指挥官对都覆盖、≥8 seed)复核弱尾真实强度;②定向调 turtle/airtech「0-军被动 gate 胜」(疑攻击
+  阈值过高/兵种没上场,行为太被动,非引擎 bug);③22/80 局固定落 length4182(宏观局全靠 gate 结算)
+  ——训练前确认别让 RL 学到「摆烂等门」。
+- 2026-07-27 [AI-DRAFT] **评测脚手架提升进 `src/teow/eval.py`**(`matchup_runner` 批量 rollout 原语,
+  v2.0 PPO rollout 复用;`explorations/eval_commanders_v18.py` 留作 CLI 包装 + 聚合)。
