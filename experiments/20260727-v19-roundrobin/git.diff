@@ -1,0 +1,19 @@
+diff --git a/research-log.md b/research-log.md
+index 0f275e1..da5e3a6 100644
+--- a/research-log.md
++++ b/research-log.md
+@@ -191,3 +191,14 @@
+   rush-vs-develop 平衡(短门利被动、长门利速攻);roster 精细平衡 + 训练效率取舍留 v1.9 校准**;
+   boomer 经济锁死 degeneracy 已在 P2 修复(tick 兜底)。[source: 20260727-v18-eval-p3]
+   [source: 20260727-v18-p4-gate]
++
++## 2026-07-27  run_id: 20260727-v19-roundrobin(v1.9 综合评测;criteria 先写,结果待 result-analyst)
++- 假设: v1.8 的 10 风格指挥官在默认 gate=4000 下均高质量(碾压 random、round-robin 无单一风格
++  通吃/无 always-输、非退化),可直接作 RL 对手池;round-robin 胜率给 v2.0 课程难度排序。
++- 成功判据: 每指挥官 vs random 胜率 ≥0.9;round-robin 无某风格对全场胜率 >0.85 或 <0.10;
++  对局时长分布非畸形(无大量秒杀 <100 拍、无大量撞 6000 硬帽)。
++- 失败判据: 有指挥官 round-robin 胜率 <0.10(太弱→修或删)或某风格通吃(平衡问题→记 v2.0 待调)。
++- 对照: random 基线 + P3(gate=1800)/P4(部分 gate=4000)。
++- git hash: a3ddadf(跑前干净;含 P2 对怪 cd 修)。
++- 结果: 待 result-analyst 读 experiments/20260727-v19-roundrobin/{summary.md,games.jsonl} 填。
++- 结论: 待填 [AI-DRAFT] [source: 20260727-v19-roundrobin]。

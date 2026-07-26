@@ -1,0 +1,7 @@
+6fdf03e76300abfc18a15cc5e8b1eb92fea587f6
+dirty: True
+ M research-log.md
+?? .claude/agent-memory/
+?? experiments/20260727-v19-roundrobin/
+?? src/teow/eval.py
+?? tests/test_eval.py
