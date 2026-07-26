@@ -1,0 +1,56 @@
+[
+  {
+    "mode": "single-cpu",
+    "device": "TFRT_CPU_0",
+    "B": 1,
+    "ticks": 200,
+    "wall_s": 1.9725,
+    "world_tick_s": 101.39,
+    "env_tick_s": 101.39
+  },
+  {
+    "mode": "batch-cpu-B32",
+    "device": "TFRT_CPU_0",
+    "B": 32,
+    "ticks": 100,
+    "wall_s": 18.1105,
+    "world_tick_s": 5.52,
+    "env_tick_s": 176.7
+  },
+  {
+    "mode": "batch-cpu-B128",
+    "device": "TFRT_CPU_0",
+    "B": 128,
+    "ticks": 100,
+    "wall_s": 87.7782,
+    "world_tick_s": 1.14,
+    "env_tick_s": 145.8
+  },
+  {
+    "mode": "batch-gpu-B64",
+    "device": "cuda:0",
+    "B": 64,
+    "ticks": 100,
+    "wall_s": 1.5897,
+    "world_tick_s": 62.9,
+    "env_tick_s": 4025.8
+  },
+  {
+    "mode": "batch-gpu-B256",
+    "device": "cuda:0",
+    "B": 256,
+    "ticks": 100,
+    "wall_s": 9.4149,
+    "world_tick_s": 10.62,
+    "env_tick_s": 2719.1
+  },
+  {
+    "mode": "batch-gpu-B1024",
+    "device": "cuda:0",
+    "B": 1024,
+    "ticks": 100,
+    "wall_s": 36.0564,
+    "world_tick_s": 2.77,
+    "env_tick_s": 2840.0
+  }
+]

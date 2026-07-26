@@ -152,3 +152,21 @@
   2.5→4.5;迫击炮数值不动(机制限制,已知);龙喷火对建筑 50% 折扣保留(用户定位:
   龙不擅拆建筑)。[AI-DRAFT] [source: 20260726-v17-tune-magetower-dps]
   [source: 20260726-v17-tune] [source: 20260726-v17-tune-mortar-aoe]
+
+## 2026-07-26  run_id: 20260726-v18-bench
+- 假设: 64×64/4p 单环境虽慢,但 vmap 批量 GPU 能把吞吐拉到支撑 v1.9 海量评测 / v2.0
+  rollout 的水平(v1.8 P0,#1 吞吐风险验证)。
+- 成功判据: 批量 GPU env-tick/s ≥ ~1000(使 ~1000 局 6000-tick 对局在 ~1h 内可批量跑完)。
+- 失败判据: 批量最高吞吐仍 < 500 env-tick/s(需先优化 movement._relax_fields 才能继续)。
+- 对照: 无对照,仅探索(历史参照:v1.3 @24×24 单环境 57-66 tick/s)。
+- git hash: 3834f36(dirty:P1 进行中——monster 子表字段已入 state/config,gate 阶段尚未
+  接入 step,故本测**未含 gate 逐 tick 开销**;P1 收尾复测拿干净数)。
+- 结果(experiments/20260726-v18-bench/bench.json):
+  - single-cpu **101.39** tick/s;batch-cpu B32/B128 env **176.7 / 145.8** tick/s
+    (CPU vmap 几乎不提速,per-world 反降 5.52→1.14)。
+  - **batch-gpu B64 env 4025.8 tick/s**(per-world 62.9)= 单卡最佳;B256 **2719.1**、
+    B1024 **2840.0**(B64 是甜点,更大批 occupancy/显存反使总吞吐降)。
+- 结论: [AI-DRAFT] 假设成立且远超判据——**GPU vmap 批量(B≈64)达 ~4000 env-tick/s
+  (≈40× 单 CPU)**,是 v1.9/v2.0 海量 rollout 正路;单环境 CPU ~100 tick/s(远好于按
+  v1.3 缩放的悲观估计,**#1 吞吐风险解除**),多进程 CPU 为备选;**CPU vmap 无益,勿用**。
+  [source: 20260726-v18-bench]

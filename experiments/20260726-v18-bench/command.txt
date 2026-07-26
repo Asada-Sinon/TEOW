@@ -1,0 +1,1 @@
+explorations/bench_batch_v18.py --slug v18-bench --single-ticks 200 --batch-ticks 100

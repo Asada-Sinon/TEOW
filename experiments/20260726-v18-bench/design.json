@@ -1,0 +1,8 @@
+{
+  "note": "v1.8 P0 吞吐基准",
+  "grid": "64x64",
+  "n_players": 4,
+  "e_max": 64,
+  "single_ticks": 200,
+  "batch_ticks": 100
+}

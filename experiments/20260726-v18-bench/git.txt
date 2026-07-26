@@ -1,0 +1,12 @@
+3834f36d84671e656ada94564cffd2eaab344e68
+dirty: True
+ M src/teow/combat.py
+ M src/teow/config.py
+ M src/teow/state.py
+ M src/teow/step.py
+ M tests/test_combat_win.py
+ M tests/test_elimination.py
+?? experiments/20260726-v18-bench/
+?? explorations/bench_batch_v18.py
+?? src/teow/gate.py
+?? tests/test_gate.py

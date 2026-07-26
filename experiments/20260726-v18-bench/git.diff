@@ -1,0 +1,211 @@
+diff --git a/src/teow/combat.py b/src/teow/combat.py
+index 8ec7d7d..14d251e 100644
+--- a/src/teow/combat.py
++++ b/src/teow/combat.py
+@@ -288,6 +288,7 @@ def cleanup_deaths(state: WorldState, cfg: Config, owner: jax.Array) -> WorldSta
+         aboard=jnp.where(park, -1, st.aboard).astype(jnp.int16),
+         reboard_lock=jnp.where(park, 0, st.reboard_lock).astype(jnp.int16),
+         flag_active=flag_active,
++        monster_alive=st.monster_alive & ~hq_dead[:, None],  # 玩家亡→其异界之门怪离场(v1.8)
+         node_owner=node_owner,
+         node_ent=node_ent,
+         node_build_timer=node_build_timer,
+diff --git a/src/teow/config.py b/src/teow/config.py
+index 5bc661d..841c2ac 100644
+--- a/src/teow/config.py
++++ b/src/teow/config.py
+@@ -97,7 +97,10 @@ class Config:
+     # ---- 世界 ----
+     grid_h: int = 64         # v1.5:方格网格上雕六边形可行区(规格「约 64」)
+     grid_w: int = 64
+-    episode_len: int = 6000  # 超时判和局(winner=P);[AI-DRAFT] 大图四人局翻倍
++    episode_len: int = 6000  # 硬帽/scan 边界(v1.8:不再判和局;异界之门保证门开后必分
++    #                          胜负,episode_len 沦为防御硬帽,正常应因怪物升级不可达)
++    gate_open_tick: int = 4000  # v1.8 异界之门开门时刻(< episode_len,留 overtime 余量);
++    #                             旧「超时」语义迁移至此,门开后 overtime 逼出唯一胜者
+ 
+     # ---- 容量(静态形状;e_max 满 = 天然人口上限,是特性不是 bug)----
+     n_players: int = 4       # 玩家数 P(v1.5:四人自由混战;编译期静态量。
+@@ -109,6 +112,21 @@ class Config:
+     harvest_slots_by_level: tuple = (0, 3, 3, 4, 4, 5, 5, 6)
+     max_flags: int = 3       # 军旗(v1.3):每玩家上限,不随任何等级增加
+ 
++    # ---- 异界之门 sudden-death 怪物(v1.8;数值 [AI-DRAFT],P4 校准)----
++    # 门开(tick>=gate_open_tick)后每 spawn_interval 拍向每个存活玩家中心出一波怪。
++    # 阵营隔离:打玩家 p 的怪只打 p、也只有 p 能打它。HP 无上限随 overtime 线性增、
++    # 攻击封顶、慢速近战、强度生成时定死(后出更强、已在场不变)、各阵营压力一致。
++    monster_cap: int = 64         # Mmax:每玩家怪容量(静态形状;批量显存乘子)
++    monster_spawn_interval: int = 50   # 每多少拍出一波
++    monster_wave_count: int = 2   # 每玩家每波怪数
++    monster_hp_base: int = 50     # HP 基(spawn 时 = base + round(hp_slope*overtime),无上限)
++    monster_hp_slope: float = 0.5  # HP 每 overtime 拍线性增量(P4 调此控收敛速度)
++    monster_atk_base: int = 5     # 攻击基
++    monster_atk_slope: float = 0.005  # 攻击每 overtime 拍增量
++    monster_atk_cap: int = 20     # 攻击上限(封顶)
++    monster_speed: float = 0.15   # 移速(格/tick;慢于任何单位,可被风筝)
++    monster_melee_range: float = 1.5   # 近战判定半径(=melee_range)
++
+     # ---- 连续移动(v1.2:单位 360°,建筑/资源点仍格子锚定)----
+     unit_radius: float = 0.35   # 单位圆半径(<0.5,圆不出格,建筑推离用格判定)
+     reach_radius: float = 1.2   # 入驻/卸货/开工的欧氏到达半径(≈旧 4 邻)
+diff --git a/src/teow/state.py b/src/teow/state.py
+index a833b9d..2a53f36 100644
+--- a/src/teow/state.py
++++ b/src/teow/state.py
+@@ -70,6 +70,11 @@ class WorldState(NamedTuple):
+     # ---- 军旗表 [P, max_flags](v1.3;旗不是实体:无血量、不可拆)----
+     flag_pos: jax.Array     # f32  [P,F,2] 旗所在格心;未激活 -1
+     flag_active: jax.Array  # bool [P,F]
++    # ---- 异界之门怪物表 [P, Mmax](v1.8;阵营隔离:行 p 的怪只与玩家 p 交互)----
++    monster_alive: jax.Array   # bool  [P,Mmax]
++    monster_pos: jax.Array     # f32   [P,Mmax,2] 连续坐标(格心=整数)
++    monster_hp: jax.Array      # int32 [P,Mmax]  无上限(spawn 时定死)
++    monster_atk: jax.Array     # int32 [P,Mmax]  攻击力(spawn 时定死,封顶)
+     # ---- 资源点表 [Nn] ----
+     node_owner: jax.Array        # int8  [Nn] -1 无主
+     node_ent: jax.Array          # int16 [Nn] 结构实体槽号;-1 未建
+@@ -148,6 +153,10 @@ def init_state(cfg: Config, mapdata: MapData) -> WorldState:
+         reboard_lock=jnp.zeros(n, jnp.int16),
+         flag_pos=jnp.full((cfg.n_players, cfg.max_flags, 2), -1.0, jnp.float32),
+         flag_active=jnp.zeros((cfg.n_players, cfg.max_flags), bool),
++        monster_alive=jnp.zeros((cfg.n_players, cfg.monster_cap), bool),
++        monster_pos=jnp.zeros((cfg.n_players, cfg.monster_cap, 2), jnp.float32),
++        monster_hp=jnp.zeros((cfg.n_players, cfg.monster_cap), jnp.int32),
++        monster_atk=jnp.zeros((cfg.n_players, cfg.monster_cap), jnp.int32),
+         node_owner=jnp.full(nn, -1, jnp.int8),
+         node_ent=jnp.full(nn, -1, jnp.int16),
+         node_build_timer=jnp.zeros(nn, jnp.int16),
+diff --git a/src/teow/step.py b/src/teow/step.py
+index d598f8a..0956543 100644
+--- a/src/teow/step.py
++++ b/src/teow/step.py
+@@ -7,9 +7,14 @@ tick 结算顺序(设计依据见 docs/plans/ 下两份调研报告与 plan):
+   4. apply_orders        本 tick 新指令(合法性掩码;训练在此扣费)
+   5. start_constructions 到场工人开工(抢点仲裁 + 扣费对账)
+   6. movement_tick       距离场下降 + 抢格仲裁
++  6.5 gate_tick          异界之门(v1.8):门开(tick>=gate_open_tick)向每个存活玩家
++                         中心出阵营隔离怪 + 怪物沿目标玩家 HQ 场慢速 descent
+   7. combat_tick         相邻同时结算
+-  8. cleanup_deaths      翻 alive + 连锁清理
+-  9. _end_tick           冷却/计时/胜负判定
++  7.5 monster_combat_tick 怪物近战 pass(v1.8):阵营隔离(行 p 的怪↔owner==p 实体),
++                         晚正常近战一个子阶段——不能并入 combat 的 incoming(已消费),
++                         同一 pre-pass 快照算两侧、允许互杀
++  8. cleanup_deaths      翻 alive + 连锁清理(玩家亡→其怪同帧离场)
++  9. _end_tick           冷却/计时/胜负判定(v1.8:异界之门必分胜负,不再判和局)
+ 终局冻结:done 之后再 step 是恒等映射(scan 安全)。
+ 
+ GARRISON 语义(v1.3):驻守单位在 movement 阶段走向锚点(target_cell),入
+@@ -34,6 +39,7 @@ import jax.numpy as jnp
+ from .actions import apply_orders
+ from .combat import cleanup_deaths, combat_tick
+ from .config import Config
++from .gate import gate_tick, monster_combat_tick
+ from .economy import (
+     construction_tick,
+     harvest_tick,
+@@ -48,16 +54,21 @@ from .state import WorldState, hq_slot, init_state, owner_of_slots
+ 
+ 
+ def _end_tick(state: WorldState, cfg: Config) -> WorldState:
+-    """胜负判定(v1.5 泛化):HQ 亡即淘汰(清场在 cleanup_deaths);存活 1 家
+-    →该家胜;0 家(同 tick 齐灭)→和局 P;超时→和局 P;≥2 家存活继续打。"""
++    """胜负判定(v1.8:异界之门必分胜负,不再有和局)。HQ 亡即淘汰(清场在
++    cleanup_deaths);存活 1 家→该家胜;0 家(同帧齐灭,极罕见)→argmax 定序给 0
++    (确定性非和局);≥2 家存活继续打(异界之门保证终将只剩 1 家)。防御硬帽:到
++    episode_len(应因怪物无上限升级而不可达)仍 ≥2 家→残余总血打分兜底,绝不判和。"""
+     st = state
+     tick = st.tick + 1
+     P = cfg.n_players
+     hq_alive = jnp.stack([st.alive[hq_slot(p, cfg)] for p in range(P)])
+     n_alive = jnp.sum(hq_alive.astype(jnp.int32))
+-    winner = jnp.where(n_alive == 1, jnp.argmax(hq_alive),
+-                       jnp.where(n_alive == 0, P, st.winner))
+-    winner = jnp.where((winner == -1) & (tick >= cfg.episode_len), P, winner)
++    survivor = jnp.argmax(hq_alive).astype(jnp.int8)         # 唯一存活者;全灭则 0
++    winner = jnp.where(n_alive <= 1, survivor, st.winner.astype(jnp.int8))
++    # 防御硬帽兜底:残余总血最高者胜(正常局异界之门早分出胜负,不会走到这)
++    hp_by_p = (st.hp * st.alive).reshape(P, cfg.e_max).sum(axis=1)   # [P]
++    cap_winner = jnp.argmax(hp_by_p).astype(jnp.int8)
++    winner = jnp.where((winner == -1) & (tick >= cfg.episode_len), cap_winner, winner)
+     done = winner != -1
+     return st._replace(tick=tick, done=done, winner=winner.astype(jnp.int8))
+ 
+@@ -77,7 +88,9 @@ def build_step(cfg: Config, mapdata: MapData):
+         st = paid_orders_pass(st, act, cfg, mapdata, owner)  # 付费指令顺序对账(B-1)
+         st = start_constructions(st, cfg, mapdata, owner, k_claim)
+         st = movement_tick(st, cfg, mapdata, owner, k_move)
++        st = gate_tick(st, cfg, mapdata)          # 异界之门:门开出怪 + 怪物慢速 descent
+         st = combat_tick(st, cfg, owner)
++        st = monster_combat_tick(st, cfg, owner)  # 怪物近战(阵营隔离,晚正常近战一子阶段)
+         st = cleanup_deaths(st, cfg, owner)
+         st = _end_tick(st, cfg)
+         # 终局冻结:done 的局再 step 恒等(tick 也不再走)
+diff --git a/tests/test_combat_win.py b/tests/test_combat_win.py
+index bc8f196..05afc36 100644
+--- a/tests/test_combat_win.py
++++ b/tests/test_combat_win.py
+@@ -67,7 +67,9 @@ def test_hq_destroyed_ends_game_and_freezes():
+     assert jnp.array_equal(st2.hp, st1.hp)
+ 
+ 
+-def test_timeout_draw():
++def test_hard_cap_no_draw():
++    """v1.8:取消超时和局。到 episode_len 硬帽仍未分 → 残余总血打分兜底出唯一胜者
++    (winner ∈ 0..P-1,绝不再是 winner==n_players 的和局)。"""
+     cfg = Config(episode_len=5)
+     state, _, step_fn, m = new_world(cfg)
+     key = jax.random.PRNGKey(0)
+@@ -75,4 +77,4 @@ def test_timeout_draw():
+     for _ in range(6):
+         key, sub = jax.random.split(key)
+         st = step_fn(st, jnp.full(cfg.n_total, A_NOOP, jnp.int32), sub)
+-    assert bool(st.done) and int(st.winner) == cfg.n_players  # P=和局
++    assert bool(st.done) and 0 <= int(st.winner) < cfg.n_players
+diff --git a/tests/test_elimination.py b/tests/test_elimination.py
+index c3c4bfc..90e8189 100644
+--- a/tests/test_elimination.py
++++ b/tests/test_elimination.py
+@@ -1,5 +1,5 @@
+ """v1.5 淘汰清场:HQ 亡即淘汰,该家全部残余单位/建筑同 tick 清除,
+-矿泵释放点位、军旗撤除、敌方驻守其点的兵转 IDLE;胜负编码 P=和局。"""
++矿泵释放点位、军旗撤除、敌方驻守其点的兵转 IDLE;v1.8 起取消和局(异界之门必分胜负)。"""
+ 
+ import jax
+ import jax.numpy as jnp
+@@ -47,16 +47,20 @@ def test_hq_death_wipes_player_and_frees_nodes():
+     assert bool(st.done) and int(st.winner) == 0
+ 
+ 
+-def test_winner_encoding_draw_is_n_players():
+-    """超时和局编码 = n_players(v1.5 泛化;双人局=2,与旧编码兼容)。"""
++def test_hard_cap_forces_winner_not_draw():
++    """v1.8:取消超时和局。到 episode_len 硬帽仍未分 → 残余总血打分兜底出唯一
++    胜者(绝不再有 winner==n_players 的和局)。gate_open_tick 默认 4000>5,门不开,
++    直接走硬帽兜底。"""
+     cfg = Config(episode_len=5)
+     state, _, step_fn, m = new_world(cfg)
+     st = drive(state, step_fn, {}, 6)
+-    assert bool(st.done) and int(st.winner) == cfg.n_players
++    assert bool(st.done)
++    assert 0 <= int(st.winner) < cfg.n_players, "必分胜负,不得为和局 P"
+ 
+ 
+-def test_mutual_hq_kill_same_tick_draw():
+-    """全部 HQ 同 tick 齐灭 → 和局 P,全场清空。"""
++def test_mutual_hq_kill_same_tick_deterministic_winner():
++    """v1.8:全部 HQ 同 tick 齐灭(极罕见)→ 确定性给 argmax 定序胜者(非和局),
++    全场清空。"""
+     cfg = Config()
+     state, _, step_fn, m = new_world(cfg)
+     hp = state.hp
+@@ -65,7 +69,8 @@ def test_mutual_hq_kill_same_tick_draw():
+     st = state._replace(hp=hp)
+     st = step_fn(st, jnp.full(cfg.n_total, A_NOOP, jnp.int32),
+                  jax.random.PRNGKey(3))
+-    assert bool(st.done) and int(st.winner) == cfg.n_players
++    assert bool(st.done) and int(st.winner) != cfg.n_players, "不得和局"
++    assert 0 <= int(st.winner) < cfg.n_players
+     # 全清场
+     assert int(jnp.sum(st.alive)) == 0
+ 
