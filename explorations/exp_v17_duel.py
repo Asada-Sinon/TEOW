@@ -88,6 +88,7 @@ NAME2TYPE = {
     "flamer": TYPE_FLAMER, "laser": TYPE_LASER, "barracks": TYPE_BARRACKS,
     "hq": TYPE_HQ,
 }
+TYPE2NAME = {v: k for k, v in NAME2TYPE.items()}
 
 
 def unit_cost(cfg, t: int) -> tuple[int, int]:
@@ -109,16 +110,23 @@ def unit_cost(cfg, t: int) -> tuple[int, int]:
     return int(o), int(w)
 
 
-def resolve_count(cfg, spec: dict, budget: float) -> int:
-    """side spec = {"type":name,"level":L,"count":N|None}。count=None → 成本归一。"""
-    t = NAME2TYPE[spec["type"]]
-    if spec.get("count") is not None:
-        return int(spec["count"])
-    ore, wat = unit_cost(cfg, t)
-    scal = ore + WATER_WEIGHT * wat
-    if scal <= 0:
-        return 1
-    return max(1, round(budget / scal))
+def resolve_side(cfg, spec, budget: float) -> list:
+    """side spec = 单个 {"type","level","count"} 或其列表(混合兵种)。返回展开的
+    [(type, level), ...](每单位一项)。混合兵种把 budget 均分给各子兵种,使整侧
+    总投入 ≈ budget(修:此前每子兵种各吃满 budget → 混合侧超投,如 6步兵+3奶妈)。"""
+    specs = spec if isinstance(spec, list) else [spec]
+    sub = budget / len(specs)
+    units = []
+    for s in specs:
+        t = NAME2TYPE[s["type"]]
+        if s.get("count") is not None:
+            n = int(s["count"])
+        else:
+            ore, wat = unit_cost(cfg, t)
+            scal = ore + WATER_WEIGHT * wat
+            n = 1 if scal <= 0 else max(1, round(sub / scal))
+        units += [(t, int(s["level"]))] * n
+    return units
 
 
 # ---- 对决清单:每项 {name, A, B, budget?, override?};A/B = side spec ----
@@ -126,36 +134,54 @@ def side(type_: str, level: int = 1, count=None) -> dict:
     return {"type": type_, "level": level, "count": count}
 
 
+# 口径(用户 2026-07-26 定):①单位 vs 单位 = 原地接战(交错摆位,IDLE,纯血量/
+# 攻击交换,去掉行军/风筝伪影);②防御建筑 = 攻防局(建筑守自家 HQ 前,机动方阵前
+# ORDER_ATTACK 收拢聚火,引擎在射程处自停),建筑同等造价该赢、~2 倍造价该被攻破;
+# ③water_weight=1(水矿同重)。防御建筑造价(scal=矿+水):塔80/迫140/法师塔120/
+# 喷火130/激光210——def 局按 1×(该赢)与 2×(该破)两档设 budget。
 MATCHUPS = [
-    # 近战互克(等投入)
+    # ① 近战互克(原地接战,等投入 budget 240)
     dict(name="melee_inf_vs_dog", A=side("infantry"), B=side("dog")),
     dict(name="melee_heavy_vs_lcav", A=side("heavy"), B=side("lcav")),
     dict(name="melee_heavy_vs_inf", A=side("heavy"), B=side("infantry")),
     dict(name="melee_lcav_vs_dog", A=side("lcav"), B=side("dog")),
     dict(name="melee_inf_vs_lcav", A=side("infantry"), B=side("lcav")),
-    # 远程 vs 近战(魔法应克重甲 heavy_armor=60,是设计意图)
+    # ① 远程 vs 近战(原地接战:点对点交换,验证魔法克重甲 heavy_armor=60)
     dict(name="ranged_archer_vs_inf", A=side("archer"), B=side("infantry")),
     dict(name="ranged_archer_vs_dog", A=side("archer"), B=side("dog")),
     dict(name="ranged_mage_vs_heavy", A=side("mage"), B=side("heavy")),
     dict(name="ranged_mage_vs_inf", A=side("mage"), B=side("infantry")),
-    # 攻城 vs 建筑(攻城应高效拆建筑)
-    dict(name="siege_ram_vs_tower", A=side("ram"), B=side("tower", count=1)),
-    dict(name="siege_ram_vs_barracks", A=side("ram"), B=side("barracks", count=1)),
-    dict(name="siege_ram_vs_hq", A=side("ram"), B=side("hq", count=1)),
-    # 防御建筑 vs 进攻波(1 建筑 vs 等 budget 的兵)
-    dict(name="def_tower_vs_dogwave", A=side("tower", count=1), B=side("dog")),
-    dict(name="def_mortar_vs_infwave", A=side("mortar", count=1), B=side("infantry")),
-    dict(name="def_magetower_vs_infwave",
-         A=side("magetower", count=1), B=side("infantry")),
-    dict(name="def_flamer_vs_dogwave", A=side("flamer", count=1), B=side("dog")),
-    dict(name="def_laser_vs_heavy", A=side("laser", count=1), B=side("heavy", count=1)),
-    # 龙(6 级线,level=1 起;line_cap=3)
+    # ② 攻城拆建筑(攻防局,等造价:攻城应高效拆建筑)
+    dict(name="siege_ram_vs_tower", A=side("ram"), B=side("tower", count=1), budget=80),
+    dict(name="siege_ram_vs_barracks",
+         A=side("ram"), B=side("barracks", count=1), budget=120),
+    dict(name="siege_ram_vs_hq", A=side("ram", count=2), B=side("hq", count=1)),
+    # ② 防御建筑 vs 进攻波(攻防局)——1×造价该守住 / 2×造价该被攻破
+    dict(name="def_tower_vs_dog_1x", A=side("tower", count=1), B=side("dog"), budget=80),
+    dict(name="def_tower_vs_dog_2x", A=side("tower", count=1), B=side("dog"), budget=160),
+    dict(name="def_mortar_vs_inf_1x",
+         A=side("mortar", count=1), B=side("infantry"), budget=140),
+    dict(name="def_mortar_vs_inf_2x",
+         A=side("mortar", count=1), B=side("infantry"), budget=280),
+    dict(name="def_magetower_vs_inf_1x",
+         A=side("magetower", count=1), B=side("infantry"), budget=120),
+    dict(name="def_magetower_vs_inf_2x",
+         A=side("magetower", count=1), B=side("infantry"), budget=240),
+    dict(name="def_flamer_vs_dog_1x",
+         A=side("flamer", count=1), B=side("dog"), budget=130),
+    dict(name="def_flamer_vs_dog_2x",
+         A=side("flamer", count=1), B=side("dog"), budget=260),
+    dict(name="def_laser_vs_heavy_1x",
+         A=side("laser", count=1), B=side("heavy"), budget=210),
+    dict(name="def_laser_vs_heavy_2x",
+         A=side("laser", count=1), B=side("heavy"), budget=420),
+    # 龙(6 级线,level=1;line_cap=3)
     dict(name="dragon_vs_airship", A=side("dragon"), B=side("airship"), budget=640),
-    dict(name="dragon_vs_infwave", A=side("dragon"), B=side("infantry")),
-    dict(name="dragon_vs_tower", A=side("dragon"), B=side("tower", count=1)),
-    dict(name="dragon_vs_barracks",
-         A=side("dragon"), B=side("barracks", count=1)),  # 验证喷火对建筑 5 折
-    # 辅助超模排查:等投入下奶妈是否让步兵线性翻盘
+    dict(name="dragon_vs_infwave", A=side("dragon"), B=side("infantry"), budget=320),
+    dict(name="dragon_vs_tower", A=side("dragon"), B=side("tower", count=1), budget=80),
+    dict(name="dragon_vs_barracks",  # 攻防局:验证喷火对建筑 5 折的拆建筑速度
+         A=side("dragon"), B=side("barracks", count=1), budget=120),
+    # ① 辅助超模排查:等投入(240 均分)下奶妈是否让步兵翻盘
     dict(name="support_infhealer_vs_inf",
          A=[side("infantry"), side("healer")], B=side("infantry")),
 ]
@@ -231,27 +257,36 @@ def _spawn(st, slot, etype, pos, hp, level, order):
     )
 
 
-def battlefield(mapdata):
-    """竞技场几何:passable/forbidden 格集 + A/B 两簇中心(沿 hq0→hq1 轴对进)。"""
+def _arena(mapdata):
     passable = np.asarray(mapdata.passable)
     forbidden = {tuple(int(x) for x in p) for p in mapdata.node_pos}
     forbidden |= {tuple(int(x) for x in p) for p in mapdata.hq_pos}
-    hq0 = np.asarray(mapdata.hq_pos[0], np.float32)
-    hq1 = np.asarray(mapdata.hq_pos[1], np.float32)
-    # A 群居 hq0 侧、B 群居 hq1 侧,各距中心一段,对进汇合
-    a_center = hq0 + 0.40 * (hq1 - hq0)
-    b_center = hq0 + 0.60 * (hq1 - hq0)
-    return passable, forbidden, a_center, b_center
+    return passable, forbidden
+
+
+def _invest(cfg, units):
+    """整侧总投入 [ore,water] 与按类型名计数 dict(从展开后的 units 列表算)。"""
+    o = w = 0
+    cnt = {}
+    for t, _ in units:
+        o1, w1 = unit_cost(cfg, t)
+        o += o1
+        w += w1
+        name = TYPE2NAME.get(t, str(t))
+        cnt[name] = cnt.get(name, 0) + 1
+    return [o, w], cnt
 
 
 def build_state(cfg, mapdata, state0, mtc, budget: float):
-    """按 matchup 摆好一个 state,返回 (state, a_slots, b_slots, meta)。"""
-    passable, forbidden, a_center, b_center = battlefield(mapdata)
+    """按 matchup 摆好一个 state,返回 (state, a_slots, b_slots, meta)。
+    模式(用户 2026-07-26 口径):一方全建筑 → 攻防局(建筑守自家 HQ 前 IDLE,
+    机动方阵前 ORDER_ATTACK 收拢聚火,引擎在射程处自停);否则 → 原地接战
+    (两军交错紧凑摆位,全 IDLE,纯血量/攻击交换,无行军无风筝)。"""
+    passable, forbidden = _arena(mapdata)
     htab = hp_table(cfg)
-    line_of = cfg.line_of_type
+    speed = cfg.speed_by_type
     st = state0
-    # 无菌化:撤 p0/p1 默认工人(两家 HQ 留着,做对进锚点);彻底移除 p2/p3
-    # (HQ+工人,让 ORDER_ATTACK 只剩 p0↔p1 唯一路由)
+    # 无菌化:撤 p0/p1 默认工人(两家 HQ 留着做锚点);彻底移除 p2/p3
     for p in (0, 1):
         for i in range(cfg.start_workers):
             st = st._replace(alive=st.alive.at[hq_slot(p, cfg) + 1 + i].set(False))
@@ -260,51 +295,81 @@ def build_state(cfg, mapdata, state0, mtc, budget: float):
         for i in range(cfg.start_workers + 1):   # +1 含 HQ 本身(0 号槽)
             st = st._replace(alive=st.alive.at[base + i].set(False))
 
-    def sides(spec):
-        return spec if isinstance(spec, list) else [spec]
-
-    claimed = set()
-    meta = {"invest": {}, "counts": {}}
-    slots_by_side = {}
-    for who, center, order in (("A", a_center, ORDER_ATTACK),
-                               ("B", b_center, ORDER_ATTACK)):
-        p = 0 if who == "A" else 1
-        base = hq_slot(p, cfg)
-        specs = sides(mtc[who])
-        # 先设该侧所有出现线的 upgrades level(战斗单位强度/血量真源)
-        for spec in specs:
-            t = NAME2TYPE[spec["type"]]
-            ln = int(line_of[t])
+    a_units = resolve_side(cfg, mtc["A"], budget)   # [(type,level),...]
+    b_units = resolve_side(cfg, mtc["B"], budget)
+    a_bld = all(float(speed[t]) == 0 for t, _ in a_units)
+    b_bld = all(float(speed[t]) == 0 for t, _ in b_units)
+    # upgrades = 战斗单位强度/血量真源
+    for p, units in ((0, a_units), (1, b_units)):
+        for t, lv in units:
+            ln = int(cfg.line_of_type[t])
             if ln >= 0:
                 st = st._replace(
-                    upgrades=st.upgrades.at[p, ln].set(
-                        jnp.asarray(spec["level"], jnp.int8)))
-        # 再逐单位 spawn
-        my_slots = []
-        inv_o = inv_w = 0
-        cnts = {}
-        slot_cursor = base + 6      # 跳过 HQ(0)与工人区
-        for spec in specs:
-            t = NAME2TYPE[spec["type"]]
-            lv = int(spec["level"])
-            n = resolve_count(cfg, spec, budget)
-            # 建筑站桩(IDLE),机动单位对进(ATTACK);射程>0 的远程即使 IDLE 也自动开火
-            is_bld = float(cfg.speed_by_type[t]) == 0.0
-            od = ORDER_IDLE if is_bld else order
-            cells = _pick_cells(passable, forbidden, center, n, claimed)
-            hpv = int(htab[t, lv])
-            for cell in cells:
-                st = _spawn(st, slot_cursor, t, cell, hpv, lv, od)
-                my_slots.append(slot_cursor)
-                slot_cursor += 1
-            o1, w1 = unit_cost(cfg, t)
-            inv_o += o1 * len(cells)
-            inv_w += w1 * len(cells)
-            cnts[spec["type"]] = len(cells)
-        slots_by_side[who] = my_slots
-        meta["invest"][who] = [inv_o, inv_w]
-        meta["counts"][who] = cnts
-    return st, slots_by_side["A"], slots_by_side["B"], meta
+                    upgrades=st.upgrades.at[p, ln].set(jnp.asarray(lv, jnp.int8)))
+
+    hq0 = np.asarray(mapdata.hq_pos[0], np.float32)
+    hq1 = np.asarray(mapdata.hq_pos[1], np.float32)
+    claimed = set()
+    ca, cb = hq_slot(0, cfg) + 6, hq_slot(1, cfg) + 6   # 每家跳过 HQ(0)+工人区
+
+    def place(units, cells, order, cursor):
+        nonlocal st
+        slots = []
+        for (t, lv), cell in zip(units, cells):
+            st = _spawn(st, cursor, t, cell, int(htab[t, lv]), lv, order)
+            slots.append(cursor)
+            cursor += 1
+        return slots
+
+    if a_bld != b_bld:
+        mode = "assault"
+        # 建筑侧=防御(守自家 HQ 前 IDLE),机动侧=进攻(阵前 ORDER_ATTACK)
+        if a_bld:
+            dp, du, dhq, dc = 0, a_units, hq0, ca
+            xp, xu, xhq, xc = 1, b_units, hq1, cb
+        else:
+            dp, du, dhq, dc = 1, b_units, hq1, cb
+            xp, xu, xhq, xc = 0, a_units, hq0, ca
+        axis = xhq - dhq
+        axis = axis / (float(np.linalg.norm(axis)) + 1e-6)
+        d_center = dhq + 4.0 * axis            # 建筑摆自家 HQ 前 4 格
+        x_center = d_center + 6.0 * axis        # 攻方在建筑前 6 格,ATTACK 收拢聚火
+        d_cells = _pick_cells(passable, forbidden, d_center, len(du), claimed)
+        x_cells = _pick_cells(passable, forbidden, x_center, len(xu), claimed)
+        d_slots = place(du, d_cells, ORDER_IDLE, dc)
+        x_slots = place(xu, x_cells, ORDER_ATTACK, xc)
+        a_slots, b_slots = ((d_slots, x_slots) if a_bld else (x_slots, d_slots))
+    else:
+        mode = "brawl"
+        # 原地接战:两军交错摆在中心紧凑区,全 IDLE
+        center = 0.5 * (hq0 + hq1)
+        cells = _pick_cells(passable, forbidden, center,
+                            len(a_units) + len(b_units), claimed)
+        seq = []          # 交错序列 → 空间上你中有我
+        ai = bi = 0
+        while ai < len(a_units) or bi < len(b_units):
+            if ai < len(a_units):
+                seq.append(("A", a_units[ai]))
+                ai += 1
+            if bi < len(b_units):
+                seq.append(("B", b_units[bi]))
+                bi += 1
+        a_slots, b_slots = [], []
+        for (who, (t, lv)), cell in zip(seq, cells):
+            if who == "A":
+                st = _spawn(st, ca, t, cell, int(htab[t, lv]), lv, ORDER_IDLE)
+                a_slots.append(ca)
+                ca += 1
+            else:
+                st = _spawn(st, cb, t, cell, int(htab[t, lv]), lv, ORDER_IDLE)
+                b_slots.append(cb)
+                cb += 1
+
+    inv_a, cnt_a = _invest(cfg, a_units)
+    inv_b, cnt_b = _invest(cfg, b_units)
+    meta = {"mode": mode, "invest": {"A": inv_a, "B": inv_b},
+            "counts": {"A": cnt_a, "B": cnt_b}}
+    return st, a_slots, b_slots, meta
 
 
 def run_duel(cfg, step_fn, mapdata, state0, mtc, budget, max_ticks, seed=0):
@@ -339,7 +404,7 @@ def run_duel(cfg, step_fn, mapdata, state0, mtc, budget, max_ticks, seed=0):
                    "B_ahead" if rb - ra > 0.15 else "even")
     return {
         "name": mtc["name"], "outcome": outcome, "resolved_tick": tick,
-        "budget": budget,
+        "budget": budget, "mode": meta["mode"],
         "A_count": meta["counts"]["A"], "B_count": meta["counts"]["B"],
         "A_invest": meta["invest"]["A"], "B_invest": meta["invest"]["B"],
         "A_left": a_left, "B_left": b_left,
@@ -369,16 +434,18 @@ def summarize(rows: list) -> str:
     head = (
         "# v1.7 对决矩阵汇总\n\n"
         "成本归一:count=budget/(ore+w·water);胜负=对方全灭且己方有余,超时按余血占比。\n"
-        "「疑似超模」= 全灭对方且余兵≥50%,或余血占比差>0.7。\n\n"
-        "| 对决 | A×n | B×n | 结果 | tick | A余/B余 | A血比/B血比 | 超模 |\n"
-        "|---|---|---|---|---|---|---|---|")
+        "「疑似超模」= 全灭对方且余兵≥50%,或余血占比差>0.7。\n"
+        "模式:brawl=原地接战(单位vs单位) / assault=攻防局(建筑防御)。\n\n"
+        "| 对决 | 模式 | A×n | B×n | 投入A/B | 结果 | tick | A余/B余 | A血比/B血比 | 超模 |\n"
+        "|---|---|---|---|---|---|---|---|---|---|")
     lines = [head]
     for r in rows:
         acnt = ",".join(f"{k}{v}" for k, v in r["A_count"].items())
         bcnt = ",".join(f"{k}{v}" for k, v in r["B_count"].items())
+        inv = f"{sum(r['A_invest'])}/{sum(r['B_invest'])}"
         lines.append(
-            f"| {r['name']} | {acnt} | {bcnt} | {r['outcome']} | "
-            f"{r['resolved_tick']} | {r['A_left']}/{r['B_left']} | "
+            f"| {r['name']} | {r['mode']} | {acnt} | {bcnt} | {inv} | "
+            f"{r['outcome']} | {r['resolved_tick']} | {r['A_left']}/{r['B_left']} | "
             f"{r['A_hp_ratio']}/{r['B_hp_ratio']} | {flag_super(r)} |")
     return "\n".join(lines) + "\n"
 
