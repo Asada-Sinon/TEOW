@@ -70,6 +70,11 @@ class WorldState(NamedTuple):
     # ---- 军旗表 [P, max_flags](v1.3;旗不是实体:无血量、不可拆)----
     flag_pos: jax.Array     # f32  [P,F,2] 旗所在格心;未激活 -1
     flag_active: jax.Array  # bool [P,F]
+    # ---- 异界之门怪物表 [P, Mmax](v1.8;阵营隔离:行 p 的怪只与玩家 p 交互)----
+    monster_alive: jax.Array   # bool  [P,Mmax]
+    monster_pos: jax.Array     # f32   [P,Mmax,2] 连续坐标(格心=整数)
+    monster_hp: jax.Array      # int32 [P,Mmax]  无上限(spawn 时定死)
+    monster_atk: jax.Array     # int32 [P,Mmax]  攻击力(spawn 时定死,封顶)
     # ---- 资源点表 [Nn] ----
     node_owner: jax.Array        # int8  [Nn] -1 无主
     node_ent: jax.Array          # int16 [Nn] 结构实体槽号;-1 未建
@@ -148,6 +153,10 @@ def init_state(cfg: Config, mapdata: MapData) -> WorldState:
         reboard_lock=jnp.zeros(n, jnp.int16),
         flag_pos=jnp.full((cfg.n_players, cfg.max_flags, 2), -1.0, jnp.float32),
         flag_active=jnp.zeros((cfg.n_players, cfg.max_flags), bool),
+        monster_alive=jnp.zeros((cfg.n_players, cfg.monster_cap), bool),
+        monster_pos=jnp.zeros((cfg.n_players, cfg.monster_cap, 2), jnp.float32),
+        monster_hp=jnp.zeros((cfg.n_players, cfg.monster_cap), jnp.int32),
+        monster_atk=jnp.zeros((cfg.n_players, cfg.monster_cap), jnp.int32),
         node_owner=jnp.full(nn, -1, jnp.int8),
         node_ent=jnp.full(nn, -1, jnp.int16),
         node_build_timer=jnp.zeros(nn, jnp.int16),

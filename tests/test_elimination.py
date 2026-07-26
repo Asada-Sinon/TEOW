@@ -1,5 +1,5 @@
 """v1.5 淘汰清场:HQ 亡即淘汰,该家全部残余单位/建筑同 tick 清除,
-矿泵释放点位、军旗撤除、敌方驻守其点的兵转 IDLE;胜负编码 P=和局。"""
+矿泵释放点位、军旗撤除、敌方驻守其点的兵转 IDLE;v1.8 起取消和局(异界之门必分胜负)。"""
 
 import jax
 import jax.numpy as jnp
@@ -47,16 +47,20 @@ def test_hq_death_wipes_player_and_frees_nodes():
     assert bool(st.done) and int(st.winner) == 0
 
 
-def test_winner_encoding_draw_is_n_players():
-    """超时和局编码 = n_players(v1.5 泛化;双人局=2,与旧编码兼容)。"""
+def test_hard_cap_forces_winner_not_draw():
+    """v1.8:取消超时和局。到 episode_len 硬帽仍未分 → 残余总血打分兜底出唯一
+    胜者(绝不再有 winner==n_players 的和局)。gate_open_tick 默认 4000>5,门不开,
+    直接走硬帽兜底。"""
     cfg = Config(episode_len=5)
     state, _, step_fn, m = new_world(cfg)
     st = drive(state, step_fn, {}, 6)
-    assert bool(st.done) and int(st.winner) == cfg.n_players
+    assert bool(st.done)
+    assert 0 <= int(st.winner) < cfg.n_players, "必分胜负,不得为和局 P"
 
 
-def test_mutual_hq_kill_same_tick_draw():
-    """全部 HQ 同 tick 齐灭 → 和局 P,全场清空。"""
+def test_mutual_hq_kill_same_tick_deterministic_winner():
+    """v1.8:全部 HQ 同 tick 齐灭(极罕见)→ 确定性给 argmax 定序胜者(非和局),
+    全场清空。"""
     cfg = Config()
     state, _, step_fn, m = new_world(cfg)
     hp = state.hp
@@ -65,7 +69,8 @@ def test_mutual_hq_kill_same_tick_draw():
     st = state._replace(hp=hp)
     st = step_fn(st, jnp.full(cfg.n_total, A_NOOP, jnp.int32),
                  jax.random.PRNGKey(3))
-    assert bool(st.done) and int(st.winner) == cfg.n_players
+    assert bool(st.done) and int(st.winner) != cfg.n_players, "不得和局"
+    assert 0 <= int(st.winner) < cfg.n_players
     # 全清场
     assert int(jnp.sum(st.alive)) == 0
 

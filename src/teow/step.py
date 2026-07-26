@@ -7,9 +7,14 @@ tick 结算顺序(设计依据见 docs/plans/ 下两份调研报告与 plan):
   4. apply_orders        本 tick 新指令(合法性掩码;训练在此扣费)
   5. start_constructions 到场工人开工(抢点仲裁 + 扣费对账)
   6. movement_tick       距离场下降 + 抢格仲裁
+  6.5 gate_tick          异界之门(v1.8):门开(tick>=gate_open_tick)向每个存活玩家
+                         中心出阵营隔离怪 + 怪物沿目标玩家 HQ 场慢速 descent
   7. combat_tick         相邻同时结算
-  8. cleanup_deaths      翻 alive + 连锁清理
-  9. _end_tick           冷却/计时/胜负判定
+  7.5 monster_combat_tick 怪物近战 pass(v1.8):阵营隔离(行 p 的怪↔owner==p 实体),
+                         晚正常近战一个子阶段——不能并入 combat 的 incoming(已消费),
+                         同一 pre-pass 快照算两侧、允许互杀
+  8. cleanup_deaths      翻 alive + 连锁清理(玩家亡→其怪同帧离场)
+  9. _end_tick           冷却/计时/胜负判定(v1.8:异界之门必分胜负,不再判和局)
 终局冻结:done 之后再 step 是恒等映射(scan 安全)。
 
 GARRISON 语义(v1.3):驻守单位在 movement 阶段走向锚点(target_cell),入
@@ -34,6 +39,7 @@ import jax.numpy as jnp
 from .actions import apply_orders
 from .combat import cleanup_deaths, combat_tick
 from .config import Config
+from .gate import gate_tick, monster_combat_tick
 from .economy import (
     construction_tick,
     harvest_tick,
@@ -48,16 +54,21 @@ from .state import WorldState, hq_slot, init_state, owner_of_slots
 
 
 def _end_tick(state: WorldState, cfg: Config) -> WorldState:
-    """胜负判定(v1.5 泛化):HQ 亡即淘汰(清场在 cleanup_deaths);存活 1 家
-    →该家胜;0 家(同 tick 齐灭)→和局 P;超时→和局 P;≥2 家存活继续打。"""
+    """胜负判定(v1.8:异界之门必分胜负,不再有和局)。HQ 亡即淘汰(清场在
+    cleanup_deaths);存活 1 家→该家胜;0 家(同帧齐灭,极罕见)→argmax 定序给 0
+    (确定性非和局);≥2 家存活继续打(异界之门保证终将只剩 1 家)。防御硬帽:到
+    episode_len(应因怪物无上限升级而不可达)仍 ≥2 家→残余总血打分兜底,绝不判和。"""
     st = state
     tick = st.tick + 1
     P = cfg.n_players
     hq_alive = jnp.stack([st.alive[hq_slot(p, cfg)] for p in range(P)])
     n_alive = jnp.sum(hq_alive.astype(jnp.int32))
-    winner = jnp.where(n_alive == 1, jnp.argmax(hq_alive),
-                       jnp.where(n_alive == 0, P, st.winner))
-    winner = jnp.where((winner == -1) & (tick >= cfg.episode_len), P, winner)
+    survivor = jnp.argmax(hq_alive).astype(jnp.int8)         # 唯一存活者;全灭则 0
+    winner = jnp.where(n_alive <= 1, survivor, st.winner.astype(jnp.int8))
+    # 防御硬帽兜底:残余总血最高者胜(正常局异界之门早分出胜负,不会走到这)
+    hp_by_p = (st.hp * st.alive).reshape(P, cfg.e_max).sum(axis=1)   # [P]
+    cap_winner = jnp.argmax(hp_by_p).astype(jnp.int8)
+    winner = jnp.where((winner == -1) & (tick >= cfg.episode_len), cap_winner, winner)
     done = winner != -1
     return st._replace(tick=tick, done=done, winner=winner.astype(jnp.int8))
 
@@ -77,7 +88,9 @@ def build_step(cfg: Config, mapdata: MapData):
         st = paid_orders_pass(st, act, cfg, mapdata, owner)  # 付费指令顺序对账(B-1)
         st = start_constructions(st, cfg, mapdata, owner, k_claim)
         st = movement_tick(st, cfg, mapdata, owner, k_move)
+        st = gate_tick(st, cfg, mapdata)          # 异界之门:门开出怪 + 怪物慢速 descent
         st = combat_tick(st, cfg, owner)
+        st = monster_combat_tick(st, cfg, owner)  # 怪物近战(阵营隔离,晚正常近战一子阶段)
         st = cleanup_deaths(st, cfg, owner)
         st = _end_tick(st, cfg)
         # 终局冻结:done 的局再 step 恒等(tick 也不再走)

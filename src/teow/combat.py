@@ -288,6 +288,7 @@ def cleanup_deaths(state: WorldState, cfg: Config, owner: jax.Array) -> WorldSta
         aboard=jnp.where(park, -1, st.aboard).astype(jnp.int16),
         reboard_lock=jnp.where(park, 0, st.reboard_lock).astype(jnp.int16),
         flag_active=flag_active,
+        monster_alive=st.monster_alive & ~hq_dead[:, None],  # 玩家亡→其异界之门怪离场(v1.8)
         node_owner=node_owner,
         node_ent=node_ent,
         node_build_timer=node_build_timer,

@@ -67,7 +67,9 @@ def test_hq_destroyed_ends_game_and_freezes():
     assert jnp.array_equal(st2.hp, st1.hp)
 
 
-def test_timeout_draw():
+def test_hard_cap_no_draw():
+    """v1.8:取消超时和局。到 episode_len 硬帽仍未分 → 残余总血打分兜底出唯一胜者
+    (winner ∈ 0..P-1,绝不再是 winner==n_players 的和局)。"""
     cfg = Config(episode_len=5)
     state, _, step_fn, m = new_world(cfg)
     key = jax.random.PRNGKey(0)
@@ -75,4 +77,4 @@ def test_timeout_draw():
     for _ in range(6):
         key, sub = jax.random.split(key)
         st = step_fn(st, jnp.full(cfg.n_total, A_NOOP, jnp.int32), sub)
-    assert bool(st.done) and int(st.winner) == cfg.n_players  # P=和局
+    assert bool(st.done) and 0 <= int(st.winner) < cfg.n_players

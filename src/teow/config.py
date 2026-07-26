@@ -97,7 +97,10 @@ class Config:
     # ---- 世界 ----
     grid_h: int = 64         # v1.5:方格网格上雕六边形可行区(规格「约 64」)
     grid_w: int = 64
-    episode_len: int = 6000  # 超时判和局(winner=P);[AI-DRAFT] 大图四人局翻倍
+    episode_len: int = 6000  # 硬帽/scan 边界(v1.8:不再判和局;异界之门保证门开后必分
+    #                          胜负,episode_len 沦为防御硬帽,正常应因怪物升级不可达)
+    gate_open_tick: int = 4000  # v1.8 异界之门开门时刻(< episode_len,留 overtime 余量);
+    #                             旧「超时」语义迁移至此,门开后 overtime 逼出唯一胜者
 
     # ---- 容量(静态形状;e_max 满 = 天然人口上限,是特性不是 bug)----
     n_players: int = 4       # 玩家数 P(v1.5:四人自由混战;编译期静态量。
@@ -108,6 +111,21 @@ class Config:
     # 的工人上限;名额在指派侧占用,不因工人出矿运输而释放。0 位是废位。
     harvest_slots_by_level: tuple = (0, 3, 3, 4, 4, 5, 5, 6)
     max_flags: int = 3       # 军旗(v1.3):每玩家上限,不随任何等级增加
+
+    # ---- 异界之门 sudden-death 怪物(v1.8;数值 [AI-DRAFT],P4 校准)----
+    # 门开(tick>=gate_open_tick)后每 spawn_interval 拍向每个存活玩家中心出一波怪。
+    # 阵营隔离:打玩家 p 的怪只打 p、也只有 p 能打它。HP 无上限随 overtime 线性增、
+    # 攻击封顶、慢速近战、强度生成时定死(后出更强、已在场不变)、各阵营压力一致。
+    monster_cap: int = 64         # Mmax:每玩家怪容量(静态形状;批量显存乘子)
+    monster_spawn_interval: int = 50   # 每多少拍出一波
+    monster_wave_count: int = 2   # 每玩家每波怪数
+    monster_hp_base: int = 50     # HP 基(spawn 时 = base + round(hp_slope*overtime),无上限)
+    monster_hp_slope: float = 0.5  # HP 每 overtime 拍线性增量(P4 调此控收敛速度)
+    monster_atk_base: int = 5     # 攻击基
+    monster_atk_slope: float = 0.005  # 攻击每 overtime 拍增量
+    monster_atk_cap: int = 20     # 攻击上限(封顶)
+    monster_speed: float = 0.15   # 移速(格/tick;慢于任何单位,可被风筝)
+    monster_melee_range: float = 1.5   # 近战判定半径(=melee_range)
 
     # ---- 连续移动(v1.2:单位 360°,建筑/资源点仍格子锚定)----
     unit_radius: float = 0.35   # 单位圆半径(<0.5,圆不出格,建筑推离用格判定)
