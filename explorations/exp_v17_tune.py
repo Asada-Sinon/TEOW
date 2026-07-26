@@ -33,21 +33,26 @@ from teow.config import Config  # noqa: E402
 from teow.step import new_world  # noqa: E402
 
 # 候选 override(每项一个 dict);base={} 作对照(应两档皆 B_win=守不住)
+# 迫击炮是炮弹武器(flight 8、打开火瞬位不预判)→ 对行进目标炮弹落身后。关键杠杆
+# 是爆炸半径 aoe_radius(现 1.5):调大让炮弹瞄旧位也能覆盖移动后的步兵。配合更快
+# period(更多炮)。
 MORTAR_CANDS = {
     "base": {},
-    "period25": dict(mortar_atk_period=25),
-    "period15": dict(mortar_atk_period=15),
-    "minr1.0": dict(mortar_min_range=1.0),
-    "minr1.0_period25": dict(mortar_min_range=1.0, mortar_atk_period=25),
-    "hp250_period25": dict(mortar_hp=250, mortar_atk_period=25),
-    "atk50_period20": dict(mortar_atk=50, mortar_atk_period=20),
+    "aoe2.5_period25": dict(mortar_aoe_radius=2.5, mortar_atk_period=25),
+    "aoe3.0_period25": dict(mortar_aoe_radius=3.0, mortar_atk_period=25),
+    "aoe3.5_period20": dict(mortar_aoe_radius=3.5, mortar_atk_period=20),
+    "aoe3.0_period20_minr1.5": dict(mortar_aoe_radius=3.0, mortar_atk_period=20,
+                                    mortar_min_range=1.5),
+    "aoe2.5_period15": dict(mortar_aoe_radius=2.5, mortar_atk_period=15),
+    "aoe4.0_period30": dict(mortar_aoe_radius=4.0, mortar_atk_period=30),
 }
+# 用户 2026-07-26 定:atk→20 且 dps 再高一点(降 period 提 dps)。现值 atk14/period5
+# =2.8dps;候选把 atk 定 20、降 period 抬 dps(20/5=4、20/4=5、20/3=6.67)。
 MAGETOWER_CANDS = {
     "base": {},
-    "atk18": dict(magetower_atk=18),
-    "atk20": dict(magetower_atk=20),
-    "atk24": dict(magetower_atk=24),
-    "atk28": dict(magetower_atk=28),
+    "atk20_p5": dict(magetower_atk=20),                       # dps 4.0
+    "atk20_p4": dict(magetower_atk=20, magetower_period=4),   # dps 5.0
+    "atk20_p3": dict(magetower_atk=20, magetower_period=3),   # dps 6.67
 }
 # 龙对地面=大范围火海(用户 2026-07-26:火海范围可给大)。dragon_breath_radius
 # 现 2.5;龙对纯地面无敌(步兵打不到空军),调大半径只让清场更快更广、不失衡
@@ -132,23 +137,27 @@ def main():
     ap.add_argument("--out-root", default=str(ROOT / "experiments"))
     ap.add_argument("--slug", default="v17-tune")
     ap.add_argument("--smoke", action="store_true")
+    ap.add_argument("--only", default="", help="只跑 mortar/magetower/dragon 之一")
     ap.add_argument("--max-ticks", type=int, default=800)
     args = ap.parse_args()
 
     t0 = time.time()
-    mc = ({"base": {}, "period25": MORTAR_CANDS["period25"]} if args.smoke
+    mc = ({"base": {}, "period25": MORTAR_CANDS["aoe2.5_period25"]} if args.smoke
           else MORTAR_CANDS)
     gc = ({"base": {}, "atk20": MAGETOWER_CANDS["atk20"]} if args.smoke
           else MAGETOWER_CANDS)
     rows = []
-    print("== 迫击炮扫参(1×=140/4步兵,2×=280/7步兵)", flush=True)
-    rows += sweep("mortar", mc, "mortar", 140, 280, args.max_ticks)
-    print("== 法师塔扫参(1×=120/3步兵,2×=240/6步兵)", flush=True)
-    rows += sweep("magetower", gc, "magetower", 120, 240, args.max_ticks)
-    dc = ({"base": {}, "r4.0": DRAGON_CANDS["r4.0"]} if args.smoke
-          else DRAGON_CANDS)
-    print("== 龙火海半径扫参(1 龙 vs 8 步兵 @320,目标 A_win 清场)", flush=True)
-    rows += sweep_dragon(dc, 320, args.max_ticks)
+    if args.only in ("", "mortar"):
+        print("== 迫击炮扫参(1×=140/4步兵,2×=280/7步兵)", flush=True)
+        rows += sweep("mortar", mc, "mortar", 140, 280, args.max_ticks)
+    if args.only in ("", "magetower"):
+        print("== 法师塔扫参(1×=120/3步兵,2×=240/6步兵)", flush=True)
+        rows += sweep("magetower", gc, "magetower", 120, 240, args.max_ticks)
+    if args.only in ("", "dragon"):
+        dc = ({"base": {}, "r4.0": DRAGON_CANDS["r4.0"]} if args.smoke
+              else DRAGON_CANDS)
+        print("== 龙火海半径扫参(1 龙 vs 8 步兵 @320,目标 A_win 清场)", flush=True)
+        rows += sweep_dragon(dc, 320, args.max_ticks)
 
     run_dir = new_run_dir(pathlib.Path(args.out_root), args.slug)
     write_provenance(run_dir, Config(), (0,), extra=dict(
