@@ -211,3 +211,29 @@
 - 2026-07-26 [AI-DRAFT] **训练营升级不补血差 bug 修复**(economy.py:自升级完成分支
   加 camp 补血,与哨塔/兵营同构)——挂 v1.4/v1.5/v1.6 四版的静默 bug,是 camp_hp_by_level
   数值复核前置;修后默认局决定论仍逐位一致(默认局无营升级)。
+
+## v1.8 多风格指挥官 + 异界之门(2026-07-26)
+- 2026-07-26 **用户在线拍板(AskUserQuestion)**:①**「必分胜负」＝异界之门 sudden-death**:
+  `gate_open_tick` 后场地中央开门,同时向每个存活玩家出**阵营隔离**怪物(打 p 的怪只打 p、
+  也只有 p 能打它);怪 **HP 无上限随超时线性增**、**攻击力有上限**、**移速慢**、**近战**、
+  **强度生成时定死**(后出更强、已在场不变)、**各阵营压力一致**;**某阵营死则其怪离场**。
+  效果:最弱基地先塌、最后存活者胜。②**主战场维持 4 人 FFA 64×64**(1v1 需新地图代码,
+  不做)。③**v2.0＝调研+跑通但不训练的 JAX 骨架**(用 jax 自研到「空跑一步验证正确」,不真训)。
+- 2026-07-26 [AI-DRAFT] **异界之门用 Approach A 独立怪物子表**(`monster_* [P,Mmax]` 进
+  WorldState,不动 owner-by-row 主表)——阵营隔离天然成立(只在 owner==p 维度结算);经
+  `plan-critic` 核对 combat/step/movement/cleanup 插入点均成立。
+- 2026-07-26 [AI-DRAFT] **怪物战斗独立成 `monster_combat_tick` 阶段**(combat_tick 与
+  cleanup_deaths 之间)——不能并入 combat_tick 的 incoming(该累加器 combat.py:192 已被
+  hp=clip 消费);怪物战斗自成同帧子结算,写进 step.py 头注释。
+- 2026-07-26 [AI-DRAFT] **胜负改造走最小改动**:保留 `episode_len` 为硬帽/scan 边界(零改
+  run.py:129 与 make_scan、7 处引用不 rename),新增 `gate_open_tick`(<episode_len)触发门开;
+  删 _end_tick 超时和局;overtime 在既有边界内跑到唯一 winner;episode_len 作防御硬帽+残血
+  打分兜底(应因怪物升级不可达)。
+- 2026-07-26 [AI-DRAFT] **怪物不参与单位互推碰撞**(只受 impassable 约束,沿目标玩家 HQ
+  dist_field 慢速 descent 绕障)——决定论+简化。
+- 2026-07-26 [AI-DRAFT] **指挥官策略参数走版本控制代码常量(StrategyProfile)而非 Config**
+  ——AI 策略非平衡数字,复现锚点＝git hash+指挥官名+seed;共享宏观管线抽到
+  `src/teow/commanders/macro.py` 去重。
+- 2026-07-26 [AI-DRAFT] **FFA 目标选择(`attack_tgt` 状态字段)独立成 P2b、可延后**——
+  A_ATTACK 硬编码最近敌 HQ(movement.py:116-123);核心 roster 先用默认最近敌 HQ 跑通,不阻塞。
+- 2026-07-26 [AI-DRAFT] **v1.9 锦标赛脚手架 explorations 验证后提升进 `src/`**(供 v2.0 复用)。
