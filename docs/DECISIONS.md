@@ -237,3 +237,18 @@
 - 2026-07-26 [AI-DRAFT] **FFA 目标选择(`attack_tgt` 状态字段)独立成 P2b、可延后**——
   A_ATTACK 硬编码最近敌 HQ(movement.py:116-123);核心 roster 先用默认最近敌 HQ 跑通,不阻塞。
 - 2026-07-26 [AI-DRAFT] **v1.9 锦标赛脚手架 explorations 验证后提升进 `src/`**(供 v2.0 复用)。
+
+### v1.8 收尾:engine-auditor 裁决(2026-07-27,用户离线按最合理解释)
+- 2026-07-27 [AI-DRAFT] **v1.8 engine-auditor P0 清零**:决定论(含怪物子表逐位一致、seed 确进
+  key)、阵营隔离(双向×4 家)、必分胜负(winner 恒 ∈[0,3])、资源守恒、无僵尸/泄漏怪——全成立。
+- 2026-07-27 [AI-DRAFT] **P1-1 裁决:FFA「选敌」v1.8 接受 nearest-only**。规格「可按最弱/最近/
+  威胁最大等」的「可」按可选解读;按敌选择需 attack_tgt 状态字段=P2b(计划/changelog 已延后)。
+  `target_mode` 字段保留但注释标明 v1.8 **inert**(base.py 未读),供 P2b 落地,避免「声明不生效」误导。
+- 2026-07-27 [AI-DRAFT] **P2 当场修两处**(影响 v1.9 评测有效性/不变量):①`monster_combat_tick`
+  对怪开火回写 `atk_cd`(gate.py:否则 period>1 建筑对怪每 tick 连发,虚高龟缩/攻城/空军抗怪力、
+  扭曲 v1.9 平衡评测);②离场怪清 `monster_hp`(combat.py:保 monster_hp>0⟺alive)。其余 P2
+  (攻击 slope 近惰性、喷火/地雷对怪零伤=spec 未定、boomer 上兵慢=v1.9 筛选范畴、run.py:154
+  死和局打印分支无害)记 changelog 已知问题。
+- 2026-07-27 [AI-DRAFT] **装 pytest-xdist(`uv pip install`)加速门禁**:异界之门令 step 编译变慢,
+  串行全套 >40min(25min 只跑到 61%);`-n 8` 并行 ~8min(117 passed)。dev 工具非数值依赖,未写进
+  pyproject(uv sync 会移除),v1.9+ 沿用。

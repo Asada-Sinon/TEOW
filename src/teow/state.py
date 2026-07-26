@@ -87,7 +87,7 @@ class WorldState(NamedTuple):
     #                                       营被拆仍保留
     tick: jax.Array         # int32 标量
     done: jax.Array         # bool 标量
-    winner: jax.Array       # int8 标量  -1 未分;0..P-1 胜者;P 和局(v1.5 泛化)
+    winner: jax.Array       # int8 标量  -1 未分;0..P-1 胜者(v1.8:异界之门必分胜负,无 P 和局)
 
 
 def cell_of(pos: jax.Array) -> jax.Array:

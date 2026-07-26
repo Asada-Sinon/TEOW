@@ -127,4 +127,9 @@ def monster_combat_tick(state: WorldState, cfg: Config, owner: jax.Array) -> Wor
     hp = jnp.clip(st.hp - ent_inc.reshape(-1), 0, jnp.maximum(maxhp, st.hp))
     m_hp2 = jnp.maximum(m_hp - mon_inc, 0)
     m_alive2 = m_alive & (m_hp2 > 0)
-    return st._replace(hp=hp, monster_hp=m_hp2, monster_alive=m_alive2)
+    # 对怪开火者同样进入攻击冷却(审计 P2-2 修:否则 period>1 建筑/远程对怪每 tick 连发,
+    # 系统性抬高龟缩/攻城/空军抗怪力、扭曲 v1.9 平衡评测;period=1 近战者 cd 恒 0 不变)。
+    # 说明:能对怪开火者其正常近战 cd 必为 0(否则被 ready 门挡),故此处置 cd 与 combat 不冲突
+    period = tt["period"][et]
+    atk_cd = jnp.where(e_has.reshape(-1), (period - 1).astype(jnp.int16), st.atk_cd)
+    return st._replace(hp=hp, atk_cd=atk_cd, monster_hp=m_hp2, monster_alive=m_alive2)

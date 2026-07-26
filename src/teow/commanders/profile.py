@@ -32,8 +32,10 @@ class StrategyProfile:
     # ---- 进攻风格 ----
     #   rush 早压;timing 攒到配比一波;defensive 守+反击;harass 少量早扰;allin 倾家一波。
     aggression: str = "timing"
-    # ---- FFA 选敌(P2b;当前 base 只实现 nearest,其余留接口)----
-    target_mode: str = "nearest"  # nearest / weakest / leader
+    # ---- FFA 选敌:**P2b 延后,v1.8 未接线**——base.py 尚不读本字段,全部 attack-move 打
+    #   最近敌 HQ(movement.py:116-123 硬编码);harasser/counter 声明 weakest 仅为 P2b 预留
+    #   意图,待 attack_tgt 状态字段落地才生效(审计 P1-1,用户离线按「可」=可选解读接受)----
+    target_mode: str = "nearest"  # nearest / weakest / leader(v1.8 inert)
     # ---- 自适应回退(反「无意义行为」):主战术失败(军队被清空且已过窗口)→ 转宏观运营 ----
     adaptive: bool = True
     # ---- 概率性:>0 时用线程 key 随机化部分 build 选择(制造对局多样性)----
