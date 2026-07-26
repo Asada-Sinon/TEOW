@@ -39,6 +39,31 @@
 
 <!-- 真实的 session 记录从这一行下面开始写，最新的一节永远插在紧挨本行的下面。 -->
 
+## Session 2026-07-27(通宵:v1.8 收官,v1.9/v2.0 推进中)
+- 完成: **v1.8 五件套收官**——异界之门 sudden-death 必分胜负(`src/teow/gate.py`:阵营隔离怪
+  gate_tick 生成+慢速 descent / monster_combat_tick 独立子结算;HP 无上限线性、攻击封顶、慢速
+  近战、强度生成时定死、死玩家清怪;_end_tick 删和局+硬帽残血兜底;d39dfcf)+ **10 风格参数化
+  指挥官**(`commanders/{profile,base}.py`:StrategyProfile 静态闭包 trace 期分支;levers=经济旋钮/
+  tech_focus/comp_bias(counter=最佳响应)/aggression/adaptive(反空转)/stochastic;balanced≡
+  scripted 逐位一致;bb5feac)。P0 吞吐 bench:GPU vmap B64 ~4000 env-tick/s(#1 风险解;7c03a61)。
+  评测脚手架 `explorations/eval_commanders_v18.py`(胜率矩阵+质量,v1.9 复用)。engine-auditor P0
+  零;P2 当场修两处(对怪开火进 cd / 离场清怪血,8a5d2e1);终门禁 117 pytest(`-n 8` 并行~8min)+
+  ruff 绿;覆盖局 experiments/20260727-v18-audit-cover(airtech/turtle/boomer/counter,tick5860
+  winner0 经异界之门;决定论+隔离+守恒全过)。
+- PENDING: **v1.9 第一件事**——用 `eval_commanders_v18.py` 跑全 10 风格**综合评测**(更多 seed +
+  座位排列 + round-robin),按质量判据(胜率分布/非退化/风格覆盖/自适应/碾压 random/gate 到达率)
+  筛选;改不好就删;**验证后把脚手架提升进 `src/teow/eval.py`**(供 v2.0)。**注意**:v1.9 评测前确认
+  「防御建筑对怪进 cd」的修保留(已修,否则龟缩/空军抗怪虚高);gate_open_tick 对 rush-vs-develop
+  平衡敏感(短门利被动/长门利速攻),按需扫。
+- v2.0(已 front-load 调研):`notes/papers/` 19 篇 + lit-log;**推荐=自研 JAX PPO + v1.9 脚本课程
+  (易→难)+ BC 暖启(脚本是可查询 oracle)+ 势函数塑形(Ng1999 防 reward hacking);自对弈后置;
+  临摹 PureJaxRL+JaxMARL**。「AMP」对离散 RTS≈GAIL。**待做**:v2.0 设计文档(docs/plans/)+ obs/
+  reward/PPO 骨架(explorations/,空跑一步不训练)+ 按课程分档 v1.9 roster。
+- 坑: ①异界之门令 step 编译变慢,**串行全套 pytest >40min**;已装 pytest-xdist(uv pip,未进
+  pyproject),**用 `pytest -n 8`**~8min。②GPU 单环境编译极慢(分钟级)但 vmap 批量 run 快;eval/
+  bench 用 GPU 批量,单环境/门禁用 CPU。③指挥官策略参数是代码常量(StrategyProfile)非 config;
+  复现锚点=git hash+名字+seed。④eval 有 per-matchup try/except 兜底(坏指挥官不杀整轮)。
+
 ## Session 2026-07-26(v1.7 数值平衡收官)
 - 完成: v1.7 五件套收官(tag 待打)。修训练营升级不补血差 bug(economy.py 自升级
   完成分支加 camp 补血,与哨塔/兵营同构;挂 v1.4-v1.6 四版静默 bug;6498fe2)。

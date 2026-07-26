@@ -1,0 +1,1 @@
+src/run.py play --p0 airtech --p1 turtle --p2 boomer --p3 counter --record --slug v18-audit-cover --set start_ore=8000 --set start_water=8000 --seed 3

@@ -1,0 +1,4 @@
+run_dir: /home/michael/workspace/pi05/temp/TEOW/experiments/20260727-v18-audit-cover
+device: TFRT_CPU_0  players=['airtech', 'turtle', 'boomer', 'counter'] seed=3
+结束 tick=5860 winner=0(玩家0胜)  69 tick/s
+轨迹已存 /home/michael/workspace/pi05/temp/TEOW/experiments/20260727-v18-audit-cover/trajectory.npz(replay 子命令可回放)

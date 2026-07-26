@@ -2,37 +2,35 @@
 
 ## 当前目标
 
-**v1.8 多风格脚本指挥官 + 异界之门必分胜负**(通宵推进 v1.8→v2.0;用户 2026-07-26
-已批准 plan 并离线,全权自主)。
+**v1.9 筛选高质量对手**(通宵推进 v1.8→v2.0;用户 2026-07-26 已批准 plan 并离线,全权自主)。
+**v1.8 已五件套收官**(异界之门必分胜负 + 10 风格指挥官,tag v1.8 已打)。
 
 主 hook:`~/.claude/plans/v1-8-v2-0-plan-plan-hook-fluffy-matsumoto.md`(总控)+
-`docs/plans/20260726-v18-gate-commanders/{research,plan}.md`(v1.8 详版)。
+`docs/plans/20260726-v18-gate-commanders/`(v1.8 详版)。
+阶段链:v1.8 ✅ → **v1.9(评测/筛选,进行中)** → v2.0(调研 ✅ + 骨架待做)。
 
-当前阶段链:v1.8 P0(批量吞吐基准)→ P1(异界之门引擎子系统)→ P2/P3(指挥官框架+
-roster)→ P4(数值校准)→ 五件套 → v1.9 → v2.0。
+## v1.8 收官摘要(已 commit + tag)
 
-## 为什么做
+- 异界之门 sudden-death(`gate.py`)+ 10 风格参数化指挥官(`commanders/`)+ 吞吐 bench
+  (GPU vmap B64 ~4000 env-tick/s)+ 评测脚手架(`eval_commanders_v18.py`)。
+- 117 pytest(`-n 8`)+ ruff 绿;engine-auditor P0 零(P2 修:对怪开火进 cd / 离场清怪血)。
+- commits 7c03a61 / d39dfcf / bb5feac / 177ff86 / 8a5d2e1 + 收尾 chore + tag v1.8。
 
-为 v2+ 自研 RL 指挥官搭训练环境:造多风格脚本对手(v1.8)→ 筛高质量对手(v1.9)→
-调研 RL 方案+搭不训练骨架(v2.0)。三版依赖串行。
+## v1.9 第一件事(PENDING)
 
-## 完成判据
+用 `explorations/eval_commanders_v18.py` 跑全 10 风格**综合评测**(更多 seed + 座位排列 +
+round-robin),按质量判据筛选(胜率分布 / 非退化 / 风格覆盖 / 自适应 / 碾压 random / gate 到达率);
+改不好就删;验证后**脚手架提升进 `src/teow/eval.py`**(供 v2.0)。
+**注意**:防御建筑对怪已进 cd(勿回退);gate_open_tick 对 rush-vs-develop 平衡敏感,按需扫。
 
-- **v1.8**:异界之门必分胜负(决定论逐位一致+不变量全零)、~8 风格指挥官(自适应回退、
-  碾压 random)、覆盖局入库、engine-auditor P0 零、五件套。
-- **v1.9**:锦标赛脚手架+胜率矩阵+6 项质量判据、改/删收敛到高质量多样 roster、五件套。
-- **v2.0**:多 agent 调研(真引用 DOI/arXiv)+一版最优方案文档+obs/reward/PPO 骨架空跑
-  一步验证正确、五件套。
+## v2.0(调研 ✅,骨架待做)
 
-## 锁定决策(用户在线拍板,见 DECISIONS)
+`notes/papers/` 19 篇;**推荐 = 自研 JAX PPO + v1.9 脚本课程(易→难)+ BC 暖启 + 势函数塑形
+(Ng1999)**;自对弈后置;临摹 PureJaxRL + JaxMARL。「AMP」对离散 RTS≈GAIL。
+待做:设计文档(docs/plans/)+ obs/reward/PPO 骨架(explorations/,空跑不训练)+ 课程分档。
 
-- 必分胜负＝**异界之门 sudden-death**(阵营隔离怪物,HP 无上限线性/攻击封顶/慢速近战)。
-- 主战场维持 **4 人 FFA 64×64**(1v1 不做)。
-- v2.0 **只调研+搭骨架不训练**。
+## 纪律
 
-## 不做什么
-
-- 不改主战场;1v1 不做;v2.0 不真训;v2.1 本轮不实现。
 - experiments/ 现有产物只读;平衡数字只进 config.py;commit 点名文件、禁 `git add -A`。
-- 头号风险=64×64 吞吐(P0 先测,太慢先优化 `_relax_fields`);三版体量大,够不到就干净
-  交接下个 session。
+- pytest 用 `-n 8`(已装 pytest-xdist,未进 pyproject);GPU 批量 eval / 单环境门禁 CPU。
+- 三版体量大,够不到就干净交接下 session(用户已预期跨 session)。

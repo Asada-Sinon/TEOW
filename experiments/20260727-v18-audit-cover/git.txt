@@ -1,0 +1,26 @@
+177ff868997ea53ddf02887c1d3da8c730e4a3bd
+dirty: True
+ M .context/current-focus.md
+ M lit/literature-log.md
+?? .claude/agent-memory/
+?? docs/changelog/v1.8.md
+?? experiments/20260727-v18-audit-cover/
+?? notes/papers/berner2019openaifive.md
+?? notes/papers/dewitt2020ippo.md
+?? notes/papers/espeholt2018impala.md
+?? notes/papers/freeman2021brax.md
+?? notes/papers/heinrich2016nfsp.md
+?? notes/papers/hessel2021podracer.md
+?? notes/papers/ho2016gail.md
+?? notes/papers/huang2022ppodetails.md
+?? notes/papers/lanctot2017psro.md
+?? notes/papers/lu2022purejaxrl.md
+?? notes/papers/narvekar2020curriculum.md
+?? notes/papers/ng1999shaping.md
+?? notes/papers/pan2022rewardhacking.md
+?? notes/papers/peng2021amp.md
+?? notes/papers/ross2011dagger.md
+?? notes/papers/rutherford2023jaxmarl.md
+?? notes/papers/schulman2017ppo.md
+?? notes/papers/vinyals2019alphastar.md
+?? notes/papers/yu2021mappo.md
