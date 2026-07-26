@@ -379,6 +379,11 @@ def special_tasks_tick(state: WorldState, cfg: Config,
     bhp = jnp.asarray(cfg.barracks_hp_by_level)
     bar_up = upg & (st.etype == _TB)
     hp = hp + jnp.where(bar_up, bhp[lv0 + 1] - bhp[lv0], 0)
+    # 训练营升级同样补血量上限差(v1.7 修:此前漏训练营,营自升后 hp 停在 L2 值
+    # 破坏「未受伤建成建筑=满血」不变量;camp_hp_by_level 逐级递增)
+    chp = jnp.asarray(cfg.camp_hp_by_level)
+    camp_up = upg & (st.etype == TYPE_CAMP)
+    hp = hp + jnp.where(camp_up, chp[lv0 + 1] - chp[lv0], 0)
     level = jnp.where(upg, level + 1, level).astype(jnp.int8)
 
     # 研发完成:该玩家对应线 +1(legality+paid 去重保证同线同 tick 至多一营在研),

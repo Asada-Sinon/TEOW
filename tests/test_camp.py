@@ -60,6 +60,26 @@ def test_camp_unlock_build_and_completion():
     assert int(st.btype[camp]) == 0
 
 
+def test_camp_upgrade_boosts_hp():
+    """v1.7 回归:训练营升级补血量上限差(此前只补哨塔/兵营,漏训练营 →
+    营自升后 hp 停在 L2 值,破坏「未受伤建成建筑=满血」不变量)。"""
+    cfg = Config(**RICH)
+    state, _, step_fn, m = new_world(cfg)
+    hq = hq_slot(0, cfg)
+    # 基地升到 3(营升 3 的上限链前置)
+    st = drive(state, step_fn, {0: [(hq, a_upgrade(cfg))]}, cfg.base_up_time[1] + 1)
+    st = drive(st, step_fn, {0: [(hq, a_upgrade(cfg))]}, cfg.base_up_time[2] + 1)
+    assert int(st.level[hq]) == 3
+    # 建训练营(建成即 2 级满血)
+    st = drive(st, step_fn, {0: [(W0, a_build_camp(cfg))]}, cfg.camp_build_time + 1)
+    camp = int(jnp.argmax((st.etype == TYPE_CAMP) & st.alive))
+    assert int(st.level[camp]) == 2 and int(st.hp[camp]) == cfg.camp_hp_by_level[2]
+    # 升训练营 L2→L3:未挨打则新等级满血(修前 hp 停在 camp_hp_by_level[2])
+    st = drive(st, step_fn, {0: [(camp, a_upgrade(cfg))]}, cfg.camp_up_time[2] + 1)
+    assert int(st.level[camp]) == 3
+    assert int(st.hp[camp]) == cfg.camp_hp_by_level[3]
+
+
 def test_research_applies_globally_and_to_existing_units():
     cfg = Config(**RICH)
     state, _, step_fn, m = new_world(cfg)
