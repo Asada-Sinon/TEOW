@@ -1,0 +1,18 @@
+{
+  "roster": [
+    "balanced",
+    "boomer",
+    "rusher",
+    "turtle",
+    "timing",
+    "harasser",
+    "airtech",
+    "tempo",
+    "counter",
+    "chaos"
+  ],
+  "seeds": 4,
+  "episode_len": 2500,
+  "gate_open": 1800,
+  "note": "v1.8/v1.9 指挥官评测"
+}

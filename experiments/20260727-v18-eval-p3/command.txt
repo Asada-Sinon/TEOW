@@ -1,0 +1,1 @@
+explorations/eval_commanders_v18.py --roster balanced,boomer,rusher,turtle,timing,harasser,airtech,tempo,counter,chaos --seeds 4 --episode-len 2500 --gate-open 1800 --rr-matchups 3 --slug v18-eval-p3

@@ -422,7 +422,12 @@ def scripted_actions(state: WorldState, cfg: Config, mapdata: MapData,
 
 
 def make_controller(name: str, player: int, cfg: Config, mapdata: MapData):
-    """按名字构建 `fn(state, key) -> actions[N]`。"""
+    """按名字构建 `fn(state, key) -> actions[N]`。
+
+    v1.8:除 random / scripted 外,PROFILES 里的每个风格名(balanced/boomer/rusher/
+    …)都 dispatch 到 `commanders.base.commander_actions`,把该 profile 作为**静态
+    闭包** bake 进 partial(与 player 同)。"scripted" 仍走原 scripted_actions
+    (行为不变、回归测试不破);"balanced" 走 commander_actions(与 scripted 等价)。"""
     owner = owner_of_slots(cfg)
     if name == "random":
         return functools.partial(random_actions, cfg=cfg, mapdata=mapdata,
@@ -430,7 +435,14 @@ def make_controller(name: str, player: int, cfg: Config, mapdata: MapData):
     if name == "scripted":
         return functools.partial(scripted_actions, cfg=cfg, mapdata=mapdata,
                                  owner=owner, player=player)
-    raise ValueError(f"未知控制器: {name!r}(可选 random / scripted)")
+    from .commanders import PROFILES
+    from .commanders.base import commander_actions
+    if name in PROFILES:
+        return functools.partial(commander_actions, cfg=cfg, mapdata=mapdata,
+                                 owner=owner, player=player,
+                                 profile=PROFILES[name])
+    raise ValueError(
+        f"未知控制器: {name!r}(可选 random / scripted / {'/'.join(PROFILES)})")
 
 
 def make_joint_controller(*names: str, cfg: Config, mapdata: MapData):
