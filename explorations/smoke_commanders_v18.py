@@ -1,3 +1,5 @@
+# ruff: noqa: E402  (JAX_PLATFORMS 须先于 import jax 设定 + sys.path 注入 src,
+# 故 teow 导入不在文件顶部;与 explorations/ 其余脚本同一惯例)
 """v1.8 多风格指挥官烟测:每个 profile 打 3 个 random,查建军 sanity + 胜负。
 
 问题:base.commander_actions 的每个 profile 能否 (a) 不崩、(b) 建兵营+出军、
@@ -13,9 +15,6 @@ provenance(git hash + resolved config + seeds)打印到 stdout。degenerate(neve
 """
 
 from __future__ import annotations
-
-# ruff: noqa: E402  (JAX_PLATFORMS 须先于 import jax 设定 + sys.path 注入 src,
-# 故 teow 导入不在文件顶部;与 explorations/ 其余脚本同一惯例)
 
 import argparse
 import dataclasses

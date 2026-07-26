@@ -39,7 +39,6 @@ import jax.numpy as jnp
 from .actions import apply_orders
 from .combat import cleanup_deaths, combat_tick
 from .config import Config
-from .gate import gate_tick, monster_combat_tick
 from .economy import (
     construction_tick,
     harvest_tick,
@@ -48,6 +47,7 @@ from .economy import (
     special_tasks_tick,
     start_constructions,
 )
+from .gate import gate_tick, monster_combat_tick
 from .map import MapData, build_map
 from .movement import movement_tick
 from .state import WorldState, hq_slot, init_state, owner_of_slots

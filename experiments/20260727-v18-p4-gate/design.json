@@ -1,0 +1,12 @@
+{
+  "roster": [
+    "rusher",
+    "boomer",
+    "turtle",
+    "timing"
+  ],
+  "seeds": 6,
+  "episode_len": 5500,
+  "gate_open": 4000,
+  "note": "v1.8/v1.9 指挥官评测"
+}

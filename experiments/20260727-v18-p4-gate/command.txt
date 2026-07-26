@@ -1,0 +1,1 @@
+explorations/eval_commanders_v18.py --roster rusher,boomer,turtle,timing --seeds 6 --episode-len 5500 --gate-open 4000 --rr-matchups 1 --slug v18-p4-gate

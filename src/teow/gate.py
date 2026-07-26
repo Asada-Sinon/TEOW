@@ -66,7 +66,7 @@ def gate_tick(state: WorldState, cfg: Config, mapdata) -> WorldState:
     nr = jnp.clip(ncell[..., 0], 0, h - 1)
     nc = jnp.clip(ncell[..., 1], 0, w - 1)
     pidx = jnp.arange(P)[:, None, None]                                 # [P,1,1]
-    nfield = fields_hq[pidx, nr, nc]                                    # [P,M,8](impassable=BIG_DIST 自然被避)
+    nfield = fields_hq[pidx, nr, nc]  # [P,M,8] BIG_DIST 哨兵自然避障
     best = jnp.argmin(nfield, axis=-1)                                  # [P,M]
     tr = jnp.take_along_axis(nr, best[..., None], -1)[..., 0]
     tc = jnp.take_along_axis(nc, best[..., None], -1)[..., 0]

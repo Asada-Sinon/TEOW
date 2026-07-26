@@ -170,3 +170,24 @@
   (≈40× 单 CPU)**,是 v1.9/v2.0 海量 rollout 正路;单环境 CPU ~100 tick/s(远好于按
   v1.3 缩放的悲观估计,**#1 吞吐风险解除**),多进程 CPU 为备选;**CPU vmap 无益,勿用**。
   [source: 20260726-v18-bench]
+
+## 2026-07-27  run_id: 20260727-v18-eval-p3 / 20260727-v18-p4-gate
+- 假设: 10 风格指挥官均 branchless 可用、碾压 random、风格不塌缩;异界之门在默认 gate=4000
+  下让战术决胜、只对停滞局兜底。
+- 成功判据: 全指挥官 vs random 胜率=1.0 且 0 崩溃;round-robin 胜者随 matchup 变化;默认 gate
+  下进攻型靠消灭取胜(gate 不触发)、被动型靠门兜底。
+- 失败判据: 有指挥官崩溃 / 输给 random / 全 matchup 单一风格通吃;或默认 gate 下全部对局都撞门
+  (战术完全不决胜)。
+- 对照: random 基线。
+- git hash: bb5feac(P3)/ bb5feac+ruff(P4)。
+- 结果:
+  - P3(gate=1800 提速档,experiments/20260727-v18-eval-p3):10/10 vs random 胜率 1.0、0 崩溃;
+    rr 胜者 balanced×4 / harasser×4 / rusher / airtech / timing / chaos(不塌缩)。
+  - P4(默认 gate=4000,experiments/20260727-v18-p4-gate):**rusher vs random 全靠消灭 @~1080 拍
+    (gate 0/6)**;boomer/turtle vs random @4182(gate 6/6,门后 ~182 拍快速决胜);
+    rr(rusher|boomer|turtle|timing)rusher 全胜 @1207-1869(gate 0/6,纯战术决胜)。
+- 结论: [AI-DRAFT] 假设成立——指挥官框架 branchless 正确、全功能、风格不塌缩;默认 gate=4000
+  是良好兜底(战术能决胜时不触发、停滞局 ~182 拍快速决胜、四家对称)。**gate_open_tick 显著影响
+  rush-vs-develop 平衡(短门利被动、长门利速攻);roster 精细平衡 + 训练效率取舍留 v1.9 校准**;
+  boomer 经济锁死 degeneracy 已在 P2 修复(tick 兜底)。[source: 20260727-v18-eval-p3]
+  [source: 20260727-v18-p4-gate]
