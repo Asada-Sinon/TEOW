@@ -150,7 +150,7 @@ MATCHUPS = [
     dict(name="def_flamer_vs_dogwave", A=side("flamer", count=1), B=side("dog")),
     dict(name="def_laser_vs_heavy", A=side("laser", count=1), B=side("heavy", count=1)),
     # 龙(6 级线,level=1 起;line_cap=3)
-    dict(name="dragon_vs_airship", A=side("dragon"), B=side("airship")),
+    dict(name="dragon_vs_airship", A=side("dragon"), B=side("airship"), budget=640),
     dict(name="dragon_vs_infwave", A=side("dragon"), B=side("infantry")),
     dict(name="dragon_vs_tower", A=side("dragon"), B=side("tower", count=1)),
     dict(name="dragon_vs_barracks",
