@@ -55,10 +55,16 @@
   (无秒杀/硬帽/和局);难度分层 HARD rusher / MEDIUM 6 / EASY turtle·timing·airtech;**全留不删**
   (弱尾风格独立 + eval 非均衡噪声)。changelog v1.9 + tag。**v2.0 设计文档**已落
   docs/plans/20260727-v2-rl-approach/research.md(9 节)。
-- PENDING: **v2.0 第一件事**——按设计文档写 `explorations/rl_skeleton_v20.py`:obs 编码(WorldState→
-  每实体 token[256,~40] + 全局向量,自我中心)+ reward(FFA rank 终局 + 退火 PBRS,Φ=投入价值差)+
-  小 shared actor-critic + vmap rollout(扩 `teow.eval.matchup_runner` 收 obs/logp/value/rew/done)+
-  PPO/GAE loss + **空跑一步验证 shape/loss 有限,不训练**,再走 v2.0 五件套。
+- 完成(续 2): **v2.0 收官**——RL 调研(19 篇 notes/papers/)+ 设计文档(9 节,
+  docs/plans/20260727-v2-rl-approach/)+ 不训练 JAX PPO 骨架 `explorations/rl_skeleton_v20.py`
+  (纯 JAX 手搓 MLP+Adam;F=36/G=43/32821 参;smoke B8×T128 空跑一步 loss 有限、终局名次自检✓,
+  **未做真正训练**)。changelog v2.0 + tag。**🎉 v1.8→v2.0 全部五件套收官(tag v1.8/v1.9/v2.0)。**
+- PENDING: **v2.1(训练前最终准备,本轮未做)**——全量测试 + 小范围试训。开工先:①**v1.9 弱尾
+  followup**(均衡 round-robin ≥8 seed 复核 turtle/timing/airtech + 定向调「0-军被动 gate 胜」);
+  ②骨架补 v2.1 训练循环(多步 epoch×minibatch + LR/β anneal 调度 + checkpoint + vs-脚本胜率监控
+  + 课程/对手池 wiring + BC 暖启);③**吞吐实测**(gate + net-in-loop → games/day,守硬约束#1、
+  不口算);④小范围试训别训出「什么都不会/执行奇怪指令」的指挥官(issue.md v2.1)。设计细节 +
+  开放问题见 docs/plans/20260727-v2-rl-approach/research.md §8。
 - v1.9 followup(v2.1 前):均衡 round-robin(每对覆盖、≥8 seed)复核弱尾真实强度;定向调 turtle/
   airtech「0-军被动 gate 胜」;确认 22/80 局固定落 length4182 不诱导 RL「摆烂等门」。
 - 坑: ①异界之门令 step 编译变慢,**串行全套 pytest >40min**;已装 pytest-xdist(uv pip,未进

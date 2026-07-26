@@ -2,9 +2,16 @@
 
 ## 当前目标
 
-**v2.0 RL 不训练 JAX 骨架**(通宵推进 v1.8→v2.0;用户 2026-07-26 已批准 plan 并离线,全权自主)。
-**v1.8 + v1.9 已五件套收官**(tag v1.8 / v1.9;异界之门 + 10 风格指挥官 + 评测分层)。
-**v2.0 调研 + 设计文档已成**(docs/plans/20260727-v2-rl-approach/),剩 JAX 骨架(空跑不训练)+ 五件套。
+**🎉 v1.8→v2.0 全部五件套收官**(tag v1.8 / v1.9 / v2.0;通宵自主完成用户 2026-07-26 下达的
+v1.8→v2.0 全程)。下一步 = **v2.1 训练前最终准备**(全量测试 + 小范围试训),本轮未做,详见
+HANDOFF PENDING + docs/plans/20260727-v2-rl-approach/research.md §8。
+
+- **v1.8**:异界之门 sudden-death 必分胜负 + 10 风格参数化指挥官(commanders/)+ 吞吐 bench +
+  评测脚手架。
+- **v1.9**:脚手架核心进 `src/teow/eval.py`;10 指挥官评测分层(HARD rusher/MEDIUM 6/EASY
+  turtle·timing·airtech),全留不删(弱尾均衡复核 + 定向调 留 followup)。
+- **v2.0**:RL 调研(19 篇 notes/papers/)+ 设计文档(9 节 docs/plans/20260727-v2-rl-approach/)+
+  不训练 JAX PPO 骨架(explorations/rl_skeleton_v20.py,空跑一步验证)。
 
 主 hook:`~/.claude/plans/v1-8-v2-0-plan-plan-hook-fluffy-matsumoto.md`(总控)+
 `docs/plans/20260726-v18-gate-commanders/`(v1.8 详版)。
