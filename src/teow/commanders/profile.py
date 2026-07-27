@@ -48,11 +48,12 @@ PROFILES: dict[str, StrategyProfile] = {
     "balanced": StrategyProfile("balanced"),
     "scripted": StrategyProfile("scripted"),  # 与 balanced 同参(别名)
 
-    # 种田流:重经济、晚而强的一波;预备金适中(v2.1 定向调:降 attack_threshold 16→11 +
-    # upgrade_reserve 80→45,让种田后真出一波,不再 0 军等门 [source: 20260728-v21-balanced-rr2])
+    # 种田流:重经济、晚而强的一波;高预备金稳健(v2.1 试 attack_threshold 16→11/reserve 80→45
+    # 过头——种田流早出弱兵送死,vsRandom 胜率 1.00→0.88;回退原值,末军 0.9=攒兵到门是风格
+    # 非极端被动,用户只点名 turtle/airtech [source: 20260728-v21-balanced-rr3])
     "boomer": StrategyProfile(
-        "boomer", worker_target=12, attack_threshold=11, base_level_target=6,
-        upgrade_reserve=45, tech_focus="economy", comp_bias="heavy",
+        "boomer", worker_target=12, attack_threshold=16, base_level_target=6,
+        upgrade_reserve=80, tech_focus="economy", comp_bias="heavy",
         aggression="timing"),
 
     # 爆狗偷家 rush:极少工人、极低阈值早压;失败自适应转型(反无意义空转)

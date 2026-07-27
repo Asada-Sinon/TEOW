@@ -276,6 +276,13 @@
   rr 出场末军 >0;非退化保持(无秒杀/和局)。
 - 失败判据: 三者 vsRandom 末军仍 <1 → 幅度不够继续降(rr4);或造兵但胜率大跌 → 过调回退。
 - 对照: 20260728-v21-balanced-rr2(定向调前)。
-- git hash: <commit 后填>
-- 结果: <agg 填>
-- 结论: <填>
+- git hash: d0aaa74(跑前;含 turtle/airtech/boomer 定向调)。
+- 结果(experiments/20260728-v21-balanced-rr3,agg,304 局):
+  - **turtle/airtech 定向调成功**:vsRandom 末军 0.1/0.2 → **1.1/1.1**(0 军→造兵作战),胜率仍 1.00。
+  - **boomer 过头**:vsRandom 末军 0.9→1.2 但胜率 1.00→**0.88**(跌破 0.90 判据)——降 threshold
+    16→11 让种田流早出弱兵送死反变弱。
+  - rr_wr 基本不变(turtle 0.08/airtech 0.04/boomer 0.03);rusher 仍 0.84 统治;非退化保持。
+- 结论: [AI-DRAFT] turtle/airtech 达标(0 军→1.1 军作战、胜率保持),保留;**boomer 回退原值 16/80**
+  (种田流「晚而强一波」是风格、末军 0.9=攒兵到门非极端被动,激进调破胜率;用户只点名 turtle/
+  airtech)。最终 profile = turtle/airtech 调 + boomer 原值,rr4 出干净对手池分层供 Phase D 课程。
+  [source: 20260728-v21-balanced-rr3]
