@@ -302,3 +302,13 @@
   `--pot-scale`/`--stockpile-weight` CLI,重训用 β 0.1→1.0、pot_scale 300→100 加强+敏感化信号。
   重训 `v21-train-fix1` 验证 army>0。**教训:PBRS 势函数含「未投入资源(库存)」会诱导囤积,势函数
   应只奖励「已转化为战力的投入」。**
+- 2026-07-28 [AI-DRAFT] **v2.1 engine-auditor N/A + 收尾裁决**:src 引擎逻辑(step/combat/economy/
+  gate/state/actions/movement/config)**未改**,v2.1 全部是 explorations 训练脚手架 + `commanders/
+  profile.py` AI 策略数值常量定向调。引擎不变量不受影响(profile 改只让 AI 出不同动作),由 rr4(304 局
+  非退化)+ 门禁(119 测试)覆盖 → engine-auditor 判 **N/A**(同 v2.0 先例)。
+- 2026-07-28 [AI-DRAFT] **v2.1 收在「管线就绪+除险发现」而非「训出会打的指挥官」**:用户睡前定深度=
+  「看到学习信号」,但试训除险发现**纯 PPO 冷启动学不动、需 BC 暖启**(用户 v2.1 明确暂缓 BC)。故
+  **未自主实现 BC**(尊重用户「v2.1 不加 BC」+ BC 是正式开训方案应由用户拍板;离线协议:重大不确定
+  不自主决策)。issue.md v2.1 核心目标(训练前除险、别训出什么都不会的)**达成**——小范围试训阶段就
+  发现纯 PPO 会训废 + 定位根因(reward-hacking 已修 / 冷启动需 BC),避免正式开训才踩坑。BC 暖启 +
+  真看到学习信号 = 正式开训(v2.2+),留用户决定。

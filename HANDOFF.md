@@ -39,6 +39,29 @@
 
 <!-- 真实的 session 记录从这一行下面开始写，最新的一节永远插在紧挨本行的下面。 -->
 
+## Session 2026-07-28(通宵:v2.1 训练前准备,除险完成)
+- 完成: **v2.1 全脚手架 + Phase A/B/C/D + 试训除险**。①训练循环 `explorations/rl_train_v21.py`
+  (持续环境分段 rollout done→autoreset 解全长局显存 / epoch×mb 全scan / lr·ent·β 退火 / savez
+  ckpt / CurriculumScheduler)+ `rl_eval_v21`(RL-vs-脚本谐波)+ `bench_train_v21` + `diagnose/
+  plot_train_v21` + slow test(4 passed:整环路/ckpt bit相等/课程/持续环境reset)。②Phase A 对手池
+  洗净:**发现座位偏置**(rr 单shift令座位与对手混淆,result-analyst 核验→弱尾主要真弱)改**全P座位
+  轮转**;**turtle/airtech 定向调**修「对random 0军被动」(升本囤钱→降 upgrade_reserve/base_level/
+  attack_threshold 腾钱造兵,末军0.1/0.2→1.1);boomer 激进调过头回退。rr4 干净分层 HARD rusher/
+  MEDIUM balanced·harasser·tempo·counter/EASY 其余。③Phase C 吞吐 **54-62k games/day**(含gate+网+
+  更新,B64T128甜点,训练非瓶颈)。④**Phase D 试训除险(核心)**:管线机器正确,但抓到②问题——
+  **reward-hacking**(Φ含全额库存诱导囤钱,已修:库存打折 stockpile_weight)+ **纯PPO冷启动学不动**
+  (随机网探索不到结构化动作,3训练+全谱调参 army=0 退化NOOP/STOP)→**正式开训必须BC暖启**。
+  五件套:门禁 / engine-auditor(src引擎未改→N/A,profile靠rr4+门禁) / changelog v2.1 / tag v2.1 / 本交接。
+- PENDING(正式开训): **先实现 BC 暖启**(explorations,脚本oracle蒸馏让策略从会造兵起步→PPO微调超越;
+  plan §1.4/§7 已设计)。BC后重跑 Phase D 看真学习信号(vs random 胜率升+army>0)。**可直接复用**:
+  rl_train_v21(持续环境/退火/ckpt/课程全就绪)+ 干净对手池(rr4分层)+ 吞吐甜点(B64T128)+ reward-hacking
+  已修的Φ。命令模板见 research-log 20260728-v21-train-fix2 节。
+- 坑: ①**PBRS 势函数不能含未投入的库存**(诱导囤积)——stockpile_weight<1;②纯PPO长局稀疏奖励从
+  随机网学不动,强塑形救不了冷启动探索,**必须BC**;③FFA评测座位轮转必须**全P**(单shift座位与对手
+  混淆;座位偏置全局6000下温和seat0偏强{51,21,34,38});④训练eval全局6000贵,eval_seeds/every要控;
+  ⑤rl_train/eval/bench在explorations(未进src),conftest加了explorations path供slow test;⑥骨架改动
+  向后兼容(potential默认stockpile_weight=1.0保v2.0 smoke,训练传0.3)。
+
 ## Session 2026-07-27(通宵:v1.8 收官,v1.9/v2.0 推进中)
 - 完成: **v1.8 五件套收官**——异界之门 sudden-death 必分胜负(`src/teow/gate.py`:阵营隔离怪
   gate_tick 生成+慢速 descent / monster_combat_tick 独立子结算;HP 无上限线性、攻击封顶、慢速
@@ -96,21 +119,3 @@
   审计重放并行,被拖到 40min(独占约 9min)。GPU 对「每 Config 不同+单环境逐 tick」
   这类负载**慢 12 倍**(实测单对决 GPU 6:57 vs CPU 35s),提速靠多 CPU 进程分片,GPU
   要等 v2 vmap 批量 rollout 才有意义。
-
-## Session 2026-07-25(深夜,v1.3 收尾)
-- 完成: v1.3 五件套收官打 tag——哨塔定案 tower_atk L1 6→3(c99e03f,用户授权
-  agent 决策,依据 experiments/20260725-tower-balance-*);/validate 零必须修;
-  两轮终审:P0 零,P1-1 名额仲裁竞态(改派被拒+空位被抢 → 持续 cap+K)修于
-  3f255b0(HARVEST 改派旧名额「新指派成功才释放」)并复审关闭,P2 三条进
-  changelog;changelog+收尾 8d8e709;终门禁 50 测试+ruff 绿;审计对局
-  experiments/20260725-v1.3-audit{,2}/ 决定论逐位一致、12 项不变量全零。
-- PENDING: ①用户还在扩写 issue.md 草稿箱(v1.4 兵种树/多塔/迫击炮/飞艇/
-  龙骑兵,v1.5 六边形四人图+栅栏,v1.6 防御建筑群;工作区 issue.md 故意留脏
-  没提交)——第一件事:读草稿箱走草稿协议吃透 v1.4,注意用户明写「你看这个
-  数值怎么样」= 数值要讨论不要自定,且要求维护「以建筑为标题的几级爆什么兵」
-  中文细则总结;②用户复核 DECISIONS 新三条 [AI-DRAFT](哨塔定案/P1-1 修/
-  收尾裁决);③fig/ 17 张 1024² 贴图已入库,用户草稿明确「只有蓝方贴图,先
-  应用到蓝方,其他用矢量图」,v1.4 接 web/assets 替换槽时处理。
-- 坑: 收尾期用户可能同时在线编辑 issue.md——commit 一律点名文件,不要
-  git add -A(本次把 fig/ 和用户中途的草稿改动一并带进过 commit,事后才由
-  草稿证实合意,属侥幸)。
