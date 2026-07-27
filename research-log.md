@@ -339,3 +339,37 @@
 - 结论: [AI-DRAFT] **PPO 机器正确但奖励设计有 reward-hacking**(plan §4.3 预警命中):Φ 含全额库存
   诱导囤钱。修:①**库存打折** stockpile_weight 0.3(造兵产 +0.7cost 上行、囤钱不涨 Φ);②β 0.1→1.0、
   pot_scale 300→100 加强+敏感化信号。重训 v21-train-fix1 验证 army>0。[source: 20260728-v21-train-vsrandom]
+
+## 2026-07-28  run_id: 20260728-v21-train-fix1(reward-hacking 修复后重训:库存打折+强 PBRS)
+- 假设: 库存打折(stockpile_weight 0.3→造兵产 +0.7cost Value 上行)+ 加强信号(β 1.0/pot_scale 100)后,
+  Φ 真正奖励造兵/建设,RL 学造兵作战——army>0、vs random 胜率随 update 升、mean_reward 显著非 0。
+- 成功判据: army>0(RL 造兵,vs 首训 army=0);vs random 贪心胜率高于未训基线且升;mean_reward 量级
+  明显 >首训 3e-5;动作分布不退化;PPO 健康。
+- 失败判据: army 仍 0(修复无效→再降 stockpile/加 β)或胜率不升(信号仍弱)。
+- 对照: 20260728-v21-train-vsrandom(修复前,army=0)。
+- 配置: B64 T128 / 500 update / β 1.0 / pot_scale 100 / stockpile_weight 0.3 / --no-anneal-shaping。
+  git hash: 90e9fd0。
+- 结果(experiments/20260728-v21-train-fix1,停于 150 update):army 仍 0、econ 降(85→22)、mean_reward
+  0.00026(比首训 3e-5 大 10× 但仍小)、pg≈0。**动作分布诊断:结构化动作(build/harvest/train)≈0.01
+  全程**,策略在 NOOP(0.95)/STOP(0.82)/MOVE(0.87)间无意义震荡,从不 ATTACK。
+- 结论: [AI-DRAFT] 库存打折修了 reward-hacking(mean_reward 3e-5→2.6e-4)但**冷启动仍学不动**——RL
+  极少采样结构化动作(造兵/采集/建造):随机初始网 + 稀疏延迟奖励 + loss 被熵项主导(ent_coef 0.01×
+  ent 7 >> pg 0.001)→ PPO 只优化熵→退化 NOOP/STOP/MOVE。这是 plan §1.4 的冷启动探索问题(BC 暖启
+  的用武之地)。再试 fix2(降 ent_coef 0.001 + 极强塑形 β3/pot50/stock0.1)探纯 PPO 极限。
+  [source: 20260728-v21-train-fix1]
+
+## 2026-07-28  run_id: 20260728-v21-train-fix2(纯 PPO 极限:降 ent_coef 0.001+极强塑形)
+- 假设: 降 ent_coef(弱 reward 不被熵淹)+ 极强塑形(β3/pot50/stock0.1)能让纯 PPO 突破冷启动造兵。
+- 结果(experiments/20260728-v21-train-fix2,停于 40 update):**army 仍 0、结构化动作→0.000、
+  econ 降(54→30)**;mean_reward 0.0015(比 fix1 大 5×,塑形更强)但 pg 仍~0.001、ent_loss 7。
+- 结论: [AI-DRAFT] **坐实纯 PPO 冷启动学不动**——首训/fix1/fix2 + 全谱调参(β/pot_scale/stockpile/
+  ent_coef),RL 始终探索不到结构化动作,退化 NOOP/STOP/MOVE。根因**冷启动探索**(随机网极少采样
+  结构化动作 + 稀疏延迟奖励→PPO 无正样本),塑形强度救不了。**正式开训必须 BC 暖启**(plan §1.4)。
+  [source: 20260728-v21-train-fix2]
+
+### v2.1 Phase D 试训总结论(除险) [AI-DRAFT]
+训练管线**机器正确**(rollout/GAE/PPO/update/eval/ckpt/课程/持续环境 reset 全对——slow test 4 passed
++ 数值稳定 25 update + 吞吐 54–62k games/day)。试训除险发现两个开训必解问题:①**reward-hacking**
+(Φ 含全额库存诱导囤钱)→已修(库存打折 stockpile_weight);②**冷启动学不动**(纯 PPO 从随机网探索不到
+结构化动作)→**需 BC 暖启**(用户 v2.1 暂缓,留正式开训)。**issue.md v2.1 目标达成**:小范围试训阶段
+就发现「纯 PPO 会训出什么都不会的指挥官」,避免正式开训才踩坑。

@@ -392,6 +392,8 @@ def main():
     ap.add_argument("--episode-len", type=int, default=6000)
     ap.add_argument("--gate-open", type=int, default=4000)
     ap.add_argument("--gamma", type=float, default=0.999)
+    ap.add_argument("--ent-coef", type=float, default=0.01,
+                    help="熵系数(降低→弱 reward 信号不被熵项淹没)")
     ap.add_argument("--shaping-beta", type=float, default=0.1)
     ap.add_argument("--pot-scale", type=float, default=300.0,
                     help="Φ 价值差 tanh 尺度(小=对经济差更敏感)")
@@ -416,7 +418,8 @@ def main():
         total_updates=args.total_updates, update_epochs=args.update_epochs,
         num_minibatches=args.num_minibatches, eval_every=args.eval_every,
         ckpt_every=args.ckpt_every, gamma=args.gamma, shaping_beta=args.shaping_beta,
-        pot_scale=args.pot_scale, stockpile_weight=args.stockpile_weight,
+        ent_coef=args.ent_coef, pot_scale=args.pot_scale,
+        stockpile_weight=args.stockpile_weight,
         anneal_shaping=not args.no_anneal_shaping)
     run_dir = new_run_dir(pathlib.Path(args.out_root), args.slug)
     write_provenance(run_dir, cfg, rlcfg, args.seed, tiers)
