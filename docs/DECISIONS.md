@@ -267,3 +267,23 @@
   ——训练前确认别让 RL 学到「摆烂等门」。
 - 2026-07-27 [AI-DRAFT] **评测脚手架提升进 `src/teow/eval.py`**(`matchup_runner` 批量 rollout 原语,
   v2.0 PPO rollout 复用;`explorations/eval_commanders_v18.py` 留作 CLI 包装 + 聚合)。
+
+## v2.1 训练前准备(2026-07-27,用户睡眠期自主推进)
+- 2026-07-27 **用户睡前在线拍板 v2.1 范围/深度**:①深度=**看到学习信号**(试训到 vs 弱对手胜率
+  上升/行为不退化,不追求训强);②算力充足可通宵;③**对手池先洗干净**(v1.9 弱尾 followup 作训练
+  前置);④**全长局训练**(episode 6000/gate 4000 不动),**明确否决短局**——短局诱导 RL 学退化策略
+  (只龟缩耗死脚本一招,训不出完整战术,「短局训出来可能只会这一种方法」);⑤BC 暖启先不加。
+  plan:`~/.claude/plans/v2-1-enchanted-quilt.md`。
+- 2026-07-27 [AI-DRAFT] **骨架最小改动而非新建超集**:`rl_skeleton_v20` 的 RLConfig 加 7 个 v2.1
+  训练字段、`ppo_loss` 加可选 `ent_coef` 参(默认用 rlcfg.ent_coef 常量→不破骨架 smoke;训练传退火
+  traced 标量)。理由:避免 RLConfig/ppo_loss 第二真源;改动向后兼容。持续环境 rollout / 训练循环
+  作**新文件** `explorations/rl_train_v21.py`(不覆盖骨架 collect_rollout,保 v2.0 smoke)。
+- 2026-07-27 [AI-DRAFT] **训练结构 = Python 外循环 + 内层全 lax.scan;持续环境分段 rollout**:carry
+  跨 update,`done→where(nstate.done, state0, nstate)` autoreset(打破 step done 冻结)+ elim 归零 +
+  跨段 value bootstrap。理由:全长局 6000 一次 rollout 整局爆显存(整批 PPO 反向 logits[M,N,A] 单张
+  45GB;分段 T=128 每段 ~0.55GB);Python 外循环便于 eval/ckpt/课程升档(换对手=重编译,升档罕见)。
+  γ=0.999 有效视界 1000≪6000,长程 credit 起步靠 PBRS 承载,试训观察必要时调 γ(留 sweep)。
+- 2026-07-27 [AI-DRAFT] **Phase A 均衡设计 = covering design + cyclic 座位轮转**:贪心 covering
+  design 9 组合覆盖全 45 对指挥官,每组合按序号 cyclic 轮转座位消位置偏置;vs-random 加厚 16 seed。
+  取代 v1.9 的 `combos[::step]` 稀疏采样(出场 4–24 不均)。`conftest.py` 加 explorations 到
+  sys.path(slow test 测 explorations 训练管线;explorations 本身不在 ruff/门禁范围=沙箱)。
