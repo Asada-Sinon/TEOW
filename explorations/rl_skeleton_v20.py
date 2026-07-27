@@ -116,6 +116,7 @@ class RLConfig:
     # ---- 奖励(§4;shaping 系数退火由外部传标量) ----
     shaping_beta: float = 0.1    # PBRS 系数 β 初值(退火到 0;§4.2)[AI-DRAFT] v2.1 定
     anneal_shaping: bool = True  # β 退火开关(§4.2:有限预算下 Φ 不完美需退火)
+    stockpile_weight: float = 0.3  # Φ 里库存权重<1:修 reward-hacking(囤钱不涨 Φ)[AI-DRAFT] v2.1 定
 
     # ---- rollout 规模(§7.2;B≈64 是引擎甜点 [source: 20260726-v18-bench],
     #      但 smoke 只验 vmap/形状,不验吞吐,故取极小 B/T 保证编译+跑得快) ----
@@ -317,25 +318,29 @@ def encode_obs(state: WorldState, cfg: Config, mapdata, player: int,
 # 3) 奖励 —— 稀疏 FFA 名次终局 + 退火 PBRS 势函数塑形(§4)
 # =====================================================================================
 def _invested_value(state: WorldState, cfg: Config, owner: jax.Array,
-                    cost_tbl: jax.Array) -> jax.Array:
-    """f32 [P]:各家投入价值 = 库存(ore+water) + Σ 存活实体 cost·(hp/max_hp)(§4.2)。"""
+                    cost_tbl: jax.Array, stockpile_weight: float = 1.0) -> jax.Array:
+    """f32 [P]:各家投入价值 = stockpile_weight·库存 + Σ 存活实体 cost·(hp/max_hp)(§4.2)。
+    stockpile_weight<1:库存打折——让「造兵/建设」(库存→场上单位)产 Value 上行、囤钱不涨 Φ,
+    修 PBRS reward-hacking(库存全计→造兵 cost 守恒无上行+单位会死有下行→RL 学囤钱不造兵;
+    v2.1 vs-random 试训实测 army=0 佐证,[AI-DRAFT])。"""
     P, e = cfg.n_players, cfg.e_max
     et = etype_idx(state)
     mhp = jnp.maximum(max_hp_of(state, cfg, owner), 1)
     hp_frac = jnp.clip(state.hp / mhp, 0.0, 1.0)
     val_i = cost_tbl[et] * hp_frac * state.alive.astype(jnp.float32)
     ent_val = val_i.reshape(P, e).sum(1)              # [P] 折血存量投入
-    stock = state.resources.sum(1).astype(jnp.float32)   # [P] 库存 ore+water
+    stock = state.resources.sum(1).astype(jnp.float32) * stockpile_weight  # [P] 库存(打折)
     return ent_val + stock
 
 
 def potential(state: WorldState, cfg: Config, owner: jax.Array,
-              cost_tbl: jax.Array, pot_scale: float) -> jax.Array:
+              cost_tbl: jax.Array, pot_scale: float,
+              stockpile_weight: float = 1.0) -> jax.Array:
     """f32 [P]:Φ_p = tanh((Value_p − max_{q≠p} Value_q)/scale)(§4.2)。
     aggregate 取 max(压制当前领先者,FFA 合理;§4.2 倾向 max,确切形式是 §8-3 开放问题)。
     # [AI-DRAFT] v2.1 定:aggregate = max / mean / 逐对手(§8-3)。"""
     P = cfg.n_players
-    val = _invested_value(state, cfg, owner, cost_tbl)   # [P]
+    val = _invested_value(state, cfg, owner, cost_tbl, stockpile_weight)   # [P]
     eye = jnp.eye(P, dtype=bool)
     others = jnp.where(eye, -jnp.inf, val[None, :])      # [P,P] 屏蔽自己
     opp_max = jnp.max(others, axis=1)                    # [P] 最强对手

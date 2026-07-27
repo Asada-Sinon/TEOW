@@ -293,3 +293,12 @@
   1-shift 使 **turtle/airtech/chaos 从没坐 seat0**,零胜含人为低估(非纯真弱)。修:每 covering
   组合跑**全 P 座位轮转**(每家在每座位各一次),消偏置重跑(`rr2`);弱尾真实强度以 rr2 定,再判
   是否定向调参 / 分层。方法学教训:FFA 评测**座位轮转必须全排列/全 cyclic**,单 shift 不够。
+- 2026-07-28 [AI-DRAFT] **Phase D 试训发现 PBRS reward-hacking → 修(库存打折)**:vs random 首训
+  (`20260728-v21-train-vsrandom`)学习失败——army=0 全程、贪心胜率 0.75→0.25、mean_reward≈0、
+  pg≈0、loss 被熵项主导。诊断:Φ=`_invested_value` 含**全额库存**——造兵是「库存→单位」cost 守恒
+  (Value 无上行)+单位会死(有下行),囤钱 Value 更稳 → RL 学「囤钱不造兵」(**plan §4.3 reward-hacking
+  预警命中**)。修:骨架 `_invested_value`/`potential` 加 `stockpile_weight` 参(默认 1.0 保 v2.0
+  smoke),RLConfig `stockpile_weight=0.3`(库存打折→造兵产 +0.7cost 上行、囤钱不涨 Φ);训练加
+  `--pot-scale`/`--stockpile-weight` CLI,重训用 β 0.1→1.0、pot_scale 300→100 加强+敏感化信号。
+  重训 `v21-train-fix1` 验证 army>0。**教训:PBRS 势函数含「未投入资源(库存)」会诱导囤积,势函数
+  应只奖励「已转化为战力的投入」。**

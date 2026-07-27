@@ -101,7 +101,7 @@ def build_policy_eval(cfg, mapdata, opp_names: tuple[str, ...], rlcfg: RLConfig)
         better = ((et2[None, :] > et2[:, None])
                   | ((et2[None, :] == et2[:, None]) & (idx[None, :] < idx[:, None])))
         rank = 1 + jnp.sum(better, axis=1)                           # [P] ∈ 1..P
-        econ = _invested_value(fstate, cfg, owner, cost_tbl)         # [P]
+        econ = _invested_value(fstate, cfg, owner, cost_tbl, rlcfg.stockpile_weight)  # [P]
         cnt_safe = jnp.maximum(cnt, 1.0)
         return dict(
             winner=fstate.winner.astype(jnp.int32), length=fstate.tick,

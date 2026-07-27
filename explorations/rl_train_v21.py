@@ -103,8 +103,10 @@ def build_collect_rollout(cfg, mapdata, opp_names: tuple[str, ...], rlcfg: RLCon
                 joint = merge_actions(owner, [action] + opp_acts)
                 nstate = step_fn(state, joint, k_step)
                 prev_done = state.done
-                phi_s = potential(state, cfg, owner, cost_tbl, rlcfg.pot_scale)
-                phi_n = potential(nstate, cfg, owner, cost_tbl, rlcfg.pot_scale)
+                phi_s = potential(state, cfg, owner, cost_tbl,
+                                  rlcfg.pot_scale, rlcfg.stockpile_weight)
+                phi_n = potential(nstate, cfg, owner, cost_tbl,
+                                  rlcfg.pot_scale, rlcfg.stockpile_weight)
                 shaping = beta * (rlcfg.gamma * phi_n - phi_s) * (~prev_done)
                 hq_alive = jnp.stack([nstate.alive[hq_slot(q, cfg)] for q in range(P)])
                 elim = jnp.minimum(elim, jnp.where(hq_alive, big_t, nstate.tick))
@@ -391,6 +393,10 @@ def main():
     ap.add_argument("--gate-open", type=int, default=4000)
     ap.add_argument("--gamma", type=float, default=0.999)
     ap.add_argument("--shaping-beta", type=float, default=0.1)
+    ap.add_argument("--pot-scale", type=float, default=300.0,
+                    help="Φ 价值差 tanh 尺度(小=对经济差更敏感)")
+    ap.add_argument("--stockpile-weight", type=float, default=0.3,
+                    help="Φ 里库存权重<1:修 reward-hacking(囤钱不涨 Φ)")
     ap.add_argument("--no-anneal-shaping", action="store_true",
                     help="试训期关 β 退火(保密集塑形信号)")
     # 课程:逗号分隔档,档内 | 分隔 P-1 个对手;默认单档 random(起步验证学习信号)
@@ -410,6 +416,7 @@ def main():
         total_updates=args.total_updates, update_epochs=args.update_epochs,
         num_minibatches=args.num_minibatches, eval_every=args.eval_every,
         ckpt_every=args.ckpt_every, gamma=args.gamma, shaping_beta=args.shaping_beta,
+        pot_scale=args.pot_scale, stockpile_weight=args.stockpile_weight,
         anneal_shaping=not args.no_anneal_shaping)
     run_dir = new_run_dir(pathlib.Path(args.out_root), args.slug)
     write_provenance(run_dir, cfg, rlcfg, args.seed, tiers)

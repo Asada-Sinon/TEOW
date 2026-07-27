@@ -319,3 +319,23 @@
 - 结论: [AI-DRAFT] 真实训练吞吐 **54k–62k games/day**(B32–64,含网+gate+更新),分段 rollout 显存
   可控(B64 3.4GB≪整局爆显存)。**训练不是吞吐瓶颈**(plan 头号风险#3 解除),可跑数千 update 看
   学习信号。Phase D 用 **B64 T128**(稳梯度+54k games/day,per update ~2.2s)。[source: 20260728-v21-throughput]
+
+## 2026-07-28  run_id: 20260728-v21-train-vsrandom(Phase D 小范围试训:vs random 看学习信号)
+- 假设: 纯 PPO 管线(全长局分段 rollout + 退火关的 PBRS)在 vs random×3 下能学到——vs random 贪心
+  胜率随 update 从未训基线上升(random 最弱 + PBRS 引导经济/军力优势),动作分布不退化,不摆烂等门。
+- 成功判据: vs random 贪心胜率明显高于未训基线(update 0)且随训练升(Δ≥+0.2 或滑窗近单调);动作
+  熵不塌;PPO 健康(kl<0.3、explained_var>0、无 NaN);不 100% 靠 gate 耗死(有主动作战/击杀)。
+- 失败判据: 胜率平/降(学不动→调 β/γ/加 update);动作退化(单一动作垄断);KL 爆/NaN(管线坏)。
+- 对照: update 0 未训基线(随机初始网,FFA 下可能靠运气赢一些)。
+- 配置: B64 T128 / 2000 update / eval_every 50 eval_seeds 8 / --no-anneal-shaping(保 PBRS 信号)/
+  gamma 0.999 / shaping_beta 0.1。git hash: 6d99346。
+- 结果(experiments/20260728-v21-train-vsrandom,停于 198 update;metrics/eval jsonl):
+  - **学习失败**:vs random 贪心胜率 u0 0.75(未训基线,8seed 噪声)→ u50–150 稳定 **0.25**(降),
+    **army=0 全程**,gate=1.00,rank 1.62→3.0,熵 1.24→1.86(升)。
+  - **root cause = PBRS reward-hacking**:mean_reward≈0(±3e-5)、pg≈0(无 policy gradient)、loss 被
+    熵项主导(ent_coef×ent, ent 6–12)→ PPO 只最大化熵→策略随机→army=0。Φ=_invested_value 含
+    **全额库存**:造兵是「库存→单位」cost 守恒(Value 无上行)+单位会死(有下行)→囤钱 Value 更稳
+    → RL 学「囤钱不造兵」。
+- 结论: [AI-DRAFT] **PPO 机器正确但奖励设计有 reward-hacking**(plan §4.3 预警命中):Φ 含全额库存
+  诱导囤钱。修:①**库存打折** stockpile_weight 0.3(造兵产 +0.7cost 上行、囤钱不涨 Φ);②β 0.1→1.0、
+  pot_scale 300→100 加强+敏感化信号。重训 v21-train-fix1 验证 army>0。[source: 20260728-v21-train-vsrandom]
