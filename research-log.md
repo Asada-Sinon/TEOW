@@ -236,6 +236,14 @@
 - 结论: [AI-DRAFT] vs-random 判据全过;**round-robin 弱尾零胜受座位偏置污染**(全局 6000 下
   seat0 仍系统偏强,cyclic 1-shift 未保证每家轮 seat0)→ 评测方法改全 P 座位轮转重跑(rr2);
   弱尾真实强度待 rr2 定。agg 为脚本聚合,非手算。[source: 20260727-v21-balanced-rr]
+- [核验 2026-07-28 result-analyst,更正上条座位偏置归因] 独立双路径复算(explorations/
+  seatbias_check_v21.py + seatbias_xcheck_v21.py,座位胜场分布两脚本一致 38/8/14/12)**部分
+  推翻座位机制归因**:seat0 原始胜场高属实,但 rr 单 shift 令「座位」与「对手集」**完全混淆**
+  (同 combo 无跨座位样本)——seat0 高胜可由对手强弱完全解释:harasser/rusher 坐 seat0 恰遇全
+  弱尾→8/8;**boomer 坐 seat0 遇三强→0/8**;rusher 在 seat1、balanced 在 seat3 也 8/8→强者不
+  靠 seat0。故修正:①**弱尾零胜主要是真弱**,座位曝光缺口为次要不可量化因素;②**boomer 决定性
+  反例**(seat0 曝光 8 次仍 0 胜=真弱);③rr2 全 P 轮转=正解(同组合全座位排布→真正分离座位/对手),
+  预期弱尾仍弱;弱尾定性宜辅以头对头(弱尾 vs 单强)。[source: 20260727-v21-balanced-rr]
 
 ## 2026-07-27  run_id: 20260727-v21-balanced-rr2(全 P 座位轮转消偏置复核)
 - 假设: rr 弱尾零胜主因是座位偏置(seat0 系统偏强 + turtle/airtech/chaos 从没坐 seat0);每
@@ -245,6 +253,29 @@
 - 失败判据: 座位均衡后 boomer/turtle/airtech/chaos 仍 rr_wr<0.10 → 坐实真弱,触发定向调参
   (降 attack_threshold/base_level_target/upgrade_reserve)后重测,要求末军>1 且 vs-random 不降。
 - 对照: 20260727-v21-balanced-rr(1-shift 座位偏置)。
+- git hash: 5bc39b3(跑前;含全 P 座位轮转修复)。
+- 结果(experiments/20260728-v21-balanced-rr2,agg 聚合,304 局,座位完全均衡各家各座位 12/16):
+  - **座位偏置全局下温和**:座位总胜场 {0:51,1:21,2:34,3:38}(seat0 略强,远非 smoke 小局 71/1/0/0)
+    → 座位偏置存在但不主导,RL 座 0 轻微沾光可接受。
+  - rr_wr(座位均衡):rusher 0.86(统治)/balanced 0.44/harasser 0.36/tempo 0.25/counter 0.20/
+    chaos 0.12/turtle 0.10/timing 0.06/airtech 0.02/boomer 0.00。
+  - 弱尾 rr 出场末军全 0.00;vsRandom 末军 turtle 0.1/airtech 0.2/boomer 0.9(对 random 都 0 军
+    =真被动不造兵),但 timing vsRandom 9.8(造兵、rr 被 rush 打光=被克制非退化)。
+  - 非退化:秒杀 0、和局 0、near-cap(≥5000)0、length median 4181。
+- 结论: [AI-DRAFT] 座位均衡确认 result-analyst 判断——弱尾主要真弱、boomer 决定性反例(rr 0.00)。
+  真正「0 军被动不造兵」= **turtle/airtech/boomer**(vsRandom 都 0 军,经济全投升本囤钱→无钱造兵);
+  timing 造兵被 rush 克制(保留)、chaos 随机弱(保留)。rusher 0.86 统治是防守型 0 军的反面(修弱尾
+  造兵可同时缓解)。定向调 turtle/airtech/boomer:降 upgrade_reserve/base_level_target/attack_threshold
+  腾钱造兵+出击,重测要求 vsRandom 末军>1 且胜率不降(见 rr3)。[source: 20260728-v21-balanced-rr2]
+
+## 2026-07-28  run_id: 20260728-v21-balanced-rr3(定向调 turtle/airtech/boomer 后重测)
+- 假设: 降 turtle(attack_threshold 22→10/base 7→6/reserve 100→45)、airtech(base 7→6/atk 10→8/
+  reserve 70→45)、boomer(atk 16→11/reserve 80→45)后,三者不再「0 军被动等门」——vsRandom 末军>1
+  (真造兵作战)且胜率仍 1.00;可能同时压低 rusher 统治(防守型造兵克 rush)。
+- 成功判据: turtle/airtech/boomer vsRandom 末军均值 >1(vs 旧 0.1/0.2/0.9);vsRandom 胜率 ≥0.90;
+  rr 出场末军 >0;非退化保持(无秒杀/和局)。
+- 失败判据: 三者 vsRandom 末军仍 <1 → 幅度不够继续降(rr4);或造兵但胜率大跌 → 过调回退。
+- 对照: 20260728-v21-balanced-rr2(定向调前)。
 - git hash: <commit 后填>
-- 结果: <result-analyst / agg 填>
+- 结果: <agg 填>
 - 结论: <填>

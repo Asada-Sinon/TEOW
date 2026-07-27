@@ -48,10 +48,11 @@ PROFILES: dict[str, StrategyProfile] = {
     "balanced": StrategyProfile("balanced"),
     "scripted": StrategyProfile("scripted"),  # 与 balanced 同参(别名)
 
-    # 种田流:重经济、晚而强的一波;高预备金稳健
+    # 种田流:重经济、晚而强的一波;预备金适中(v2.1 定向调:降 attack_threshold 16→11 +
+    # upgrade_reserve 80→45,让种田后真出一波,不再 0 军等门 [source: 20260728-v21-balanced-rr2])
     "boomer": StrategyProfile(
-        "boomer", worker_target=12, attack_threshold=16, base_level_target=6,
-        upgrade_reserve=80, tech_focus="economy", comp_bias="heavy",
+        "boomer", worker_target=12, attack_threshold=11, base_level_target=6,
+        upgrade_reserve=45, tech_focus="economy", comp_bias="heavy",
         aggression="timing"),
 
     # 爆狗偷家 rush:极少工人、极低阈值早压;失败自适应转型(反无意义空转)
@@ -60,10 +61,12 @@ PROFILES: dict[str, StrategyProfile] = {
         upgrade_reserve=15, tech_focus="military", comp_bias="dogs",
         aggression="rush", adaptive=True),
 
-    # 龟缩防守:高本、堆防御建筑、守+反击(异界之门利好防守型)
+    # 龟缩防守:堆防御建筑、守+反击(异界之门利好防守型);v2.1 定向调:降 attack_threshold
+    # 22→10 + base_level_target 7→6 + upgrade_reserve 100→45,腾钱造兵让「守+反击」真有反击,
+    # 不再全投升本囤钱→0 军等门(保留 defense/ranged 龟缩风格)[source: 20260728-v21-balanced-rr2]
     "turtle": StrategyProfile(
-        "turtle", worker_target=9, attack_threshold=22, base_level_target=7,
-        upgrade_reserve=100, tech_focus="defense", comp_bias="ranged",
+        "turtle", worker_target=9, attack_threshold=10, base_level_target=6,
+        upgrade_reserve=45, tech_focus="defense", comp_bias="ranged",
         aggression="defensive"),
 
     # 一波流 timing:攒到中期配比再全军突
@@ -78,10 +81,12 @@ PROFILES: dict[str, StrategyProfile] = {
         upgrade_reserve=30, tech_focus="military", comp_bias="dogs",
         aggression="harass", target_mode="weakest", adaptive=True),
 
-    # 空军科技:冲兵营高级,飞艇/龙制空
+    # 空军科技:冲兵营高级,飞艇/龙制空;v2.1 定向调:降 base_level_target 7→6(飞艇兵营6门槛,
+    # 早出中级空军)+ attack_threshold 10→8 + upgrade_reserve 70→45,让空军真上场作战不再等门
+    # [source: 20260728-v21-balanced-rr2]
     "airtech": StrategyProfile(
-        "airtech", worker_target=9, attack_threshold=10, base_level_target=7,
-        upgrade_reserve=70, tech_focus="air", comp_bias="air",
+        "airtech", worker_target=9, attack_threshold=8, base_level_target=6,
+        upgrade_reserve=45, tech_focus="air", comp_bias="air",
         aggression="timing"),
 
     # 中期强攻 tempo:早于 timing 的持续压制,army-value 节奏
