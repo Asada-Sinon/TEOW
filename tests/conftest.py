@@ -3,4 +3,6 @@
 import pathlib
 import sys
 
-sys.path.insert(0, str(pathlib.Path(__file__).resolve().parent.parent / "src"))
+_root = pathlib.Path(__file__).resolve().parent.parent
+sys.path.insert(0, str(_root / "src"))
+sys.path.insert(0, str(_root / "explorations"))  # slow test 测 explorations 训练管线(未进 src)
