@@ -287,3 +287,9 @@
   design 9 组合覆盖全 45 对指挥官,每组合按序号 cyclic 轮转座位消位置偏置;vs-random 加厚 16 seed。
   取代 v1.9 的 `combos[::step]` 稀疏采样(出场 4–24 不均)。`conftest.py` 加 explorations 到
   sys.path(slow test 测 explorations 训练管线;explorations 本身不在 ruff/门禁范围=沙箱)。
+- 2026-07-27 [AI-DRAFT] **Phase A 座位偏置发现 → 修评测方法(全 P 座位轮转)**:均衡 rr 第一次跑
+  (`20260727-v21-balanced-rr`,每 covering 组合仅 1 个 cyclic shift)暴露座位偏置——**seat0
+  系统偏强**(各座位总胜场 38/8/14/12,全局 6000 下 v1.5 记的镜像位偏置仍在),且 index%4 的
+  1-shift 使 **turtle/airtech/chaos 从没坐 seat0**,零胜含人为低估(非纯真弱)。修:每 covering
+  组合跑**全 P 座位轮转**(每家在每座位各一次),消偏置重跑(`rr2`);弱尾真实强度以 rr2 定,再判
+  是否定向调参 / 分层。方法学教训:FFA 评测**座位轮转必须全排列/全 cyclic**,单 shift 不够。

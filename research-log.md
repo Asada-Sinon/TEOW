@@ -215,3 +215,36 @@
   (HARD rusher / MEDIUM balanced·harasser·boomer·chaos·counter·tempo / EASY turtle·timing·airtech),
   **不删任一(弱者仍风格独立,对多样对手池有价值)**;弱尾被动性 + 均衡 round-robin(≥8 seed 全对
   covering)+ 弱尾定向调参留 v1.9-followup / v2.1 前处理。[source: 20260727-v19-roundrobin]
+
+## 2026-07-27  run_id: 20260727-v21-balanced-rr(v1.9 弱尾均衡复核 + vs-random 加厚)
+- 假设: v1.9 弱尾(turtle/timing/airtech round-robin 零胜)主因是**非均衡采样噪声**;均衡
+  round-robin(covering design 全 45 对覆盖 + cyclic 座位轮转 + rr-seeds 8,全局 episode 6000/
+  gate 4000)下三者 rr_wr >0。turtle/airtech vs-random「0 军被动 gate 胜」是策略参数问题
+  (attack_threshold/base_level 过高),非引擎 bug。
+- 成功判据: 每指挥官 rr 出场均衡(covering+轮转);10 指挥官 vs-random 胜率 ≥0.90;无风格
+  rr_wr>0.85(统治);弱尾 rr_wr 得低噪声估计(比 v1.9 尾部零胜可信)。
+- 失败判据: 均衡采样下弱尾仍 rr_wr<0.10 → 触发定向调参(turtle attack_threshold/upgrade_reserve↓、
+  airtech base_level_target↓)后重测,要求末军均值>1(有作战)且 vs-random 不降。
+- 对照: 20260727-v19-roundrobin(v1.9 非均衡基线)。
+- git hash: fca97ba(跑前干净;含 v2.1 Phase A/B/C/D 脚手架)。
+- 结果(experiments/20260727-v21-balanced-rr,agg_v21_balanced.py 聚合,232 局):
+  - vs-random:10 指挥官全 wr=1.00(判据 ≥0.90 全过)。
+  - round-robin(座位仅 1 shift/组合):rr_wr rusher 0.72 / balanced 0.71 / tempo 0.31 /
+    counter 0.28 / harasser 0.25 / timing 0.16 / boomer·turtle·airtech·chaos 0.00。
+  - **座位偏置 bug**:各座位总胜场 {0:38, 1:8, 2:14, 3:12}(seat0 系统偏强);且 cyclic 1-shift
+    使 turtle/airtech/chaos **seat0 出场=0**(从没坐最强位)→ 零胜含人为低估,非纯真弱。
+- 结论: [AI-DRAFT] vs-random 判据全过;**round-robin 弱尾零胜受座位偏置污染**(全局 6000 下
+  seat0 仍系统偏强,cyclic 1-shift 未保证每家轮 seat0)→ 评测方法改全 P 座位轮转重跑(rr2);
+  弱尾真实强度待 rr2 定。agg 为脚本聚合,非手算。[source: 20260727-v21-balanced-rr]
+
+## 2026-07-27  run_id: 20260727-v21-balanced-rr2(全 P 座位轮转消偏置复核)
+- 假设: rr 弱尾零胜主因是座位偏置(seat0 系统偏强 + turtle/airtech/chaos 从没坐 seat0);每
+  covering 组合跑全 P 座位轮转(每家在每座位各一次)后,座位均衡,弱尾 rr_wr 反映真实相对强度。
+- 成功判据: 各指挥官各座位出场均等(seat0 列不再有 0);各座位总胜场趋近均匀;弱尾 rr_wr 得
+  座位无偏估计(可能翻盘也可能坐实真弱)。
+- 失败判据: 座位均衡后 boomer/turtle/airtech/chaos 仍 rr_wr<0.10 → 坐实真弱,触发定向调参
+  (降 attack_threshold/base_level_target/upgrade_reserve)后重测,要求末军>1 且 vs-random 不降。
+- 对照: 20260727-v21-balanced-rr(1-shift 座位偏置)。
+- git hash: <commit 后填>
+- 结果: <result-analyst / agg 填>
+- 结论: <填>

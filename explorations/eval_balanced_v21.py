@@ -129,13 +129,13 @@ def main():
 
     # ---- 均衡 round-robin:covering design + cyclic 座位轮转 ----
     design = covering_design(len(ROSTER), P)
-    print(f"=== 均衡 round-robin:{len(design)} 组合 × cyclic 座位 × seeds={args.rr_seeds} ===",
-          flush=True)
-    for i, combo in enumerate(design):
-        names = tuple(ROSTER[j] for j in combo)
-        shift = i % P                                   # cyclic 座位轮转(座位均衡)
-        names = names[shift:] + names[:shift]
-        run_and_log(names, "rr:" + "|".join(names), args.rr_seeds)
+    print(f"=== 均衡 round-robin:{len(design)} 组合 × {P} 座位轮转 × seeds={args.rr_seeds} "
+          f"= {len(design) * P} matchup ===", flush=True)
+    for combo in design:
+        names0 = tuple(ROSTER[j] for j in combo)
+        for shift in range(P):                          # 全 P 座位轮转:每家在每座位各一次
+            names = names0[shift:] + names0[:shift]     # (消座位偏置——seat0 系统偏强,v1 已知)
+            run_and_log(names, "rr:" + "|".join(names), args.rr_seeds)
 
     # ---- 落盘(games.jsonl + provenance;聚合交 agg_v21_balanced.py)----
     d = new_run_dir(pathlib.Path(args.out_root), args.slug)
