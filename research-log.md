@@ -286,3 +286,23 @@
   (种田流「晚而强一波」是风格、末军 0.9=攒兵到门非极端被动,激进调破胜率;用户只点名 turtle/
   airtech)。最终 profile = turtle/airtech 调 + boomer 原值,rr4 出干净对手池分层供 Phase D 课程。
   [source: 20260728-v21-balanced-rr3]
+
+## 2026-07-28  run_id: 20260728-v21-balanced-rr4(最终 profile:turtle/airtech 调+boomer 原)
+- 假设: 最终 profile 下 turtle/airtech vsRandom 末军>1、boomer 胜率恢复 1.00,对手池非退化,rr 给
+  干净分层供 Phase D 课程。
+- 成功判据: turtle/airtech vsRandom 末军>1 且 wr 1.00;boomer wr≥0.90;无风格 rr 全场崩溃;
+  非退化(无秒杀/和局/硬帽)。
+- 失败判据: 仍有指挥官 vsRandom 0 军被动或胜率崩。
+- 对照: 20260728-v21-balanced-rr3(boomer 过头)/rr2(定向调前)。
+- git hash: c02cded(跑前;boomer 回退)。
+- 结果(experiments/20260728-v21-balanced-rr4,agg,304 局,座位均衡):
+  - vsRandom 全 10 wr 1.00(boomer 回退恢复);turtle/airtech vsRandom 末军 1.1(造兵)。
+  - rr 分层(座位均衡):rusher 0.84(**不统治,<0.85**)/balanced 0.38/harasser 0.36/tempo 0.27/
+    counter 0.19/chaos 0.12/turtle 0.10/timing 0.09/airtech 0.06/boomer 0.00。
+  - turtle/airtech rr 末军仍低(0.06/0.00)但 vsRandom 造兵 1.1 = rr 被强对手打光(同 timing
+    vsRandom 9.8/rr 0.14),非"不造兵";agg 的 rr 末军<1 警告是判据局限(被克制≠退化)。
+  - 非退化:秒杀 0/和局 0/near-cap(≥5000)0/无统治。
+- 结论: [AI-DRAFT] **Phase A 收口达标**——turtle/airtech 修好「对 random 0 军被动」(末军 0.1/0.2→
+  1.1),boomer 回退 wr 1.00,无风格统治(rusher 0.84)/崩溃,非退化,最终对手池干净。Phase D 课程分层:
+  **HARD** rusher / **MEDIUM** balanced·harasser·tempo·counter / **EASY** chaos·turtle·timing·
+  airtech·boomer。[source: 20260728-v21-balanced-rr4]
