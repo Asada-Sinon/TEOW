@@ -306,3 +306,16 @@
   1.1),boomer 回退 wr 1.00,无风格统治(rusher 0.84)/崩溃,非退化,最终对手池干净。Phase D 课程分层:
   **HARD** rusher / **MEDIUM** balanced·harasser·tempo·counter / **EASY** chaos·turtle·timing·
   airtech·boomer。[source: 20260728-v21-balanced-rr4]
+
+## 2026-07-28  run_id: 20260728-v21-throughput(真实训练吞吐 bench,含 gate+网+更新)
+- 假设(硬约束#1 必测): 含 gate+网+更新的真实 games/day 决定 Phase D 训练规模;甜点 B/T 未必是
+  纯引擎的 B64。
+- 成功判据: 测出各 (B,T) 的 games/day + 峰值显存,分 gate 前/后两制式,脚本产出不口算。
+- git hash: 58463d6。
+- 结果(experiments/20260728-v21-throughput/bench_train.json):含更新有效吞吐——B32T128 games/day
+  **62570**(甜点,eff 4345 env-tick/s,1.8GB)/B64T128 53764(3.4GB)/B128T128 36175(6.8GB)/
+  B256T128 36622(13GB);T256 同量级;**B256T256 OOM**(13GB 分配失败)。**gate 前后差异小**(pre
+  4871 vs ot 4836,B32)——overtime 怪物开销不大(优于 v18 caveat 预期)。
+- 结论: [AI-DRAFT] 真实训练吞吐 **54k–62k games/day**(B32–64,含网+gate+更新),分段 rollout 显存
+  可控(B64 3.4GB≪整局爆显存)。**训练不是吞吐瓶颈**(plan 头号风险#3 解除),可跑数千 update 看
+  学习信号。Phase D 用 **B64 T128**(稳梯度+54k games/day,per update ~2.2s)。[source: 20260728-v21-throughput]
