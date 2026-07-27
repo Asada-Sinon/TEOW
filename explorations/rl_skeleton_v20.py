@@ -124,6 +124,15 @@ class RLConfig:
     update_epochs: int = 4       # on-policy 数据复用轮数(smoke 只跑 1 次,此为文档旋钮)
     num_minibatches: int = 4     # minibatch 数(同上,smoke 用整批)
 
+    # ---- v2.1 训练循环(骨架 smoke 不消费;真训练由 rl_train_v21.py 用)----
+    total_updates: int = 100       # PPO 外循环 update 数(试训调)
+    anneal_ent: bool = True        # 熵系数线性退火
+    ent_coef_final: float = 0.001  # 熵退火终值(不退到 0,保探索防摆烂)
+    shaping_beta_final: float = 0.0    # PBRS β 退火终值(§4.2 理论 →0)
+    shaping_anneal_frac: float = 0.5   # β 在前 frac 段内退完(试训可设 1.0 不退)
+    eval_every: int = 10           # 每多少 update 评估 vs-脚本胜率
+    ckpt_every: int = 20           # 每多少 update 存 checkpoint
+
 
 # =====================================================================================
 # 2) obs 编码 —— WorldState → (逐实体 token[N,F], alive 掩码, 全局向量[G], 动作掩码[N,A])
@@ -498,9 +507,10 @@ def compute_gae(reward, value, done, last_value, gamma, lam):
     return adv, adv + value
 
 
-def ppo_loss(params, batch, rlcfg: RLConfig):
+def ppo_loss(params, batch, rlcfg: RLConfig, ent_coef=None):
     """clipped surrogate + (clipped) value loss + entropy bonus(huang2022ppodetails)。
-    batch 各字段 [M, ...](M = B*T 展平);返回 (loss, aux)。"""
+    batch 各字段 [M, ...](M = B*T 展平);返回 (loss, aux)。
+    ent_coef=None → 用 rlcfg.ent_coef 常量(骨架 smoke);训练时传退火后的 traced 标量。"""
     obs = Obs(tokens=batch["tokens"], etype_idx=batch["etype_idx"],
               entity_mask=batch["entity_mask"], loss_mask=batch["loss_mask"],
               global_vec=batch["global_vec"], action_mask=batch["action_mask"])
@@ -526,7 +536,8 @@ def ppo_loss(params, batch, rlcfg: RLConfig):
         v_loss = 0.5 * jnp.mean(v_unclipped)
 
     ent_loss = jnp.mean(ent)
-    loss = pg_loss + rlcfg.vf_coef * v_loss - rlcfg.ent_coef * ent_loss
+    ec = rlcfg.ent_coef if ent_coef is None else ent_coef   # 退火:训练传标量,smoke 用常量
+    loss = pg_loss + rlcfg.vf_coef * v_loss - ec * ent_loss
     approx_kl = jnp.mean(batch["logp"] - new_logp)
     aux = dict(pg=pg_loss, vf=v_loss, ent=ent_loss, approx_kl=approx_kl,
                ratio_mean=jnp.mean(ratio))
