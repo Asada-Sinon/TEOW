@@ -1,44 +1,46 @@
 # 当前焦点
 
-## 当前目标
+## 当前状态
 
-**🎉 v1.8→v2.0 全部五件套收官**(tag v1.8 / v1.9 / v2.0;通宵自主完成用户 2026-07-26 下达的
-v1.8→v2.0 全程)。下一步 = **v2.1 训练前最终准备**(全量测试 + 小范围试训),本轮未做,详见
-HANDOFF PENDING + docs/plans/20260727-v2-rl-approach/research.md §8。
+**v1.0–v2.1 全部收官**,12 个 tag 已打,远程 tag 到 v2.1。引擎完工,RL 停在「正式开训」
+门口:v2.1 试训除险坐实**纯 PPO 冷启动学不动**,BC 暖启 + 真正训练 = **v2.2**
+(用户 2026-07-28 在线拍板选项 B)。
 
-- **v1.8**:异界之门 sudden-death 必分胜负 + 10 风格参数化指挥官(commanders/)+ 吞吐 bench +
-  评测脚手架。
-- **v1.9**:脚手架核心进 `src/teow/eval.py`;10 指挥官评测分层(HARD rusher/MEDIUM 6/EASY
-  turtle·timing·airtech),全留不删(弱尾均衡复核 + 定向调 留 followup)。
-- **v2.0**:RL 调研(19 篇 notes/papers/)+ 设计文档(9 节 docs/plans/20260727-v2-rl-approach/)+
-  不训练 JAX PPO 骨架(explorations/rl_skeleton_v20.py,空跑一步验证)。
+⚠ **issue.md 还没有 v2.2 规格**——需求唯一入口里没有 BC/正式训练那一节,草稿箱空。
+v2.2 开工前要先走草稿箱协议把它补进规格区(实现只以规格区为依据)。
 
-主 hook:`~/.claude/plans/v1-8-v2-0-plan-plan-hook-fluffy-matsumoto.md`(总控)+
-`docs/plans/20260726-v18-gate-commanders/`(v1.8 详版)。
-阶段链:v1.8 ✅ → **v1.9(评测/筛选,进行中)** → v2.0(调研 ✅ + 骨架待做)。
+## 本次 session(2026-08-02 → 08-03):环境重建 + 门禁修复
 
-## v1.8 收官摘要(已 commit + tag)
+- **环境原本是坏的**:`.venv` 整个不存在、`uv` 不在 PATH、系统 python 3.10(项目要 3.12),
+  跑不了任何测试或实验。已重建:`~/.local/bin/uv sync` → Python 3.12.13 / jax 0.6.2 /
+  numpy 2.5.1;CPU 与 GPU 双后端均可用(**RTX 5090 sm_120 与 jax 0.6.2 兼容**已实测);
+  `pytest-xdist` 3.8.0 用 `uv pip install` 单独装(照 DECISIONS 2026-07-27 不进 pyproject,
+  否则下次 `uv sync` 会移除)。
+- **门禁全绿已独立复现**:`119 passed in 1158.14s`(`-n 8`)+ `slow 4 passed in 220.92s`
+  + `ruff All checks passed`。HANDOFF 里那句「119 + slow 4 全绿」成立。
+- **门禁本身修好**(commit `ed51df1`):verify.sh 原有两条路都通向静默放行(venv 缺失跳过
+  / 全套必定超时),改成 venv 缺失即 fail + 核心子集(实测 117s,预算 300s)。详见
+  MEMORY `[LEARN:tooling] 门禁「超时」和「缺环境」都不是拦截`。
+- 文档收口:根 `CHANGELOG.md` 补齐 v1.3–v2.1 九条;MEMORY 补 4 条教训(门禁失效 /
+  PBRS 库存诱导囤积 / 冷启动需 BC / FFA 座位轮转)。
 
-- 异界之门 sudden-death(`gate.py`)+ 10 风格参数化指挥官(`commanders/`)+ 吞吐 bench
-  (GPU vmap B64 ~4000 env-tick/s)+ 评测脚手架(`eval_commanders_v18.py`)。
-- 117 pytest(`-n 8`)+ ruff 绿;engine-auditor P0 零(P2 修:对怪开火进 cd / 离场清怪血)。
-- commits 7c03a61 / d39dfcf / bb5feac / 177ff86 / 8a5d2e1 + 收尾 chore + tag v1.8。
+## 待办
 
-## v1.9 第一件事(PENDING)
-
-用 `explorations/eval_commanders_v18.py` 跑全 10 风格**综合评测**(更多 seed + 座位排列 +
-round-robin),按质量判据筛选(胜率分布 / 非退化 / 风格覆盖 / 自适应 / 碾压 random / gate 到达率);
-改不好就删;验证后**脚手架提升进 `src/teow/eval.py`**(供 v2.0)。
-**注意**:防御建筑对怪已进 cd(勿回退);gate_open_tick 对 rush-vs-develop 平衡敏感,按需扫。
-
-## v2.0(调研 ✅,骨架待做)
-
-`notes/papers/` 19 篇;**推荐 = 自研 JAX PPO + v1.9 脚本课程(易→难)+ BC 暖启 + 势函数塑形
-(Ng1999)**;自对弈后置;临摹 PureJaxRL + JaxMARL。「AMP」对离散 RTS≈GAIL。
-待做:设计文档(docs/plans/)+ obs/reward/PPO 骨架(explorations/,空跑不训练)+ 课程分档。
+1. ⚠ **v2.1 的 8 个 run 目录不存在**——`20260727-v21-balanced-rr`、`20260728-v21-rr2/rr3/
+   rr4/throughput/train-vsrandom/train-fix1/train-fix2`,磁盘上没有、git 历史里从未提交
+   (`git log --all --diff-filter=A -- 'experiments/*v21*'` 为空),而 changelog v2.1 与
+   research-log 引用它们。按硬约束 3 这些数字**不可复现、不得被引用**。现在环境和 GPU
+   都可用,重跑可行(吞吐 bench 最便宜,三次训练最贵),**跑哪几个待用户定**。
+2. ⚠ **push 无权限**:`git push origin main` → 403
+   (`Permission to Asada-Sinon/TEOW.git denied to michaelfanisme`,gh 已登录同名账号)。
+   历史 commit 与 tag 都推送成功过,所以是权限/token scope 后来变了。本地领先 origin/main,
+   待用户处理凭据(`gh auth refresh -s repo` 或确认该用哪个账号)。
 
 ## 纪律
 
-- experiments/ 现有产物只读;平衡数字只进 config.py;commit 点名文件、禁 `git add -A`。
-- pytest 用 `-n 8`(已装 pytest-xdist,未进 pyproject);GPU 批量 eval / 单环境门禁 CPU。
-- 三版体量大,够不到就干净交接下 session(用户已预期跨 session)。
+- experiments/ 现有产物只读;平衡数字只进 `config.py`;commit 点名文件、**禁 `git add -A`**。
+- 全套测试(门禁不代跑,只跑核心子集):
+  `JAX_PLATFORMS=cpu .venv/bin/pytest -q -m "not slow" -n 8`(~19min)
+  `JAX_PLATFORMS=cpu .venv/bin/pytest -q -m slow`(~4min)
+- **uv 不在系统 PATH**,一律用 `~/.local/bin/uv`。
+- 测试/门禁 CPU,批量 eval/训练才 GPU(MEMORY `[LEARN:env]`)。
