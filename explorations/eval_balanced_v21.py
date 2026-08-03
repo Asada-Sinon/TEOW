@@ -128,14 +128,23 @@ def main():
         run_and_log((c, *(["random"] * (P - 1))), f"vsRandom:{c}", args.vsr_seeds)
 
     # ---- 均衡 round-robin:covering design + cyclic 座位轮转 ----
+    # design 无条件算(纯 Python,毫秒级),因为下面 write_provenance 要记它。
     design = covering_design(len(ROSTER), P)
-    print(f"=== 均衡 round-robin:{len(design)} 组合 × {P} 座位轮转 × seeds={args.rr_seeds} "
-          f"= {len(design) * P} matchup ===", flush=True)
-    for combo in design:
-        names0 = tuple(ROSTER[j] for j in combo)
-        for shift in range(P):                          # 全 P 座位轮转:每家在每座位各一次
-            names = names0[shift:] + names0[:shift]     # (消座位偏置——seat0 系统偏强,v1 已知)
-            run_and_log(names, "rr:" + "|".join(names), args.rr_seeds)
+    if args.rr_seeds > 0:
+        print(f"=== 均衡 round-robin:{len(design)} 组合 × {P} 座位轮转 × seeds={args.rr_seeds} "
+              f"= {len(design) * P} matchup ===", flush=True)
+        for combo in design:
+            names0 = tuple(ROSTER[j] for j in combo)
+            for shift in range(P):                      # 全 P 座位轮转:每家在每座位各一次
+                names = names0[shift:] + names0[:shift]  # (消座位偏置——seat0 系统偏强,v1 已知)
+                run_and_log(names, "rr:" + "|".join(names), args.rr_seeds)
+    else:
+        # --rr-seeds 0 = 只补 vsRandom。必须在这里短路,不能靠「seeds 空数组」:
+        # run_and_log 里 matchup_runner(cfg, names) 一调用就 build_step + 重新 jit,
+        # 编译次数 = matchup 数、与 seed 数无关(2026-08-03 实测:GPU 利用率 1%、CPU 单核
+        # 满载,时间全在 36 次重编译上)。空跑一轮 = 白烧编译时间、零数据产出。
+        print(f"=== 跳过 round-robin(--rr-seeds 0):省掉 {len(design) * P} 次重编译 ===",
+              flush=True)
 
     # ---- 落盘(games.jsonl + provenance;聚合交 agg_v21_balanced.py)----
     d = new_run_dir(pathlib.Path(args.out_root), args.slug)

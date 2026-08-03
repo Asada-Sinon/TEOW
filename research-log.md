@@ -422,3 +422,22 @@
 - 备注: `experiments/20260803-v21-throughput-smoke/` 为开跑前的环境验证 run(`--smoke`,B4T32),
   provenance 同样齐全,保留备查。原 run `20260728-v21-throughput` 的产物仍然缺失,本 run
   **不冒充也不替换**它;changelog v2.1 里对原 run_id 的引用保持原样(已 tag 版本不改写)。
+
+## 2026-08-03  run_id: 20260803-v21-vsrandom-rerun(补 v2.1 缺失产物:vs-random 加厚)
+- 背景: 承上条。rr 系列产物同样缺失,但全量重跑成本过高——`20260803-v21-balanced-smoke`
+  (缩水版:102 局 / episode_len=900)实测耗时 **1:52:03**,根因是 `matchup_runner` 每次调用都
+  `build_step` + 重新 jit,**编译次数 = matchup 数(46)、与 seed 数无关**(vmap over seeds 免费);
+  实测 GPU 利用率 1% / CPU 单核满载,时间几乎全在重编译。用户 2026-08-03 拍板**只补 vsRandom
+  部分**(10 次编译,跳过 rr 的 36 次)。另:`rr2`/`rr3` 对应已被推翻的中间 profile 数值,当前
+  代码状态下本就重跑不出,不在范围内。
+- 假设: v2.1 记录的两条 vsRandom 结论在标准条件(episode_len=6000 / gate_open=4000)下可复现:
+  ①10 个指挥官全部碾压 random;②turtle/airtech 定向调后不再「0 军被动等门」。
+- 成功判据: ①`games.jsonl` 落盘含 10×16 = 160 局且失败 matchup 数 = 0;②10 个指挥官对
+  random 的胜率**全部 = 1.00**;③turtle 与 airtech 的末军均值**均 > 1.0**。
+- 失败判据: 任一指挥官对 random 胜率 < 1.00;或 turtle/airtech 末军均值 ≤ 1.0(说明 changelog
+  平衡区记的定向调未生效)。
+- 对照: `20260728-v21-balanced-rr4`——**产物已缺失**,文字记录为「全 vsRandom 胜率 1.00;
+  turtle 末军 0.1→1.1、airtech 0.2→1.1」。同上条:与文字记录比对,不与产物比对。
+- git hash: <跑之前留空,跑完填>
+- 结果: <跑完填>
+- 结论: <跑完填>

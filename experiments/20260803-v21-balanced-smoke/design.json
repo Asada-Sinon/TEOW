@@ -1,0 +1,76 @@
+{
+  "roster": [
+    "balanced",
+    "boomer",
+    "rusher",
+    "turtle",
+    "timing",
+    "harasser",
+    "airtech",
+    "tempo",
+    "counter",
+    "chaos"
+  ],
+  "vsr_seeds": 3,
+  "rr_seeds": 2,
+  "n_rr_combos": 9,
+  "covering_design": [
+    [
+      0,
+      1,
+      2,
+      3
+    ],
+    [
+      0,
+      4,
+      5,
+      6
+    ],
+    [
+      0,
+      7,
+      8,
+      9
+    ],
+    [
+      1,
+      2,
+      4,
+      7
+    ],
+    [
+      1,
+      2,
+      5,
+      8
+    ],
+    [
+      1,
+      2,
+      6,
+      9
+    ],
+    [
+      3,
+      4,
+      5,
+      9
+    ],
+    [
+      3,
+      6,
+      7,
+      8
+    ],
+    [
+      4,
+      5,
+      7,
+      8
+    ]
+  ],
+  "episode_len": 900,
+  "gate_open": 600,
+  "note": "v2.1 Phase A 均衡 round-robin 复核弱尾 + vs-random 加厚"
+}
