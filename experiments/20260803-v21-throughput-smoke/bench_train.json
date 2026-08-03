@@ -1,0 +1,26 @@
+{
+  "backend": "gpu",
+  "episode_len": 400,
+  "gate_open": 200,
+  "F": 36,
+  "G": 43,
+  "A": 116,
+  "results": [
+    {
+      "B": 4,
+      "T": 32,
+      "reps": 3,
+      "roll_pre_s": 0.11254065166576765,
+      "roll_ot_s": 0.11437077466689516,
+      "update_s": 0.0034488239956165976,
+      "pre_env_tick_s": 1137.3667924026668,
+      "ot_env_tick_s": 1119.1670282272719,
+      "eff_env_tick_s": 1094.91045520912,
+      "game_wall_s": 1.4613067145243501,
+      "games_day": 236500.65832516996,
+      "pre_tick_reached": 128,
+      "ot_tick_reached": 256,
+      "peak_mem_gb": 0.087
+    }
+  ]
+}
