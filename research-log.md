@@ -438,6 +438,38 @@
   平衡区记的定向调未生效)。
 - 对照: `20260728-v21-balanced-rr4`——**产物已缺失**,文字记录为「全 vsRandom 胜率 1.00;
   turtle 末军 0.1→1.1、airtech 0.2→1.1」。同上条:与文字记录比对,不与产物比对。
-- git hash: <跑之前留空,跑完填>
-- 结果: <跑完填>
-- 结论: <跑完填>
+- git hash: `2d48ee4f684340502378e110ecbb7c25b713e129`(git.txt 记 dirty: true,但**本次开跑前工作区
+  确实是干净的**——见下方「dirty 标志系统性失效」)
+- 结果(全部出自 `experiments/20260803-v21-vsrandom-rerun/summary.md`,由
+  `agg_v21_balanced.py` 从 `games.jsonl` 聚合产生,非手算;160 局 / episode_len=6000 / gate=4000):
+
+  | cmd | n | wr | avglen | gate | avgArmy |
+  |---|---|---|---|---|---|
+  | balanced | 16 | 1.00 | 2253 | 0.12 | 8.9 |
+  | boomer | 16 | 1.00 | 4182 | 1.00 | 0.9 |
+  | rusher | 16 | 1.00 | 1076 | 0.00 | 5.8 |
+  | turtle | 16 | 1.00 | 4182 | 1.00 | **1.1** |
+  | timing | 16 | 1.00 | 4081 | 0.69 | 9.8 |
+  | harasser | 16 | 1.00 | 2916 | 0.19 | 6.2 |
+  | airtech | 16 | 1.00 | 4182 | 1.00 | **1.1** |
+  | tempo | 16 | 1.00 | 4177 | 1.00 | 1.0 |
+  | counter | 16 | 1.00 | 4182 | 1.00 | 2.0 |
+  | chaos | 16 | 1.00 | 3918 | 0.62 | 6.6 |
+
+  `rows=160 games=160 vsRandom=160 rr=0 failed_matchups=0`;`vs-random wr<0.90 (fail): NONE`。
+- 结论: [AI-DRAFT] **假设成立,三条成功判据全部达成**——①160 局落盘、失败 matchup 0;
+  ②10 个指挥官对 random 胜率**全部 1.00**;③turtle 与 airtech 末军均值均为 **1.1 > 1.0**。
+  与 v2.1 文字记录的吻合度**远高于吞吐 bench**:changelog 平衡区记的三个末军数字
+  (turtle 0.1→**1.1**、airtech 0.2→**1.1**、boomer 保持 **0.9**)本次**逐个精确复现**。
+  这独立验证了 v2.1 那两条定向调平衡改动确实生效且已固化在 `commanders/profile.py` 里,
+  是本次重跑中证据强度最高的一条。[source: 20260803-v21-vsrandom-rerun]
+- ⚠ **附带发现:`git.txt` 的 dirty 标志系统性失效(不止本 run,历史 run 全中)**。
+  `eval_balanced_v21.py:81-82` 先 `new_run_dir()` 建好输出目录、再跑 `git status --porcelain`,
+  于是**自己那个未跟踪的产物目录把自己判成脏**(git.txt 尾部原样记录了 `?? experiments/
+  20260803-v21-vsrandom-rerun/`)。抽查历史 run 全部为 `dirty: True`:`20260727-v19-roundrobin`、
+  `20260727-v18-audit-cover`、`20260726-v18-bench`。**结论:本项目所有 run 的 dirty 标志一直
+  没有信息量,不能用它判断「跑时代码是否干净」**;要判断得改看 `git.diff`(该文件只记录已跟踪
+  文件的改动,不含未跟踪产物目录)。此发现同时更正上一条(`20260803-v21-throughput-rerun`)
+  对 dirty 成因的归因:那次 research-log 确实脏,但**即使不脏也照样会是 dirty: True**。
+  修法建议(未实施,待用户定):在建 run 目录**之前**取 git 状态,或对 `--porcelain` 结果过滤掉
+  本 run 目录。

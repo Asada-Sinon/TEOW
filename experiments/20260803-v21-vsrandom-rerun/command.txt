@@ -1,0 +1,1 @@
+explorations/eval_balanced_v21.py --slug v21-vsrandom-rerun --rr-seeds 0 --vsr-seeds 16
